@@ -191,6 +191,21 @@ reflex is to hand an agent JSON; measuring says the opposite:
 Same information, half the bytes, and no model has trouble reading it. `--json`
 stays for scripts that genuinely need to parse.
 
+### Claude Code skill
+
+The package ships a full agent skill at `.claude/skills/nook/SKILL.md`. The block
+above is the minimum an agent needs in every interaction; the skill is the
+complete reference — every command, the `queued` authorization boundary, how refs
+work, and what nook refuses to do.
+
+```sh
+mkdir -p .claude/skills
+cp -r node_modules/@nook/cli/.claude/skills/nook .claude/skills/
+```
+
+Claude Code only discovers skills under `.claude/skills/` or `~/.claude/skills/`,
+so it will not be picked up from `node_modules` on its own.
+
 ## Library first
 
 The CLI is one caller of a public API, not the other way round:
