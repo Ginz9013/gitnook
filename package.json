@@ -1,17 +1,51 @@
 {
   "name": "@nook/cli",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Git-native, agent-first issue tracker. Issues are plain text in your repo and merge without conflicts.",
+  "keywords": [
+    "issue-tracker",
+    "git",
+    "crdt",
+    "cli",
+    "agent"
+  ],
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22"
   },
+  "bin": {
+    "nook": "bin/nook.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "build": "tsup && npm run build:types",
+    "build:types": "tsc --ignoreConfig src/index.ts src/cli/run.ts --declaration --emitDeclarationOnly --outDir dist --module esnext --moduleResolution bundler --target es2023 --strict --skipLibCheck --types node --verbatimModuleSyntax",
+    "prepack": "npm run build",
+    "bench": "node bench/index.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^26.5.0",
+    "tsup": "^8.5.1",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   }
