@@ -211,8 +211,21 @@ describe('ref 前綴解析', () => {
     expect(() => board.get('../../outside')).toThrow(RefNotFound);
     expect(() => board.get('..')).toThrow(RefNotFound);
     expect(() => board.get('a/b')).toThrow(RefNotFound);
-    // 小寫不屬於 Crockford base32 的大寫字母集合，同樣不成立。
-    expect(() => board.get('01jbxa')).toThrow(RefNotFound);
+    expect(() => board.get('01JBX-A')).toThrow(RefNotFound);
+  });
+
+  it('ref 的大小寫不敏感 —— Crockford base32 的解碼語意', () => {
+    // Crockford base32 明定解碼時大小寫不敏感（它排除 I/L/O/U 正是為了
+    // 避免人工轉錄的混淆）。人習慣打小寫（git short hash 全小寫），
+    // 拒絕小寫等於違反該編碼的既定語意，且換不到任何好處。
+    createWith(A, { title: 'A' });
+    createWith(B, { title: 'B' });
+
+    const board = openBoard({ dir });
+
+    expect(board.get('01jbxa').id).toBe(A);
+    expect(board.get(A.toLowerCase()).id).toBe(A);
+    expect(board.get('01JbXa').id).toBe(A);
   });
 
   it('前綴無對應時拋 RefNotFound', () => {

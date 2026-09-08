@@ -13,7 +13,7 @@ export type {
   OpenBoardOptions,
 } from './core/types.js';
 export { initBoard, ConflictingGitAttributes } from './core/gitattributes.js';
-export { shortIdLength, resolvePrefix, isValidRef, SHORT_ID_MIN } from './core/ids.js';
+export { shortIdLength, resolvePrefix, isValidRef, normalizeRef, SHORT_ID_MIN } from './core/ids.js';
 export { diagnose } from './core/health.js';
 export {
   STATUSES,

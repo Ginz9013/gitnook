@@ -30,7 +30,16 @@ function encodeRandom(len: number = RANDOM_LEN): string {
  * 會把 ../ 正規化到 .issues/issues/ 之外。CLI 與 studio server 的
  * /i/<ref> 都會把使用者輸入直接餵進來。
  */
-const REF_SHAPE = /^[0-9A-HJKMNP-TV-Z]{1,26}$/;
+const REF_SHAPE = /^[0-9A-HJKMNP-TV-Z]{1,26}$/i;
+
+/**
+ * Crockford base32 明定解碼時大小寫不敏感，故 ref 一律正規化為大寫後比對。
+ * 未實作 Crockford 的字元替換（I/L → 1、O → 0）—— ULID 的字母表本就不含
+ * 這些字元，要不要接受該類轉錄錯誤是另一個產品決定。
+ */
+export function normalizeRef(ref: string): string {
+  return ref.toUpperCase();
+}
 
 export function isValidRef(ref: string): boolean {
   return REF_SHAPE.test(ref);

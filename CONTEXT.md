@@ -31,7 +31,7 @@ _Avoid_: patch, update, command
 _Avoid_: user, author, owner, assignee
 
 **Ref**:
-指向一張 Issue 的字串。可以是完整識別碼，也可以是任何無歧義的前綴。
+指向一張 Issue 的字串。可以是完整識別碼，也可以是任何無歧義的前綴，且**大小寫不敏感**。
 _Avoid_: id, key, slug
 
 ### 工作流

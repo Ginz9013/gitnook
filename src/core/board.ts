@@ -4,7 +4,7 @@ import type { Board, CreateInput, Change, Filter, Issue, Diagnostic, OpenBoardOp
 import { BoardNotInitialized, RefNotFound, resolveStatus } from './types.js';
 import { serialize, parseLine, nextLamport, type Op, type SetKey } from './ops.js';
 import { reduce } from './reduce.js';
-import { systemIds, resolvePrefix, isValidRef } from './ids.js';
+import { systemIds, resolvePrefix, isValidRef, normalizeRef } from './ids.js';
 import { deriveActor } from './actor.js';
 import { diagnose } from './health.js';
 
@@ -40,7 +40,8 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
   const resolve = (ref: string): string => {
     // 形狀檢查必須在 pathOf() 之前 —— 它同時擋下路徑穿越。
     if (!isValidRef(ref)) throw new RefNotFound(ref);
-    return existsSync(pathOf(ref)) ? ref : resolvePrefix(ref, logIds());
+    const norm = normalizeRef(ref);
+    return existsSync(pathOf(norm)) ? norm : resolvePrefix(norm, logIds());
   };
 
   const readOps = (file: string): Op[] => {
