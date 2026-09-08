@@ -11,9 +11,18 @@ export interface CreateOp extends OpBase {
   readonly title: string;
 }
 
-export type Op = CreateOp;
+/** LWW 欄位。labels 是 OR-Set、comments 只增不減，兩者都不是 set —— 見 CONTEXT.md。 */
+export type SetKey = 'title' | 'status' | 'description' | 'archived';
 
-export const OP_KINDS = new Set(['create']);
+export interface SetOp extends OpBase {
+  readonly op: 'set';
+  readonly k: SetKey;
+  readonly v: string | boolean;
+}
+
+export type Op = CreateOp | SetOp;
+
+export const OP_KINDS = new Set(['create', 'set']);
 
 /**
  * 一個 Op 一行，永遠以 \n 結尾。
@@ -32,4 +41,14 @@ export function parseLine(line: string): Op | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * 下一個 lamport 值：讀該單檔取 max(t)+1。
+ * 每張 Issue 是獨立的 CRDT 文件，clock 只需 per-issue —— spec.md「儲存」。
+ */
+export function nextLamport(ops: readonly Op[]): number {
+  let max = 0;
+  for (const o of ops) if (typeof o.t === 'number' && o.t > max) max = o.t;
+  return max + 1;
 }

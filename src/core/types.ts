@@ -12,6 +12,18 @@ export const STATUSES = [
 
 export type Status = (typeof STATUSES)[number];
 
+/**
+ * 接受完整值或無歧義前綴（`in_p` → `in_progress`），同 git 的 short hash。
+ * 撞號或無對應時拋出 InvalidStatus —— 絕不猜測。
+ */
+export function resolveStatus(value: string): Status {
+  if ((STATUSES as readonly string[]).includes(value)) return value as Status;
+
+  const matches = STATUSES.filter((s) => s.startsWith(value));
+  if (matches.length !== 1) throw new InvalidStatus(value);
+  return matches[0]!;
+}
+
 export interface Comment {
   readonly id: string;
   readonly actor: string;
@@ -35,7 +47,8 @@ export interface CreateInput {
   readonly title: string;
   readonly description?: string;
   readonly labels?: readonly string[];
-  readonly status?: Status;
+  /** 同 Change.status：接受完整值或無歧義前綴。 */
+  readonly status?: Status | string;
 }
 
 /**
