@@ -1,12 +1,18 @@
-import { existsSync, appendFileSync, readFileSync } from 'node:fs';
+import { existsSync, appendFileSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Board, CreateInput, Change, Filter, Issue, Diagnostic, OpenBoardOptions, IdSource } from './types.js';
-import { BoardNotInitialized, RefNotFound, NotImplemented, resolveStatus } from './types.js';
+import { BoardNotInitialized, resolveStatus } from './types.js';
 import { serialize, parseLine, nextLamport, type Op, type SetKey } from './ops.js';
 import { reduce } from './reduce.js';
-import { systemIds } from './ids.js';
+import { systemIds, resolvePrefix } from './ids.js';
 import { deriveActor } from './actor.js';
 import { diagnose } from './health.js';
+
+/** 預設檢視隱藏的工作結果。archived 另外處理 —— 它是可見性，兩者正交（ADR-0003）。 */
+const HIDDEN_BY_DEFAULT: ReadonlySet<string> = new Set(['done', 'cancelled']);
+
+/** 一張 Issue 一個檔，檔名是純 ULID —— 改標題不該造成 rename，rename 會讓 merge=union 失效。 */
+const LOG_SUFFIX = '.ndjson';
 
 export function openBoard(opts: OpenBoardOptions = {}): Board {
   const dir = opts.dir ?? process.cwd();
@@ -20,7 +26,19 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
     if (!existsSync(issuesDir)) throw new BoardNotInitialized(dir);
   };
 
-  const pathOf = (id: string): string => join(issuesDir, `${id}.ndjson`);
+  const pathOf = (id: string): string => join(issuesDir, `${id}${LOG_SUFFIX}`);
+
+  /** 掃描出全部 Issue 的識別碼。ADR-0002：沒有索引，這就是唯一的來源。 */
+  const logIds = (): string[] =>
+    readdirSync(issuesDir)
+      // 資料活在 repo 裡，旁邊出現 .DS_Store 或 README 是常態 —— 忽略而非崩潰。
+      .filter((f) => f.endsWith(LOG_SUFFIX))
+      .map((f) => f.slice(0, -LOG_SUFFIX.length))
+      .sort();
+
+  /** 完整識別碼走檔案系統直達；其餘交給前綴解析。 */
+  const resolve = (ref: string): string =>
+    existsSync(pathOf(ref)) ? ref : resolvePrefix(ref, logIds());
 
   const readOps = (file: string): Op[] => {
     const out: Op[] = [];
@@ -58,17 +76,37 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
     },
     get(ref: string): Issue {
       requireInitialized();
-      const file = pathOf(ref);
-      if (!existsSync(file)) throw new RefNotFound(ref);
-      return reduce(ref, readOps(file));
+      const id = resolve(ref);
+      return reduce(id, readOps(pathOf(id)));
     },
-    list(_filter?: Filter): Issue[] {
-      throw new NotImplemented('list');
+    list(filter: Filter = {}): Issue[] {
+      requireInitialized();
+      // 過濾條件先驗證再掃描：不合法的 status 不該讓呼叫端等完一次全量掃描才報錯。
+      // 沿用票 02 的 resolveStatus —— 前綴解析只有一份。
+      const status = filter.status === undefined ? undefined : resolveStatus(filter.status);
+
+      // ADR-0002：沒有索引也沒有快取，list() 就是全量掃描 + 摺疊。
+      const issues = logIds().map((id) => reduce(id, readOps(pathOf(id))));
+
+      // 點名了 done 卻回傳空清單是沒有意義的答案，所以明確指定 status 時
+      // 就不再套用 done/cancelled 的預設隱藏。archived 是另一個維度，只有 all 能打開。
+      const isVisible = (i: Issue): boolean =>
+        filter.all === true ||
+        (!i.archived && (status !== undefined || !HIDDEN_BY_DEFAULT.has(i.status)));
+
+      // 多個 label 是收斂條件（AND）：過濾應該越加越窄。
+      const labels = filter.labels ?? [];
+      const hasLabels = (i: Issue): boolean => labels.every((l) => i.labels.includes(l));
+
+      const matches = (i: Issue): boolean =>
+        isVisible(i) && hasLabels(i) && (status === undefined || i.status === status);
+
+      return issues.filter(matches);
     },
     apply(ref: string, change: Change): Issue {
       requireInitialized();
-      const file = pathOf(ref);
-      if (!existsSync(file)) throw new RefNotFound(ref);
+      const id = resolve(ref);
+      const file = pathOf(id);
 
       const existing = readOps(file);
       let t = nextLamport(existing);
@@ -105,7 +143,7 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
       // 一次寫入，且每個 Op 各自以 \n 結尾 —— docs/adr/0001 硬規則 1。
       if (fresh.length > 0) appendFileSync(file, fresh.map(serialize).join(''), 'utf8');
 
-      return reduce(ref, [...existing, ...fresh]);
+      return reduce(id, [...existing, ...fresh]);
     },
     health(): Diagnostic[] {
       return diagnose(dir);

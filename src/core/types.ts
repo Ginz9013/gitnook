@@ -67,7 +67,9 @@ export interface Change {
 export interface Filter {
   /** 預設隱藏 archived、done、cancelled；true 則全部回傳。 */
   readonly all?: boolean;
+  /** 接受完整值或無歧義前綴。明確指定時，done/cancelled 不再被預設隱藏。 */
   readonly status?: string;
+  /** 收斂條件（AND）：只回傳同時掛有全部指定 label 者。 */
   readonly labels?: readonly string[];
 }
 

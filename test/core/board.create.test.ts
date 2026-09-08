@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openBoard, BoardNotInitialized, NotImplemented } from '../../src/index.js';
+import { openBoard, BoardNotInitialized } from '../../src/index.js';
 import type { IdSource } from '../../src/index.js';
 
 // ADR-0004：打真實檔案系統與暫存目錄，不使用 in-memory fake。
@@ -104,16 +104,5 @@ describe('種子化 IdSource', () => {
       op: 'create',
       title: 'Fix login redirect',
     });
-  });
-});
-
-describe('尚未實作的方法', () => {
-  // Characterization：空殼是票 01 的交付物本身，首次執行即為綠。
-  // apply 已由票 02 實作、health 已由票 06 實作，兩者因此移出本例 ——
-  // 任何實作方式都會讓它們不再拋 NotImplemented。
-  // 票 04 實作 list() 後，整個 describe 區塊即應刪除。
-  it('list 尚未實作，仍拋 NotImplemented', () => {
-    const board = openBoard({ dir });
-    expect(() => board.list()).toThrow(NotImplemented);
   });
 });
