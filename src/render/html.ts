@@ -1,8 +1,6 @@
+import { shortIdLength } from '../core/ids.js';
 import { STATUSES } from '../core/types.js';
 import type { Comment, Issue } from '../core/types.js';
-
-/** 顯示用的短 ID 長度。撞號的偵測是 core 的事，渲染層只負責截斷。 */
-const SHORT_ID_LENGTH = 6;
 
 /**
  * 版面常數。八欄必須在 1920px 下不捲動即可看完：
@@ -283,8 +281,13 @@ function emphasis(escaped: string): string {
     .replace(/(^|[^\w])_([^_]+)_(?=[^\w]|$)/g, '$1<em>$2</em>');
 }
 
-function shortId(id: string): string {
-  return id.slice(0, SHORT_ID_LENGTH);
+/**
+ * 長度由呼叫端算好後傳進來 —— 「幾碼才無歧義」是整批的性質，單一識別碼
+ * 看不出來。長度邏輯只有 core 的 shortIdLength 一份，此處不得再算一次：
+ * 兩個渲染器各留一份比較器正是 comment 排序分歧的成因（commit 463343d）。
+ */
+function shortId(id: string, len: number): string {
+  return id.slice(0, len);
 }
 
 function labelList(labels: readonly string[]): string {
@@ -293,8 +296,8 @@ function labelList(labels: readonly string[]): string {
   return `<ul class="labels">${items}</ul>`;
 }
 
-function card(issue: Issue): string {
-  const short = escapeHtml(shortId(issue.id));
+function card(issue: Issue, len: number): string {
+  const short = escapeHtml(shortId(issue.id, len));
   return (
     `<a class="card" href="/i/${short}">` +
     `<span class="id">${short}</span>` +
@@ -320,13 +323,16 @@ export function renderBoardHtml(
   issues: readonly Issue[],
   opts: BoardHtmlOptions = {},
 ): string {
+  // 長度算在過濾之前：卡片連結是 Ref，而 board.get() 的候選集合含 archived
+  // 的 Issue。只看可見的那幾張會產生在解析端撞號的連結。
+  const len = shortIdLength(issues.map((i) => i.id));
   const visible = issues.filter((i) => !i.archived);
   const cols = STATUSES.map((s) => {
     const inCol = visible.filter((i) => i.status === s);
     return (
       `<section class="col" data-status="${s}">` +
       `<h2>${s}<span class="count">${inCol.length}</span></h2>` +
-      inCol.map(card).join('') +
+      inCol.map((i) => card(i, len)).join('') +
       `</section>`
     );
   }).join('\n');
@@ -353,13 +359,22 @@ function commentTimeline(comments: readonly Comment[]): string {
   return `<ol class="comments">${items}</ol>`;
 }
 
-/** 詳情頁。 */
+/**
+ * 詳情頁。
+ *
+ * 短 ID 一律顯示 SHORT_ID_MIN 碼：這裡只拿得到一張 Issue，無從得知整批的
+ * 情況，因此不可能算出「幾碼才無歧義」。刻意不改成顯示完整識別碼 ——
+ * 詳情頁是人在讀的頁面，26 碼是噪音，而完整識別碼就在網址列裡。需要一個
+ * 保證無歧義的 Ref 時，回看板從卡片連結取（那裡才知道整批）。
+ */
 export function renderIssueHtml(issue: Issue): string {
+  const detailLen = shortIdLength([issue.id]);
   const body =
     `<main class="issue">` +
     `<p class="back"><a href="/">&larr; board</a></p>` +
     `<header>` +
-    `<span class="id">${escapeHtml(shortId(issue.id))}</span>` +
+    // 一張 Issue 自己跟自己永遠不會撞號，故 shortIdLength 回傳的就是下限。
+    `<span class="id">${escapeHtml(shortId(issue.id, detailLen))}</span>` +
     `<h1>${escapeHtml(issue.title)}</h1>` +
     `<p class="meta"><span class="status" data-status="${escapeHtml(issue.status)}">` +
     `${escapeHtml(issue.status)}</span></p>` +

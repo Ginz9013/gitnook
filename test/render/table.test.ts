@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderTable } from '../../src/render/table.js';
 import { renderJson } from '../../src/render/json.js';
+import { resolvePrefix, SHORT_ID_MIN } from '../../src/core/ids.js';
 import type { Issue } from '../../src/core/types.js';
 
 const golden = (name: string): string =>
@@ -144,5 +145,57 @@ describe('renderJson', () => {
     });
 
     expect(asFile(renderJson(one))).toBe(golden('json-detail.json'));
+  });
+});
+
+/**
+ * 短 ID 的長度是「這批 Issue 彼此無歧義所需的長度」，不是寫死的 6。
+ * Ref 的定義見 CONTEXT.md：完整識別碼或任何無歧義前綴。
+ */
+describe('renderTable — 短 ID 的碰撞', () => {
+  /** 表格第一欄。欄以兩個空白分隔，短 ID 本身不含空白。 */
+  const shortIds = (rendered: string): string[] =>
+    rendered.split('\n').map((line) => line.split('  ')[0]!);
+
+  it('兩張前綴相同的 Issue 顯示為彼此不同、且足以解析回各自 Issue 的短 ID', () => {
+    const ids = ['01JBX7AAAAAAAAAAAAAAAAAAAA', '01JBX7BBBBBBBBBBBBBBBBBBBB'];
+    const issues = ids.map((id, i) => issue({ id, title: `Issue ${i}`, status: 'queued' }));
+
+    const cells = shortIds(renderTable(issues));
+
+    // 6 碼時兩者都是 01JBX7；分開它們最短需要 7 碼。
+    expect(cells).toEqual(['01JBX7A', '01JBX7B']);
+    // 顯示出來的短 ID 必須真的能當 Ref 用 —— board.get() 走的就是 resolvePrefix。
+    expect(cells.map((c) => resolvePrefix(c, ids))).toEqual(ids);
+  });
+
+  it('碰撞只發生在更深處時，長度只加到剛好足夠', () => {
+    const ids = ['01JBX7A9Q3ZAAAAAAAAAAAAAAA', '01JBX7A9Q3ZBBBBBBBBBBBBBBB'];
+    const issues = ids.map((id, i) => issue({ id, title: `Issue ${i}`, status: 'queued' }));
+
+    // 前 11 碼相同，第 12 碼才分岔。
+    expect(shortIds(renderTable(issues))).toEqual(['01JBX7A9Q3ZA', '01JBX7A9Q3ZB']);
+  });
+
+  it('沒有碰撞時長度仍為 6', () => {
+    const issues = [
+      issue({ id: '01JBXAAAAAAAAAAAAAAAAAAAAA', title: 'a', status: 'queued' }),
+      issue({ id: '01JBXBBBBBBBBBBBBBBBBBBBBB', title: 'b', status: 'queued' }),
+    ];
+
+    expect(shortIds(renderTable(issues))).toEqual(['01JBXA', '01JBXB']);
+  });
+});
+
+/**
+ * 詳情視圖只拿得到一張 Issue，無從得知整批的情況。決定：一律顯示
+ * SHORT_ID_MIN 碼。理由寫在 src/render/table.ts 的 renderDetail 上。
+ */
+describe('renderTable — 詳情視圖的短 ID 長度', () => {
+  it('顯示 SHORT_ID_MIN 碼，不因識別碼長而顯示全長', () => {
+    const detail = renderTable(issue({ id: '01JBX7AAAAAAAAAAAAAAAAAAAA', title: 'a' }));
+
+    expect(detail.split('  ')[0]).toBe('01JBX7');
+    expect(detail.split('  ')[0]).toHaveLength(SHORT_ID_MIN);
   });
 });

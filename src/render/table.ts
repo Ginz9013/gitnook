@@ -1,7 +1,6 @@
+import { shortIdLength } from '../core/ids.js';
 import type { Comment, Issue } from '../core/types.js';
 
-/** 顯示用短 ID 長度。撞號時由 ref 解析報錯，見 spec.md。 */
-const SHORT_ID_LEN = 6;
 /** 欄位分隔。ADR-0005 的量測範例即以兩個空白分隔。 */
 const GAP = '  ';
 /**
@@ -13,7 +12,12 @@ const ELLIPSIS = '…';
 /** 空清單的訊息。輸出一個空表頭比一句話更浪費，也更難讀。 */
 const EMPTY = '沒有 issue';
 
-const shortId = (issue: Issue): string => issue.id.slice(0, SHORT_ID_LEN);
+/**
+ * 短 ID 的長度由呼叫端算好後傳進來 —— 長度是「整批的性質」，單張 Issue
+ * 看不出來。長度邏輯只有 core 的 shortIdLength 一份，此處不得再算一次：
+ * 兩個渲染器各留一份比較器正是 comment 排序分歧的成因（commit 463343d）。
+ */
+const shortId = (issue: Issue, len: number): string => issue.id.slice(0, len);
 const labelCell = (issue: Issue): string =>
   issue.labels.length === 0 ? '' : `[${issue.labels.join(',')}]`;
 
@@ -29,8 +33,12 @@ function pad(text: string, width: number): string {
 function renderList(issues: readonly Issue[]): string {
   if (issues.length === 0) return EMPTY;
 
+  // 這批 Issue 彼此無歧義所需的長度。盲取 6 碼會讓兩張前綴相同的 Issue
+  // 顯示成同一個短 ID，而短 ID 正是使用者接著要拿來當 Ref 用的東西。
+  const len = shortIdLength(issues.map((i) => i.id));
+
   const cells = issues.map((issue) => [
-    shortId(issue),
+    shortId(issue, len),
     issue.status,
     truncate(issue.title, TITLE_MAX),
     labelCell(issue),
@@ -54,9 +62,18 @@ const timeline = (comments: readonly Comment[]): string =>
     .map((c) => `- ${c.actor}${GAP}${c.body}`)
     .join('\n');
 
-/** 單張 Issue 的詳情。title 不截斷 —— 讀者正是為了看完整內容才點進來。 */
+/**
+ * 單張 Issue 的詳情。title 不截斷 —— 讀者正是為了看完整內容才點進來。
+ *
+ * 短 ID 一律顯示 SHORT_ID_MIN 碼：這裡只拿得到一張 Issue，無從得知整批的
+ * 情況，因此不可能算出「幾碼才無歧義」。刻意不改成顯示完整識別碼 ——
+ * 詳情是 `show` 的輸出，而使用者手上已經有那個 Ref 了（他正是用它叫出這
+ * 張 Issue 的）。需要保證無歧義的 Ref 時看 `list`，那裡才知道整批。
+ */
 function renderDetail(issue: Issue): string {
-  const header = [shortId(issue), issue.status, issue.title, labelCell(issue)]
+  // 一張 Issue 自己跟自己永遠不會撞號，故 shortIdLength 回傳的就是下限。
+  const len = shortIdLength([issue.id]);
+  const header = [shortId(issue, len), issue.status, issue.title, labelCell(issue)]
     .join(GAP)
     .trimEnd();
 

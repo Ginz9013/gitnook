@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { renderBoardHtml, renderIssueHtml } from '../../src/render/html.js';
+import { resolvePrefix, SHORT_ID_MIN } from '../../src/core/ids.js';
 import type { Issue } from '../../src/core/types.js';
 
 function issue(over: Partial<Issue> & { id: string }): Issue {
@@ -576,5 +577,78 @@ describe('內嵌腳本不得從 <script> 元素逃出', () => {
     expect(outsideScripts(html)).not.toMatch(/<img\b/i);
     expect(outsideScripts(html)).not.toMatch(/<[^>]*\bonerror\b/i);
     expect(scripts(html)).toHaveLength(1);
+  });
+});
+
+/** 卡片連結的 href，依文件順序。 */
+function cardHrefs(html: string): string[] {
+  return [...html.matchAll(/<a class="card" href="\/i\/([^"]*)"/g)].map((m) => m[1]!);
+}
+
+/**
+ * 卡片連結是「短 ID 當 Ref 用」最尖銳的地方：連結壞掉不是顯示問題，
+ * 是點下去打不開。Ref 的定義見 CONTEXT.md。
+ */
+describe('renderBoardHtml — 短 ID 的碰撞', () => {
+  it('兩張前綴相同的 Issue 產生不同的連結，各自解析回自己的 Issue', () => {
+    const ids = ['01JBX7AAAAAAAAAAAAAAAAAAAA', '01JBX7BBBBBBBBBBBBBBBBBBBB'];
+    const html = renderBoardHtml(
+      ids.map((id, i) => issue({ id, title: `Issue ${i}`, status: 'queued' })),
+    );
+
+    const hrefs = cardHrefs(html);
+    // 6 碼時兩張卡片的連結一模一樣，其中一張永遠打不開。
+    expect(hrefs).toEqual(['01JBX7A', '01JBX7B']);
+    // board.get() 走的就是 resolvePrefix —— 連結必須真的解析得回去。
+    expect(hrefs.map((h) => resolvePrefix(h, ids))).toEqual(ids);
+  });
+
+  it('卡片上顯示的短 ID 與它自己的連結一致', () => {
+    const html = renderBoardHtml([
+      issue({ id: '01JBX7AAAAAAAAAAAAAAAAAAAA', title: 'a', status: 'queued' }),
+      issue({ id: '01JBX7BBBBBBBBBBBBBBBBBBBB', title: 'b', status: 'queued' }),
+    ]);
+
+    const cards = [...html.matchAll(/<a class="card" href="\/i\/([^"]*)"><span class="id">([^<]*)</g)];
+    expect(cards.map((m) => m[2])).toEqual(cards.map((m) => m[1]));
+  });
+
+  it('隱藏的 archived Issue 一樣參與長度計算 —— board.get() 看得到它', () => {
+    // 看板不顯示 archived，但 Ref 解析的候選集合含它：長度若只看可見的
+    // 那幾張，連結會在 board.get() 端變成 AmbiguousRef。
+    const ids = ['01JBX7AAAAAAAAAAAAAAAAAAAA', '01JBX7BBBBBBBBBBBBBBBBBBBB'];
+    const html = renderBoardHtml([
+      issue({ id: ids[0]!, title: 'visible', status: 'queued' }),
+      issue({ id: ids[1]!, title: 'hidden', status: 'done', archived: true }),
+    ]);
+
+    expect(cardHrefs(html)).toEqual(['01JBX7A']);
+    expect(resolvePrefix(cardHrefs(html)[0]!, ids)).toBe(ids[0]);
+  });
+
+  it('沒有碰撞時長度仍為 6', () => {
+    const html = renderBoardHtml([
+      issue({ id: '01JBXAAAAAAAAAAAAAAAAAAAAA', title: 'a', status: 'queued' }),
+      issue({ id: '01JBXBBBBBBBBBBBBBBBBBBBBB', title: 'b', status: 'queued' }),
+    ]);
+
+    expect(cardHrefs(html)).toEqual(['01JBXA', '01JBXB']);
+  });
+});
+
+/**
+ * 詳情視圖只拿得到一張 Issue，無從得知整批的情況 —— 它不可能算出
+ * 「幾碼才無歧義」。決定：一律顯示 SHORT_ID_MIN 碼，與看板在無碰撞時
+ * 一致。使用者要完整識別碼時看網址列；要無歧義的 Ref 時回看板取連結。
+ */
+describe('詳情視圖的短 ID 長度', () => {
+  const detailId = (html: string): string =>
+    /<span class="id">([^<]*)<\/span>/.exec(html)![1]!;
+
+  it('renderIssueHtml 顯示 SHORT_ID_MIN 碼，不因識別碼長而顯示全長', () => {
+    const html = renderIssueHtml(issue({ id: '01JBX7AAAAAAAAAAAAAAAAAAAA', title: 'a' }));
+
+    expect(detailId(html)).toBe('01JBX7');
+    expect(detailId(html)).toHaveLength(SHORT_ID_MIN);
   });
 });
