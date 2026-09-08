@@ -227,6 +227,7 @@ Measured 2026-09-08。目錄為空且**不是 git repo**（`git rev-parse` 回�
 
 - **`@nook/cli` scope 未實際註冊。** `nook` 已被 2014-10-30 發布的 `0.0.2`（「Distributed File System」，單一 maintainer，12 年未動）佔用；`@nook` scope 底下目前 0 個套件。bin 名 `nook` 與套件名獨立，且系統無指令衝突。發布前需確認 scope 可註冊；可另行向 npm 提名稱爭議，但不應卡住時程。
 - **token 預算的餘裕只有 9.4%。** 票 07 實測 40 票情境為 3710B / 4096B，餘裕 386B。`list` 一段就佔了 69% 的預算且隨票數線性成長 —— 約 45 張票就會爆。上限已綁定 40 票這個前提，所以這是設計上接受的，但**票 10（CLI）與票 11（skill 文件正式版）任何一方多寫幾行都會撞上**。閘門的靈敏度實測約 10%（欄距從 2 空白改成 6 即被擋下）。
+- **protocol-relative URL（`//evil.com`）不被 scheme 白名單擋下**，因為它不帶 scheme。在唯讀的 localhost 檢視器上這是導覽困擾而非 XSS 路徑，票 08 選擇如實回報而不擅自放寬規則。
 - **`.gitattributes` 是唯一的單點失效。** 被誤刪時資料會靜默開始衝突。`doctor` 必須檢查，`list`/`show` 偵測缺失時應印警告。
 - **description 是 LWW**，並行編輯會撞掉整份文件。敗方版本完整留在 op-log；v1 未提供 `history --restore` 撈回介面（**已知缺口，v2 補**）。將來上 RGA/Fugue 時 op-log 格式不需改變，僅新增 op 型別。
 - **跨 branch 無真正原子性。** 多個 agent 在各自 worktree 平行工作時可能重複領取同一張票；CRDT 會讓兩個 op 都存活並收斂，但工可能白做。v1 接受此限制並寫入文件。

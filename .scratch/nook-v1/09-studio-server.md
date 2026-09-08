@@ -37,6 +37,14 @@
 - `src/server/serve.ts`
 - `test/server/handler.test.ts`
 - `test/server/serve.test.ts`
+- `src/render/html.ts` — **僅限**把簽章放寬為 `renderBoardHtml(issues, opts?: { inlineScript?: string })`，以及在 `page()` 中輸出該腳本。**不得**變更既有的渲染邏輯、CSS 或逸出行為
+- `test/render/html.test.ts` — **僅限**為上述新參數新增測試。不得修改既有的 35 個測試
+- `test/render/__golden__/html-board.html` — 若新參數在未傳入時改變了輸出，那就是 bug；golden 只在確認過差異合理時才更新
+
+## 票 08 已建立的契約（不可違反）
+
+- 卡片連到 `/i/<6 碼短 ID>`，詳情頁連回 `/`。**`/i/<ref>` 必須接受 6 字元前綴。**
+- 頁面目前零 JS。輪詢腳本必須是頁面上**唯一**的 JS。
 
 ## Shared resources
 
