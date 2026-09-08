@@ -52,7 +52,9 @@
 
 ## Blocked by
 
-08
+04, 08
+
+`GET /` 必須呼叫 `board.list()`，而 `list()` 是票 04。原票面漏了這條邊。
 
 ## Status
 
