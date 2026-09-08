@@ -30,7 +30,7 @@ beforeAll(() => {
 
 /**
  * 一個乾淨的消費端專案，`npm install <tarball>` 之後的樣子 —— 也就是使用者
- * 真正會執行的那條路徑（`node_modules/@nook/cli` + `node_modules/.bin/nook`）。
+ * 真正會執行的那條路徑（`node_modules/gitnook` + `node_modules/.bin/nook`）。
  */
 let consumer: { dir: string };
 
@@ -126,9 +126,9 @@ describe('打包產物', () => {
     expect(files.filter((f) => f.endsWith('.ts') && !f.endsWith('.d.ts'))).toEqual([]);
   }, 30_000);
 
-  it('安裝後可以 import { openBoard } from \'@nook/cli\' —— library-first 是產品定位', () => {
+  it('安裝後可以 import { openBoard } from \'gitnook\' —— library-first 是產品定位', () => {
     const stdout = runInConsumer(
-      "import { openBoard, STATUSES } from '@nook/cli';\n" +
+      "import { openBoard, STATUSES } from 'gitnook';\n" +
         'process.stdout.write(`${typeof openBoard} ${STATUSES.join(\' \')}`);\n',
     );
 
@@ -186,8 +186,7 @@ describe('打包產物', () => {
     expect(manifest['optionalDependencies'] ?? {}).toEqual({});
     // 宣告為零與實際安裝為零是兩件事，所以兩個都量。
     const tree = readdirSync(join(consumer.dir, 'node_modules')).filter((f) => !f.startsWith('.'));
-    expect(tree).toEqual(['@nook']);
-    expect(readdirSync(join(consumer.dir, 'node_modules', '@nook'))).toEqual(['cli']);
+    expect(tree).toEqual(['gitnook']);
 
     // 出貨的 bundle 裡不得留下任何 bare specifier —— 那代表一個沒宣告的
     // runtime dependency，安裝後才會在使用者機器上炸開。
@@ -220,7 +219,7 @@ describe('打包產物', () => {
   it('安裝後帶著可用的型別宣告，錯誤的用法會被 tsc 擋下', () => {
     const good = typecheckInConsumer(
       'good.ts',
-      "import { openBoard, type Board, type Issue } from '@nook/cli';\n" +
+      "import { openBoard, type Board, type Issue } from 'gitnook';\n" +
         'const board: Board = openBoard();\n' +
         "const issue: Issue = board.create({ title: 'Fix login redirect' });\n" +
         'export const title: string = issue.title;\n',
@@ -232,7 +231,7 @@ describe('打包產物', () => {
     // 宣告是真的被讀到了，而不是靜默退化成 any。
     const bad = typecheckInConsumer(
       'bad.ts',
-      "import { openBoard } from '@nook/cli';\n" +
+      "import { openBoard } from 'gitnook';\n" +
         "export const wrong: number = openBoard().create({ title: 'x' }).title;\n",
     );
 

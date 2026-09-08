@@ -11,7 +11,7 @@
 
 ## Outcome
 
-一個 npm 套件。`npm i -D @nook/cli` 之後，`nook` 指令可用；issue 以純文字存在 repo 內、隨 git 走；兩個開發者在各自分支同時修改同一張票，`git merge` **不產生衝突且不遺失任何一方的變更**；`nook studio` 在 localhost 開一個唯讀看板供會議討論。
+一個 npm 套件。`npm i -D gitnook` 之後，`nook` 指令可用；issue 以純文字存在 repo 內、隨 git 走；兩個開發者在各自分支同時修改同一張票，`git merge` **不產生衝突且不遺失任何一方的變更**；`nook studio` 在 localhost 開一個唯讀看板供會議討論。
 
 ## Scope
 
@@ -171,7 +171,7 @@ src/index.ts                公開匯出（僅 openBoard 與型別）
 
 ## Acceptance criteria
 
-- [ ] `npm i -D @nook/cli` 後 `nook` 指令可用，`nook init` 產生 `.issues/issues/` 與 `.gitattributes` 那一行
+- [ ] `npm i -D gitnook` 後 `nook` 指令可用，`nook init` 產生 `.issues/issues/` 與 `.gitattributes` 那一行
 - [ ] 兩個分支各自修改同一張票，`git merge` 無衝突且雙方變更皆存活（真實 git 整合測試）
 - [ ] `git pull --rebase` 路徑同樣無衝突
 - [ ] 缺少 trailing newline 造成的黏合行被偵測，`nook doctor` 能報告並修復
@@ -225,8 +225,10 @@ Measured 2026-09-08。目錄為空且**不是 git repo**（`git rev-parse` 回�
 
 ## Risks and deferred questions
 
-- **套件名維持 `@nook/cli`（2026-09-09 決定）。** GUI 是為開會而存在的附帶品，CLI 才是日常介面，`/cli` 因此是誠實的描述。`nook` 這個名字被一個 2014-10-30 之後未再發布的套件佔著、符合 npm 的 name dispute 條件，但不追 —— 發布後改名的代價（deprecate、重新發布、使用者與文件全要改）高於一個略窄的名字。library-first 的主張不受影響，那是關於「可被 import」，與套件名無關。
-- **`@nook` scope 未實際註冊。** `nook` 已被 2014-10-30 發布的 `0.0.2`（「Distributed File System」，單一 maintainer，12 年未動）佔用；`@nook` scope 底下目前 0 個套件。bin 名 `nook` 與套件名獨立，且系統無指令衝突。發布前需確認 scope 可註冊；可另行向 npm 提名稱爭議，但不應卡住時程。
+- **套件名為 `gitnook`（unscoped，2026-09-09 改定）。** 前一版決定「維持 `@nook/cli`」的前提是「`@nook` scope 註冊得到」，該前提在發布前的實測中被推翻：registry 的 `/-/org/nook/user` 回 `{"nook":"owner"}`（對照 `nookdev` 回 `Scope not found`），`nook` 這個名字在 npm 的 user/org 共用命名空間裡已被別的帳號佔走 —— 不是佔著 `nook` **套件**的 `yaroslavgaponov`，是另一個帳號。`@nook/cli` 因此發不出去，`npm org create nook` 也會被拒。
+  既然被迫改名，就順手把 `/cli` 過窄的顧慮一併收掉（那個顧慮當初是因為「改名代價高」才將就下來的，而發布前的改名代價是零）：`gitnook` 一個字說出 git-native，且讓 `import { openBoard } from 'gitnook'` 讀起來成立 —— `from 'nook-cli'` 會暗示有個拿不到的 `nook` core 分包，與 library-first 的定位相衝。bin 名維持 `nook`，所以 README 只有安裝那一行要改。
+  不建 org：org 對 public 套件免費，但價值在多套件命名空間與團隊分權，現況一個人一個套件買不到。unscoped `nook` 仍符合 npm name dispute 條件（2014-10-30 後未再發布），沒去追 —— 拿到也不值得再改一次名。
+
 - **token 預算的餘裕只有 9.4%。** 票 07 實測 40 票情境為 3710B / 4096B，餘裕 386B。`list` 一段就佔了 69% 的預算且隨票數線性成長 —— 約 45 張票就會爆。上限已綁定 40 票這個前提，所以這是設計上接受的，但**票 10（CLI）與票 11（skill 文件正式版）任何一方多寫幾行都會撞上**。閘門的靈敏度實測約 10%（欄距從 2 空白改成 6 即被擋下）。
 - **protocol-relative URL（`//evil.com`）不被 scheme 白名單擋下**，因為它不帶 scheme。在唯讀的 localhost 檢視器上這是導覽困擾而非 XSS 路徑，票 08 選擇如實回報而不擅自放寬規則。
 - **`serve.test.ts` 的 LAN 綁定測試需要一個非 loopback 的 IPv4 介面。** 票 09 刻意讓它在找不到時**拋錯而非靜默跳過** —— 靜默跳過會讓 `0.0.0.0` 的迴歸在 CI 裡無聲通過。若 CI 環境沒有對外介面，這需要一個明確決定（標記為 known-skip 並在別處補償），不能默默略過。

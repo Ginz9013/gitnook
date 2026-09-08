@@ -5,7 +5,7 @@ repository, they travel with your branches, and **two people editing the same
 issue on two branches merge without a conflict**.
 
 ```bash
-npm i -D @nook/cli
+npm i -D gitnook
 npx nook init                                     # .issues/ + the .gitattributes line
 npx nook new "Fix login redirect loop on Safari"
 npx nook list
@@ -200,14 +200,14 @@ in every interaction; `AGENT.md` is the complete reference — every command, th
 It is plain Markdown with a YAML header, so point any agent at it:
 
 ```
-node_modules/@nook/cli/AGENT.md
+node_modules/gitnook/AGENT.md
 ```
 
 For Claude Code, symlink it in so it loads on demand:
 
 ```sh
 mkdir -p ~/.claude/skills/nook
-ln -s "$PWD/node_modules/@nook/cli/AGENT.md" ~/.claude/skills/nook/SKILL.md
+ln -s "$PWD/node_modules/gitnook/AGENT.md" ~/.claude/skills/nook/SKILL.md
 ```
 
 ## Library first
@@ -215,7 +215,7 @@ ln -s "$PWD/node_modules/@nook/cli/AGENT.md" ~/.claude/skills/nook/SKILL.md
 The CLI is one caller of a public API, not the other way round:
 
 ```ts
-import { openBoard } from '@nook/cli';
+import { openBoard } from 'gitnook';
 
 const board = openBoard();                  // defaults to ./.issues
 const issue = board.create({ title: 'Fix login redirect', labels: ['bug'] });

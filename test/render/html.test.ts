@@ -475,7 +475,7 @@ const BOARD_FIXTURE: Issue[] = [
   issue({ id: '01JBXCC5R1CCCCCCCCCCCCCCCC', title: 'Union merge spike', status: 'queued', labels: ['spike', 'p1'] }),
   issue({ id: '01JBXDD8T2DDDDDDDDDDDDDDDD', title: 'Reducer convergence', status: 'in_progress' }),
   issue({ id: '01JBXEE1V3EEEEEEEEEEEEEEEE', title: 'CLI table output', status: 'review', labels: ['render'] }),
-  issue({ id: '01JBXFF4W4FFFFFFFFFFFFFFFF', title: 'Publish @nook/cli', status: 'blocked', labels: ['npm'] }),
+  issue({ id: '01JBXFF4W4FFFFFFFFFFFFFFFF', title: 'Publish gitnook', status: 'blocked', labels: ['npm'] }),
   issue({ id: '01JBXGG7X5GGGGGGGGGGGGGGGG', title: 'Choose NDJSON layout', status: 'done' }),
   issue({ id: '01JBXHH0Y6HHHHHHHHHHHHHHHH', title: 'Build a TUI', status: 'cancelled', labels: ['non-goal'] }),
   issue({ id: '01JBXJJ3Z7JJJJJJJJJJJJJJJJ', title: 'Archived, must not appear', status: 'done', archived: true }),

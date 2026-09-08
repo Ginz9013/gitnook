@@ -11,7 +11,7 @@
 - [ ] tsup 設定產出 CJS 或 ESM 單檔 bundle 與型別宣告
 - [ ] `package.json` 的 `files` 欄位只含發布必需品（`dist/`、`bin/`、README、LICENSE）—— **不含 `src/`、`test/`、golden files**
 - [ ] `bin` 指向的檔案含 shebang 且有執行權限
-- [ ] `exports` 同時支援 `import { openBoard } from '@nook/cli'` 與 CLI —— library-first 是產品定位，必須有測試守住
+- [ ] `exports` 同時支援 `import { openBoard } from 'gitnook'` 與 CLI —— library-first 是產品定位，必須有測試守住
 - [ ] **runtime dependencies 為零**（`dependencies` 為空或僅含 markdown renderer；一切建置工具都是 devDependency）
 - [ ] `engines.node >= 22`
 - [ ] LICENSE 為 MIT

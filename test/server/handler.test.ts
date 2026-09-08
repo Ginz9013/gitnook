@@ -156,7 +156,7 @@ describe('路徑穿越', () => {
       expect(res.status, url).toBe(404);
       // /etc/passwd 的第一個帳號、以及本 repo 檔案的可辨識片段。
       expect(res.body, url).not.toContain('root:');
-      expect(res.body, url).not.toContain('@nook/cli');
+      expect(res.body, url).not.toContain('gitnook');
       expect(res.body, url).not.toContain('Op-log');
     }
   });

@@ -1,5 +1,5 @@
 {
-  "name": "@nook/cli",
+  "name": "gitnook",
   "version": "0.1.0",
   "author": "KOUHEI",
   "repository": {
@@ -42,9 +42,6 @@
     "README.md",
     "LICENSE"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "build": "tsup && npm run build:types",
     "build:types": "tsc --ignoreConfig src/index.ts src/cli/run.ts --declaration --emitDeclarationOnly --outDir dist --module esnext --moduleResolution bundler --target es2023 --strict --skipLibCheck --types node --verbatimModuleSyntax",
