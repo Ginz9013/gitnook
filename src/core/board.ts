@@ -49,6 +49,9 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
       if (input.description !== undefined) {
         ops.push({ id: ids.ulid(), t: t++, a: actorId(), op: 'set', k: 'description', v: input.description });
       }
+      for (const v of input.labels ?? []) {
+        ops.push({ id: ids.ulid(), t: t++, a: actorId(), op: 'label.add', v });
+      }
 
       appendFileSync(pathOf(id), ops.map(serialize).join(''), 'utf8');
       return reduce(id, ops);
@@ -82,6 +85,21 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
 
       for (const [k, v] of fields) {
         fresh.push({ id: ids.ulid(), t: t++, a: actorId(), op: 'set', k, v });
+      }
+
+      for (const v of change.labels?.add ?? []) {
+        fresh.push({ id: ids.ulid(), t: t++, a: actorId(), op: 'label.add', v });
+      }
+
+      // seen 記錄「此刻在本檔中觀察到的、該值的全部 add tag」。同一個 Change 內
+      // 一併 add 又 remove 時，新 tag 不在 seen 內，依 add-wins 該 label 存活。
+      for (const v of change.labels?.remove ?? []) {
+        const seen = existing.filter((o) => o.op === 'label.add' && o.v === v).map((o) => o.id);
+        fresh.push({ id: ids.ulid(), t: t++, a: actorId(), op: 'label.rm', v, seen });
+      }
+
+      if (change.comment !== undefined) {
+        fresh.push({ id: ids.ulid(), t: t++, a: actorId(), op: 'comment', body: change.comment });
       }
 
       // 一次寫入，且每個 Op 各自以 \n 結尾 —— docs/adr/0001 硬規則 1。

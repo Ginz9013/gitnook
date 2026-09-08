@@ -20,9 +20,31 @@ export interface SetOp extends OpBase {
   readonly v: string | boolean;
 }
 
-export type Op = CreateOp | SetOp;
+/** OR-Set 的一個 add tag：op 的 id 本身就是 tag —— spec.md「op 型別」。 */
+export interface LabelAddOp extends OpBase {
+  readonly op: 'label.add';
+  readonly v: string;
+}
 
-export const OP_KINDS = new Set(['create', 'set']);
+/**
+ * 移除**它觀察到的那些 add tag**，而非「這個值」。
+ * 並行發生、不在 seen 內的 add 因此存活 —— 這是 add-wins 的全部來源（spec.md）。
+ */
+export interface LabelRmOp extends OpBase {
+  readonly op: 'label.rm';
+  readonly v: string;
+  readonly seen: readonly string[];
+}
+
+/** 只增不減，是 Nook 中唯一的討論載體 —— CONTEXT.md。 */
+export interface CommentOp extends OpBase {
+  readonly op: 'comment';
+  readonly body: string;
+}
+
+export type Op = CreateOp | SetOp | LabelAddOp | LabelRmOp | CommentOp;
+
+export const OP_KINDS = new Set(['create', 'set', 'label.add', 'label.rm', 'comment']);
 
 /**
  * 一個 Op 一行，永遠以 \n 結尾。
