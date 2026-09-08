@@ -401,7 +401,10 @@ function commentActors(html: string): string[] {
 }
 
 describe('renderIssueHtml comments', () => {
-  it('comments 依 lamport t 排序，顯示 actor 與 body', () => {
+  it('依 core 給定的順序渲染，不自行重排 —— 排序是 core 的責任', () => {
+    // Issue.comments 由 reduce() 以 (t, a, id) 全序產出。渲染層若複製一份
+    // 比較器，兩者就會分歧：先前這裡用的是 (t, id)，在 t 相同而 actor 不同時
+    // 會排出與 CLI 表格不一致的順序。改為信任 core 的順序，原樣輸出。
     const html = renderIssueHtml(
       issue({
         id: 'AAAAAA0001',
@@ -412,7 +415,7 @@ describe('renderIssueHtml comments', () => {
       }),
     );
 
-    expect(commentActors(html)).toEqual(['k3f9', 'm8q2']);
+    expect(commentActors(html)).toEqual(['m8q2', 'k3f9']);
     expect(html).toContain('<strong>note</strong>');
     expect(html).toContain('safari 才會重現');
   });

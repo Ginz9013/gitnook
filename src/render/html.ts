@@ -317,8 +317,9 @@ export function renderBoardHtml(issues: readonly Issue[]): string {
  */
 function commentTimeline(comments: readonly Comment[]): string {
   if (comments.length === 0) return '';
-  const items = [...comments]
-    .sort((a, b) => a.t - b.t || (a.id < b.id ? -1 : 1))
+  // 不重排：Issue.comments 已由 reduce() 以 (t, a, id) 全序產出。
+  // 在此複製一份比較器只會與 core 分歧 —— 排序是 core 的責任。
+  const items = comments
     .map(
       (c) =>
         `<li class="comment" data-actor="${escapeHtml(c.actor)}">` +
