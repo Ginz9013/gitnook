@@ -1,4 +1,37 @@
+/**
+ * 公開面。
+ *
+ * spec.md 的 Design contract：「`src/index.ts` 公開匯出（僅 openBoard 與型別）」。
+ *
+ * 對 library-first 的產品，**每一個匯出都是永久的相容負債** —— 加一個是相容的
+ * 改動，拿掉一個不是。所以這份清單是刻意列出來的，不是「順手 export 一下讓別
+ * 的模組取用」累積出來的結果：同一個 package 內的模組本來就可以直接
+ * `import { renderTable } from './render/table.js'`，那條路不必經過公開面。
+ *
+ * 刻意**不**在此的東西：
+ * - 三個渲染函式。它們是呈現，不是領域；`renderTable` 的欄位配置正被 token
+ *   預算閘門（ADR-0005）盯著，公開它等於把那個版面凍結成相容承諾。
+ * - `handleRequest` 與 `boardHash`。它們是 `serve()` 的內部零件；公開它們會
+ *   一併凍結 StudioRequest / StudioResponse 的形狀。
+ * - `shortIdLength` / `resolvePrefix` / `normalizeRef` / `isValidRef` /
+ *   `SHORT_ID_MIN`。Ref 的解析是 Board 的責任（`board.get()` 收任何無歧義前綴），
+ *   呼叫端不需要自己算。
+ * - `inspectMergeGuarantee`。`diagnose()` 已經回報同一件事，且格式一致。
+ *
+ * 這些都補得回來 —— 新增匯出不會破壞任何人。反過來就不成立。
+ */
 export { openBoard } from './core/board.js';
+export { initBoard, ConflictingGitAttributes, NestedBoard } from './core/gitattributes.js';
+export { diagnose, repair } from './core/health.js';
+export { serve, PortInUse } from './server/serve.js';
+export {
+  STATUSES,
+  BoardNotInitialized,
+  RefNotFound,
+  AmbiguousRef,
+  InvalidStatus,
+} from './core/types.js';
+
 export type {
   Board,
   Issue,
@@ -12,24 +45,6 @@ export type {
   IdSource,
   OpenBoardOptions,
 } from './core/types.js';
-export {
-  initBoard,
-  inspectMergeGuarantee,
-  ConflictingGitAttributes,
-  type MergeGuarantee,
-} from './core/gitattributes.js';
-export { renderTable } from './render/table.js';
-export { renderJson } from './render/json.js';
-export { renderBoardHtml, renderIssueHtml } from './render/html.js';
-export { serve, PortInUse, DEFAULT_PORT } from './server/serve.js';
-export { handleRequest } from './server/handler.js';
-export { shortIdLength, resolvePrefix, isValidRef, normalizeRef, SHORT_ID_MIN } from './core/ids.js';
-export { diagnose, repair, type Repair } from './core/health.js';
-export {
-  STATUSES,
-  BoardNotInitialized,
-  RefNotFound,
-  AmbiguousRef,
-  InvalidStatus,
-  NotImplemented,
-} from './core/types.js';
+export type { Repair } from './core/health.js';
+/** `serve()` 的簽章要能被呼叫端命名，否則它等於只能被呼叫、不能被包裝。 */
+export type { Studio, ServeOptions } from './server/serve.js';

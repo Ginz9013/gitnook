@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Board } from '../core/types.js';
 import { AmbiguousRef, RefNotFound } from '../core/types.js';
 import { renderBoardHtml, renderIssueHtml } from '../render/html.js';
+import type { HtmlOptions } from '../render/html.js';
 
 /**
  * 純請求處理器。刻意不接觸 node:http —— 路由與回應在不綁 port 的情況下即可測試，
@@ -35,7 +36,7 @@ function notFound(message = 'not found'): StudioResponse {
 
 /**
  * 當前 board 狀態的指紋。ADR-0002：沒有快取也沒有版本戳，每次就是全量掃描
- * 加摺疊 —— 500 票 14ms，每 2 秒問一次的成本趨近於零。
+ * 加摺疊 —— 500 張 Issue 14ms，每 2 秒問一次的成本趨近於零。
  *
  * 涵蓋 all: true，因為 archived 與 done 的變動同樣是「畫面要重畫」的變動。
  */
@@ -45,7 +46,7 @@ export function boardHash(board: Board): string {
 
 /**
  * 輪詢重載。ADR-0002 的直接後果：沒有快取、沒有推播、也沒有 WebSocket ——
- * 每 2 秒問一次全量掃描出來的指紋，值變了就整頁重載。500 票 14ms，
+ * 每 2 秒問一次全量掃描出來的指紋，值變了就整頁重載。500 張 Issue 14ms，
  * 在這個資料規模下笨方法就是正確方法。
  *
  * seed 只會是 sha256 的十六進位字串，故可直接寫進 JS 字面量。
@@ -63,6 +64,15 @@ export function pollingScript(seed: string): string {
     '  }',
     `}, ${POLL_INTERVAL_MS});`,
   ].join('\n');
+}
+
+/**
+ * 這一次渲染要內嵌的輪詢腳本。種子取自渲染當下的狀態，因此渲染與第一次輪詢
+ * 之間發生的變更也會被看到。兩個檢視共用同一份 —— 兩邊各建一次，遲早會有
+ * 一邊漏掉往後對輪詢的修改。
+ */
+function reloadScript(board: Board): HtmlOptions {
+  return { inlineScript: pollingScript(boardHash(board)) };
 }
 
 export function handleRequest(board: Board, req: StudioRequest): StudioResponse {
@@ -84,10 +94,7 @@ export function handleRequest(board: Board, req: StudioRequest): StudioResponse 
     // all: true 才拿得到 done 與 cancelled —— 看板上這兩欄是實際存在的欄位，
     // 用 list() 的預設過濾會讓它們永遠是空的。archived 由 renderBoardHtml 負責
     // 隱藏，過濾條件因此只有一份，不在這裡複製一遍。
-    // 種子取自渲染當下的狀態，因此渲染與第一次輪詢之間發生的變更也會被看到。
-    return html(
-      renderBoardHtml(board.list({ all: true }), { inlineScript: pollingScript(boardHash(board)) }),
-    );
+    return html(renderBoardHtml(board.list({ all: true }), reloadScript(board)));
   }
 
   if (path === HASH_PATH) {
@@ -98,7 +105,11 @@ export function handleRequest(board: Board, req: StudioRequest): StudioResponse 
     // ref 原樣交給 core —— 前綴解析、大小寫、以及形狀檢查都只有一份實作。
     // 解析不出來的 ref 是「這個 URL 沒有對應的東西」，不是伺服器錯誤。
     try {
-      return html(renderIssueHtml(board.get(path.slice(ISSUE_PREFIX.length))));
+      // 引數由左至右求值：解析不出來的 ref 在 board.get() 就丟出去了，
+      // 404 因此不會白付一次 boardHash 的全量掃描。
+      return html(
+        renderIssueHtml(board.get(path.slice(ISSUE_PREFIX.length)), reloadScript(board)),
+      );
     } catch (err) {
       if (err instanceof RefNotFound) return notFound();
       // 撞號的前綴同樣沒有唯一答案。訊息已含足以區分的候選，原樣轉給讀者 ——

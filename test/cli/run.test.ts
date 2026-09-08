@@ -3,7 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openBoard, SHORT_ID_MIN } from '../../src/index.js';
+import { openBoard } from '../../src/index.js';
+import { SHORT_ID_MIN } from '../../src/core/ids.js';
 import { processIo, run } from '../../src/cli/run.js';
 import type { Io } from '../../src/cli/run.js';
 import type { CreateInput, IdSource, Issue } from '../../src/index.js';
@@ -28,19 +29,25 @@ interface Capture extends Io {
   err: string;
 }
 
-/** 捕獲用的 Io。stdin 預設為非 TTY（agent 的實際情境）。 */
+/**
+ * 捕獲用的 Io。stdin 預設為非 TTY（agent 的實際情境）。
+ *
+ * `cwd` 預設是 board 的根目錄。傳入一個子目錄即可重現使用者實際的處境 ——
+ * 幾乎沒有人是站在 repo 根目錄打指令的。
+ */
 function capture(
   opts: {
     stdin?: string;
     env?: Record<string, string | undefined>;
     isTty?: boolean;
     signal?: AbortSignal;
+    cwd?: string;
   } = {},
 ): Capture {
   return {
     out: '',
     err: '',
-    cwd: dir,
+    cwd: opts.cwd ?? dir,
     env: opts.env ?? {},
     isTty: opts.isTty ?? false,
     ...(opts.signal === undefined ? {} : { signal: opts.signal }),
@@ -805,5 +812,213 @@ describe('--help 涵蓋新的指令路徑', () => {
     expect(io.out).toContain('new <title>');
     // agent 的 token 成本是硬指標（ADR-0005）：--help 每次互動都可能被讀。
     expect(Buffer.byteLength(io.out, 'utf8')).toBeLessThan(1024);
+  });
+});
+
+/**
+ * 票 15 讓 core 由子目錄向上尋根，但 CLI 仍直接拿 io.cwd 去問 .gitattributes。
+ * 結果是在子目錄執行的每一次 list / show 都印出一則**假警報**。
+ *
+ * 假警報比噪音更糟：它訓練使用者忽略關於唯一單點失效的警告（ADR-0001），
+ * 而那正是最不該被忽略的一則。
+ */
+describe('單點失效的警告問的是 board 根目錄', () => {
+  it('根目錄的 merge=union 還在時，子目錄的 list / show 不發警告', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    const deep = join(dir, 'src', 'deep');
+    mkdirSync(deep, { recursive: true });
+
+    const listed_ = capture({ cwd: deep });
+    const shown = capture({ cwd: deep });
+
+    expect(await run(['list'], listed_)).toBe(0);
+    expect(await run(['show', '01JBXA'], shown)).toBe(0);
+
+    // 資料照樣讀得到（尋根在票 15 就對了），錯的只有那一行警告。
+    expect(listed_.out).toBe('01JBXA  backlog  Fix login redirect\n');
+    expect(listed_.err).toBe('');
+    expect(shown.err).toBe('');
+  });
+
+  it('探針是活的：根目錄那一行真的被刪掉時，子目錄仍然要警告', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    const deep = join(dir, 'src', 'deep');
+    mkdirSync(deep, { recursive: true });
+    rmSync(join(dir, '.gitattributes'));
+
+    const io = capture({ cwd: deep });
+
+    expect(await run(['list'], io)).toBe(0);
+    expect(io.err).toContain('merge=union');
+  });
+});
+
+/**
+ * 同一個接線缺口的第二處：doctor 直接把 io.cwd 交給 diagnose / repair。
+ * 在子目錄執行時它診斷的是一個沒有 op-log 也沒有 .gitattributes 的目錄 ——
+ * 真正的問題看不到，而 `--fix` 掃不到任何 op-log，等於**靜默不修**。
+ */
+describe('doctor 作用在 board 根目錄', () => {
+  /** 根目錄的 op-log 被寫成缺 trailing newline 的樣子（ADR-0001 硬規則 1）。 */
+  const glue = (): string => {
+    const log = join(dir, '.issues', 'issues', `${fullId('01JBXA')}.ndjson`);
+    const create = '{"id":"01A","t":1,"a":"k3f9","op":"create","title":"Fix login redirect"}';
+    const status = '{"id":"01B","t":2,"a":"k3f9","op":"set","k":"status","v":"in_progress"}';
+    const label = '{"id":"01C","t":3,"a":"k3f9","op":"label.add","v":"bug"}';
+    writeFileSync(log, `${create}\n${status}${label}\n`, 'utf8');
+    return log;
+  };
+
+  it('在子目錄診斷的是根目錄那一塊，不是就地的空目錄', async () => {
+    gitInit();
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    glue();
+    const deep = join(dir, 'src', 'deep');
+    mkdirSync(deep, { recursive: true });
+
+    const io = capture({ cwd: deep });
+
+    expect(await run(['doctor'], io)).not.toBe(0);
+    // 根目錄那一塊真正的問題。
+    expect(io.out).toContain('GluedLine');
+    expect(io.out).toContain(`.issues/issues/${fullId('01JBXA')}.ndjson:2`);
+    // 就地目錄沒有 .gitattributes，問錯目錄就會多出這一則假診斷。
+    expect(io.out).not.toContain('MissingMergeDriver');
+    expect(io.out.trimEnd().split('\n')).toHaveLength(1);
+  });
+
+  it('--fix 在子目錄真的修得到根目錄的 op-log', async () => {
+    gitInit();
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    const log = glue();
+    const deep = join(dir, 'src', 'deep');
+    mkdirSync(deep, { recursive: true });
+
+    const io = capture({ cwd: deep });
+
+    expect(await run(['doctor', '--fix'], io)).toBe(0);
+    expect(io.out).toContain(`.issues/issues/${fullId('01JBXA')}.ndjson:2`);
+    // 掃不到 op-log 的 --fix 是靜默不修：它會 exit 0 卻什麼都沒動。
+    expect(readFileSync(log, 'utf8').trimEnd().split('\n')).toHaveLength(3);
+    const issue = openBoard({ dir }).get('01JBXA');
+    expect(issue.status).toBe('in_progress');
+    expect(issue.labels).toEqual(['bug']);
+  });
+});
+
+/**
+ * 在既有 board 的子目錄再 init 會把 board 切成兩塊 —— core 已經擋下它（票 15），
+ * 但 CLI 把它歸成「nook 的 bug」那一類：exit 2，訊息還被冠上 `NestedBoard: ` 前綴。
+ *
+ * 這是使用者自己修得好的錯誤（cd 到根目錄，或什麼都不做），所以它屬於
+ * USER_ERRORS：exit 1，訊息原樣呈現。
+ */
+describe('在 board 底下再 init', () => {
+  it('是使用者修得好的錯誤：exit 1，訊息不帶內部型別名前綴', async () => {
+    await run(['init'], capture());
+    const deep = join(dir, 'src', 'deep');
+    mkdirSync(deep, { recursive: true });
+
+    const io = capture({ cwd: deep });
+
+    expect(await run(['init'], io)).toBe(1);
+    // 錯誤名只有在「這是 nook 的 bug，請回報」時才有意義。
+    expect(io.err).not.toContain('NestedBoard:');
+    // 訊息本身必須說清楚為什麼被擋下，以及那塊 board 在哪。
+    expect(io.err).toContain(dir);
+    expect(io.err).toContain('切成兩塊');
+    // 被擋下就是什麼都不做。
+    expect(existsSync(join(deep, '.issues'))).toBe(false);
+    expect(io.out).toBe('');
+  });
+});
+
+/**
+ * ADR-0006 的「同源但尚未修的一處」：`list` 對**過濾後**的集合算長度，而解析是
+ * 對整塊 Board 做的 —— 於是 `list` 印出的 ref 可能被 `show` 判為有歧義。
+ * `show` 則相反：它拿不到整塊 Board，只好一律印 SHORT_ID_MIN 碼。
+ *
+ * 票 15 的 `board.refs()`（只列目錄、不摺疊）讓兩邊都能對整塊 Board 算長度，
+ * 且不違反票 13 的效能保證。
+ */
+describe('短 ID 的長度對整塊 Board 算', () => {
+  /** 輸出第一行的第一欄，就是那個 ref。 */
+  const refOf = (out: string): string => out.split('\n')[0]!.split('  ')[0]!;
+
+  it('list 印出的 ref 解析得回同一張 —— 被預設隱藏的 Issue 也是候選', async () => {
+    await run(['init'], capture());
+    createWith('01JBX7A9Q3ZA', { title: 'Fix login redirect' });
+    // done 不出現在預設檢視裡，但它在 board.get() 的候選集合內。
+    createWith('01JBX7A9Q3ZB', { title: 'Choose NDJSON layout', status: 'done' });
+
+    const io = capture();
+    expect(await run(['list'], io)).toBe(0);
+
+    // 對過濾後的一張算長度會得到 6 碼，而那個前綴在整塊 Board 上對應到兩張。
+    expect(openBoard({ dir }).get(refOf(io.out)).title).toBe('Fix login redirect');
+  });
+
+  it('list 與 show 印出等長的短 ID', async () => {
+    await run(['init'], capture());
+    // 批次匯入的真實形狀：同一毫秒建立的 Issue 前綴一路相同（ADR-0006）。
+    createWith('01JBX7A9Q3ZA', { title: 'Fix login redirect' });
+    createWith('01JBX7A9Q3ZB', { title: 'Add dark mode' });
+    createWith('01JBX7A9Q3ZC', { title: 'Rename ready to queued' });
+
+    const all = capture();
+    const shown = capture();
+    expect(await run(['list'], all)).toBe(0);
+    expect(await run(['show', fullId('01JBX7A9Q3ZA')], shown)).toBe(0);
+
+    // 同一塊 Board 的同一個顯示用表示法，兩條路徑不該給出不同的答案。
+    expect(refOf(shown.out)).toHaveLength(refOf(all.out).length);
+    expect(openBoard({ dir }).get(refOf(shown.out)).title).toBe('Fix login redirect');
+  });
+});
+
+/**
+ * 公開面。
+ *
+ * spec.md 的 Design contract 寫的是「`src/index.ts` 公開匯出（僅 openBoard 與
+ * 型別）」。對 library-first 的產品，**加一個匯出是相容的、拿掉一個不是** ——
+ * 所以公開面必須是一份被刻意列出、會隨改動變紅的清單，而不是「順手 export
+ * 一下讓別的模組取用」累積出來的結果。同一個 package 內的模組本來就可以直接
+ * `import { renderTable } from '../render/table.js'`，那不需要經過公開面。
+ *
+ * 本測試落在 CLI 的測試檔裡，是因為本次工作的測試寫入範圍只到這三個檔；
+ * 它真正的位置是一個獨立的 test/index.test.ts。
+ */
+describe('src/index.ts 的公開匯出', () => {
+  it('只有 Board 的入口、初始化／診斷／服務、以及使用者接得到的錯誤型別', async () => {
+    const api: Record<string, unknown> = await import('../../src/index.js');
+
+    expect(Object.keys(api).sort()).toEqual(
+      [
+        // 深模組本體的入口 —— spec.md 說的那個接縫。
+        'openBoard',
+        // 沒有它就沒有 board 可以開。
+        'initBoard',
+        // doctor 的兩半：README 承諾 board.health() 就是 nook doctor 報的東西，
+        // 而 repair 是「可修復」這個診斷唯一的兌現途徑。
+        'diagnose',
+        'repair',
+        // 唯讀檢視器。handleRequest 是它的內部零件，不是公開面。
+        'serve',
+        // 八個固定 Status 是領域模型的一部分，呼叫端要據以分欄或驗證輸入。
+        'STATUSES',
+        // 錯誤型別：呼叫端要 instanceof 才能分辨「使用者修得好」與「回報 bug」。
+        'BoardNotInitialized',
+        'RefNotFound',
+        'AmbiguousRef',
+        'InvalidStatus',
+        'ConflictingGitAttributes',
+        'NestedBoard',
+        'PortInUse',
+      ].sort(),
+    );
   });
 });

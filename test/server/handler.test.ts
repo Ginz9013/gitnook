@@ -295,12 +295,14 @@ async function runPollingScript(script: string, responses: string[]): Promise<Po
 }
 
 describe('輪詢重載腳本', () => {
-  it('看板頁內嵌腳本，且它是頁面上唯一的 JS', () => {
+  it('看板頁與詳情頁各內嵌一段腳本，且它是該頁唯一的 JS', () => {
     createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
 
+    // spec.md 的 AC 是「nook studio … 每 2 秒輪詢 /hash 變更即重載」。看板是
+    // 開會的投影面，詳情是討論一張 Issue 時停留的地方 —— 只有一邊會更新，
+    // 另一邊就是一個看起來還活著的舊畫面。
     expect(scripts(get('/').body)).toHaveLength(1);
-    // 詳情頁不在本票的簽章放寬範圍內，維持零 JS。
-    expect(scripts(get('/i/01JBXA').body)).toHaveLength(0);
+    expect(scripts(get(`/i/${fullId('01JBXA')}`).body)).toHaveLength(1);
   });
 
   it('每 2 秒 fetch /hash；值沒變不重載，值一變就 location.reload()', async () => {
@@ -316,6 +318,23 @@ describe('輪詢重載腳本', () => {
 
     // 第二次回覆換了值 —— 必須重載。
     const changed = await runPollingScript(script, [current, 'a'.repeat(64)]);
+    expect(changed.reloads).toBe(1);
+  });
+
+  it('詳情頁的腳本同樣每 2 秒問一次 /hash，值一變就重載', async () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+    const script = scripts(get(`/i/${fullId('01JBXA')}`).body)[0]!;
+    const current = get('/hash').body;
+
+    const quiet = await runPollingScript(script, [current, current]);
+    expect(quiet.intervalMs).toBe(2000);
+    expect(quiet.fetched).toEqual(['/hash', '/hash']);
+    expect(quiet.reloads).toBe(0);
+
+    // 種子取自渲染當下的狀態，所以「這一張沒變、但 board 變了」同樣要重載：
+    // /hash 涵蓋整塊 board，而畫面上的短 ID 長度就會隨別張 Issue 改變。
+    board().apply(fullId('01JBXA'), { status: 'queued' });
+    const changed = await runPollingScript(script, [get('/hash').body]);
     expect(changed.reloads).toBe(1);
   });
 

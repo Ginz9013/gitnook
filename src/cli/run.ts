@@ -3,25 +3,28 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 直接匯入各模組，不繞 src/index.ts。CLI 是這個 package 內部的呼叫端，走公開面
+// 只會逼公開面為了自己人而變寬 —— 而每一個匯出都是永久的相容負債。
+import { openBoard } from '../core/board.js';
+import {
+  ConflictingGitAttributes,
+  NestedBoard,
+  findBoardRoot,
+  initBoard,
+  inspectMergeGuarantee,
+} from '../core/gitattributes.js';
+import { repair } from '../core/health.js';
+import { isValidRef, shortIdLength } from '../core/ids.js';
 import {
   AmbiguousRef,
   BoardNotInitialized,
-  ConflictingGitAttributes,
   InvalidStatus,
-  PortInUse,
   RefNotFound,
-  diagnose,
-  initBoard,
-  inspectMergeGuarantee,
-  isValidRef,
-  openBoard,
-  renderJson,
-  renderTable,
-  repair,
-  serve,
-  shortIdLength,
-} from '../index.js';
-import type { Board, Change, CreateInput, Filter, Issue } from '../index.js';
+} from '../core/types.js';
+import { renderJson } from '../render/json.js';
+import { renderTable } from '../render/table.js';
+import { PortInUse, serve } from '../server/serve.js';
+import type { Board, Change, CreateInput, Filter, Issue } from '../core/types.js';
 
 /**
  * argv → Board → render → exit code。
@@ -87,6 +90,8 @@ const USER_ERRORS = [
   AmbiguousRef,
   InvalidStatus,
   ConflictingGitAttributes,
+  // 在 board 底下再 init：使用者 cd 到根目錄就修好了，而且不修也沒有壞任何東西。
+  NestedBoard,
   PortInUse,
 ] as const;
 
@@ -186,9 +191,13 @@ const errLine = (io: Io, text: string): void => io.writeError(`${text}\n`);
  * 長度一律對整個 Board 算，不是對正要印的那幾張。ULID 前綴編的是時間的高位，
  * 前 6 碼每 17.5 分鐘才變一次；對單張（或一份過濾後的子集）去算，會得出一個
  * 在整塊 Board 上對應到幾十張 Issue 的前綴，而解析是對整塊 Board 做的。
+ *
+ * 來源是 `board.refs()`（票 15）而不是 `list({ all: true })`：算長度只需要一串
+ * Ref，而 list 會把整塊 Board 的 Op-log 摺一遍。走 refs() 只列目錄，所以連
+ * `show` 都付得起 —— 票 13 的「show 只讀它要的那一張」因此仍然成立。
  */
 function displayLength(board: Board): number {
-  return shortIdLength(board.list({ all: true }).map((i) => i.id));
+  return shortIdLength(board.refs());
 }
 
 /**
@@ -288,6 +297,24 @@ function parseArgs(args: readonly string[], allowed: ReadonlySet<string>): Args 
 }
 
 /**
+ * 這次呼叫實際作用的 board 根目錄。
+ *
+ * core 已經由 io.cwd 向上尋根（票 15），所以 CLI 這邊每一個問「這個目錄裡的
+ * 檔案」的地方都必須問同一塊 board。拿 io.cwd 去問，使用者只要 cd 進任何子
+ * 目錄就會得到另一個目錄的答案 —— 而幾乎沒有人是站在 repo 根目錄打指令的。
+ *
+ * 找不到根時退回 io.cwd：doctor 在還不是 board 的目錄也該答得出話（同
+ * board.health()），該說的「先跑 nook init」由讀資料的那一步負責。
+ *
+ * 成本是每層一次 existsSync，不 spawn 任何子行程 —— 冷啟預算（spec.md 四個
+ * 硬指標）與「list 不 spawn git rev-parse」的保證都不受影響。
+ */
+function boardDir(io: Io): string {
+  const found = findBoardRoot(io.cwd);
+  return found.found ? found.root : io.cwd;
+}
+
+/**
  * .gitattributes 是整個零衝突保證的唯一單點失效 —— 被誤刪時資料會靜默開始
  * 衝突。讀取類指令因此主動監看它。警告走 stderr，管線上的資料不受污染。
  *
@@ -297,7 +324,7 @@ function parseArgs(args: readonly string[], allowed: ReadonlySet<string>): Args 
  */
 function warnIfUnguarded(io: Io): void {
   // absent 與 conflicting 都表示 op-log 拿不到 union，兩者同樣要警告。
-  if (inspectMergeGuarantee(io.cwd).kind !== 'union') {
+  if (inspectMergeGuarantee(boardDir(io)).kind !== 'union') {
     errLine(io, '警告：.gitattributes 缺少 merge=union，合併會衝突（nook init 補回）');
   }
 }
@@ -312,26 +339,28 @@ function cmdList(args: Args, io: Io): number {
   };
 
   // 先讀資料：board 根本不存在時，該說的是「先跑 nook init」而不是兩個問題。
-  const issues = openBoard({ dir: io.cwd }).list(filter);
+  const board = openBoard({ dir: io.cwd });
+  const issues = board.list(filter);
   warnIfUnguarded(io);
-  line(io, args.has('--json') ? renderJson(issues) : renderTable(issues));
+  // 長度對整塊 Board 算，不是對這份過濾後的結果 —— 預設檢視藏起 archived /
+  // done / cancelled，而它們仍然是 board.get() 的候選。對子集算出來的前綴
+  // 會在解析端撞號，也就是印出一個打不開的 Ref（ADR-0006）。
+  line(io, args.has('--json') ? renderJson(issues) : renderTable(issues, displayLength(board)));
   return 0;
 }
 
 /**
- * `show` 刻意**不**呼叫 displayLength()：它只讀被點名的那一個 op-log（票 13 的
- * 效能要求，`test/cli/run.test.ts` 的「單點失效的監看不該把整個 Board 掃一遍」
- * 守住），而算長度要把整塊 Board 摺一遍。因此詳情沿用 SHORT_ID_MIN。
- *
- * 代價是批次匯入的 Board 上，`show` 回印的那個前綴可能有歧義。使用者手上已經
- * 有一個能用的 Ref（他正是用它叫出這張 Issue 的），所以這是可以撐一陣子的洞；
- * 真正的修法是讓 Board 公開一個只讀目錄清單的識別碼來源，那是 core 的改動。
+ * `show` 與 `list` 印的是同一個顯示用表示法，所以長度也必須一樣 —— 對整塊
+ * Board 算。`board.refs()` 只列目錄、不摺疊任何 Op-log，因此票 13 的效能保證
+ * （`test/cli/run.test.ts` 的「單點失效的監看不該把整個 Board 掃一遍」守住）
+ * 仍然成立：詳情這條路徑只會讀被點名的那一個 op-log。
  */
 function cmdShow(args: Args, io: Io): number {
-  const issue = openBoard({ dir: io.cwd }).get(requireRef(args.positional[0] ?? ''));
+  const board = openBoard({ dir: io.cwd });
+  const issue = board.get(requireRef(args.positional[0] ?? ''));
   warnIfUnguarded(io);
   // 單一物件而非長度 1 的陣列 —— 串接端不必為了取一張 Issue 去拆陣列。
-  line(io, args.has('--json') ? renderJson(issue) : renderTable(issue));
+  line(io, args.has('--json') ? renderJson(issue) : renderTable(issue, displayLength(board)));
   return 0;
 }
 
@@ -478,12 +507,17 @@ async function cmdStudio(args: Args, io: Io): Promise<number> {
  */
 function cmdDoctor(args: Args, io: Io): number {
   if (args.has('--fix')) {
-    for (const fixed of repair(io.cwd)) {
+    // 修的必須是 board 根目錄那一塊。拿 io.cwd 去修，在子目錄執行時掃不到
+    // 任何 op-log —— 那是靜默不修：它會 exit 0 卻什麼都沒動。
+    for (const fixed of repair(boardDir(io))) {
       line(io, `Repaired  ${fixed.file}:${fixed.line}  拆回 ${fixed.ops} 個 op`);
     }
   }
 
-  const found = diagnose(io.cwd);
+  // 走 board.health() 而不是 diagnose(io.cwd)：Board 已經會尋根，而「在子目錄
+  // 診斷錯的目錄」與「不是 board 的目錄也要答得出話」這兩件事只該有一份
+  // 實作。這也是 README 給 library 呼叫端的承諾：board.health() 就是 nook doctor 報的。
+  const found = openBoard({ dir: io.cwd }).health();
   for (const d of found) {
     const where = d.file === undefined ? '' : `${d.file}${d.line === undefined ? '' : `:${d.line}`}  `;
     line(io, `${d.kind}  ${where}${d.message}`);

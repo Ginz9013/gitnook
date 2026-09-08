@@ -211,10 +211,16 @@ trailing-newline discipline, dedupe, total ordering, the fold, OR-Set bookkeepin
 and prefix resolution. **A caller never sees an operation.** You say
 `{ labels: { add: ['bug'] } }`; add-wins is nook's problem.
 
-Also exported: `initBoard`, `diagnose`, `repair`, `serve`, `handleRequest`, the
-renderers (`renderTable`, `renderJson`, `renderBoardHtml`, `renderIssueHtml`),
-and the error types (`RefNotFound`, `AmbiguousRef`, `InvalidStatus`,
-`BoardNotInitialized`, `ConflictingGitAttributes`, `PortInUse`).
+Also exported: `initBoard`, `diagnose`, `repair`, `serve`, `STATUSES`, every
+type in that API, and the error types (`RefNotFound`, `AmbiguousRef`,
+`InvalidStatus`, `BoardNotInitialized`, `ConflictingGitAttributes`,
+`NestedBoard`, `PortInUse`) — so a caller can tell "you can fix this" from
+"report a bug" with `instanceof`.
+
+That list is deliberately short. The renderers and the studio request handler
+are **not** exported: they are presentation and plumbing, and every export is a
+permanent compatibility liability. Adding one later is a compatible change;
+taking one away is not, so this package starts narrow.
 
 ## studio
 
@@ -223,9 +229,9 @@ npx nook studio
 ```
 
 A server-rendered, **read-only** board on `127.0.0.1` — eight columns, a detail
-view per issue, and a two-second poll that reloads the board when the files
-change. It binds loopback only and never the LAN. Editing stays in the CLI, and
-markdown is rendered with raw HTML disabled.
+view per issue, and a two-second poll that reloads **either view** when the
+files change. It binds loopback only and never the LAN. Editing stays in the
+CLI, and markdown is rendered with raw HTML disabled.
 
 ## doctor
 
@@ -255,7 +261,6 @@ script, no `git config` for anyone on the team.
 - **Short ids are unambiguous when printed.** A later issue can extend a shared
   ULID prefix, exactly as with git short hashes. Print the full 26 characters if
   you need permanence.
-- **No detail-page auto-reload.** The board polls; `/i/<ref>` does not.
 
 ## Contributing
 
@@ -266,11 +271,15 @@ npm run bench         # the four hard metrics
 npm run build         # tsup bundle + declarations into dist/
 ```
 
+All three run in CI (`.github/workflows/ci.yml`) on every push and pull request.
+
 One test needs a non-loopback IPv4 interface: `test/server/serve.test.ts`
 asserts that `studio` refuses to bind anything but loopback, and it **throws
 rather than skips** when no external interface exists. That is deliberate — a
-silent skip would let a `0.0.0.0` regression pass in CI. On a network-less CI
-runner this needs an explicit decision, not a quiet pass.
+silent skip would let a `0.0.0.0` regression pass in CI. The workflow therefore
+checks for an interface up front and fails with a pointed message instead of
+quietly neutralising the test; a runner without one has to compensate for that
+guarantee elsewhere.
 
 ## License
 

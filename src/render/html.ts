@@ -307,7 +307,11 @@ function card(issue: Issue, len: number): string {
   );
 }
 
-export interface BoardHtmlOptions {
+/**
+ * 看板與詳情共用同一組選項 —— 它們是同一個檢視器的兩個檢視，輪詢重載的契約
+ * 沒有理由在兩邊長得不一樣。兩份一模一樣的介面只會遲早漂開。
+ */
+export interface HtmlOptions {
   /**
    * 內嵌到頁面尾端的 JS。studio server 用它送出輪詢重載的腳本；
    * 未傳入時頁面維持零 JS（票 08 的契約）。
@@ -321,7 +325,7 @@ export interface BoardHtmlOptions {
  */
 export function renderBoardHtml(
   issues: readonly Issue[],
-  opts: BoardHtmlOptions = {},
+  opts: HtmlOptions = {},
 ): string {
   // 長度算在過濾之前：卡片連結是 Ref，而 board.get() 的候選集合含 archived
   // 的 Issue。只看可見的那幾張會產生在解析端撞號的連結。
@@ -367,7 +371,7 @@ function commentTimeline(comments: readonly Comment[]): string {
  * 詳情頁是人在讀的頁面，26 碼是噪音，而完整識別碼就在網址列裡。需要一個
  * 保證無歧義的 Ref 時，回看板從卡片連結取（那裡才知道整批）。
  */
-export function renderIssueHtml(issue: Issue): string {
+export function renderIssueHtml(issue: Issue, opts: HtmlOptions = {}): string {
   const detailLen = shortIdLength([issue.id]);
   const body =
     `<main class="issue">` +
@@ -383,5 +387,5 @@ export function renderIssueHtml(issue: Issue): string {
     `<div class="description">${renderMarkdown(issue.description)}</div>` +
     commentTimeline(issue.comments) +
     `</main>`;
-  return page(`${issue.title} — Nook`, body);
+  return page(`${issue.title} — Nook`, body, opts.inlineScript);
 }

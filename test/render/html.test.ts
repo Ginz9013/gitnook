@@ -556,7 +556,7 @@ describe('renderBoardHtml 的內嵌腳本（票 09 的輪詢重載）', () => {
     expect(board).not.toMatch(/\son[a-z]+\s*=/i);
     expect(board).not.toMatch(/javascript:/i);
 
-    // 詳情頁不接受這個參數，因此永遠是零 JS。
+    // 詳情頁同樣是「沒傳就零 JS」——「頁面預設不帶 JS」是兩個檢視共用的契約。
     expect(scripts(renderIssueHtml(issue({ id: 'AAAAAA0001' })))).toEqual([]);
   });
 });
@@ -650,5 +650,46 @@ describe('詳情視圖的短 ID 長度', () => {
 
     expect(detailId(html)).toBe('01JBX7');
     expect(detailId(html)).toHaveLength(SHORT_ID_MIN);
+  });
+});
+
+/**
+ * 詳情頁的輪詢重載。
+ *
+ * spec.md 的 AC 是「`nook studio` … 每 2 秒輪詢 `/hash` 變更即重載」，但票 09
+ * 的寫入範圍只授權放寬 `renderBoardHtml`，於是 `/i/<ref>` 停在一個永遠不會
+ * 更新的畫面上。看板與詳情是同一個檢視器的兩個檢視，契約該是同一份。
+ */
+describe('renderIssueHtml 的內嵌腳本', () => {
+  it('傳入 inlineScript 時，原樣輸出成頁面上唯一的 <script>', () => {
+    const html = renderIssueHtml(issue({ id: 'AAAAAA0001', title: 'a' }), {
+      inlineScript: "setInterval(() => fetch('/hash'), 2000);",
+    });
+
+    expect(scripts(html)).toEqual(["setInterval(() => fetch('/hash'), 2000);"]);
+    // 仍然沒有外部資源 —— 腳本是內嵌的，不是 src。
+    expect(html).not.toMatch(/<script[^>]*\bsrc=/i);
+  });
+
+  it('未傳入 inlineScript 時維持零 JS —— 票 08 的契約沒有被放寬', () => {
+    const html = renderIssueHtml(issue({ id: 'AAAAAA0001', title: 'a' }));
+
+    expect(scripts(html)).toEqual([]);
+    expect(html).not.toMatch(/<script/i);
+    // 事件處理器屬性同樣是 JS。
+    expect(html).not.toMatch(/\son[a-z]+\s*=/i);
+    expect(html).not.toMatch(/javascript:/i);
+  });
+
+  it('腳本內容中的 </script> 不提前閉合元素', () => {
+    const html = renderIssueHtml(issue({ id: 'AAAAAA0001', title: 'a' }), {
+      inlineScript: 'const s = "</script><img src=x onerror=alert(1)>";',
+    });
+
+    // payload 留在腳本內是對的（它就是那段 JS 的一部分）；
+    // 錯的是它跑到腳本外面成為真的標記。
+    expect(outsideScripts(html)).not.toMatch(/<img\b/i);
+    expect(outsideScripts(html)).not.toMatch(/<[^>]*\bonerror\b/i);
+    expect(scripts(html)).toHaveLength(1);
   });
 });

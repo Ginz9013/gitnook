@@ -143,9 +143,3 @@ export class InvalidStatus extends Error {
   }
 }
 
-export class NotImplemented extends Error {
-  constructor(what: string) {
-    super(`${what} 尚未實作`);
-    this.name = 'NotImplemented';
-  }
-}
