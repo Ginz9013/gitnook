@@ -24,6 +24,18 @@ function encodeRandom(len: number = RANDOM_LEN): string {
   return out;
 }
 
+/**
+ * Ref 只由 Crockford base32 的字元組成（CONTEXT.md 的 Ref 定義）。
+ * 這個檢查同時是路徑穿越的防線：完整識別碼會被接進檔案路徑，而 join()
+ * 會把 ../ 正規化到 .issues/issues/ 之外。CLI 與 studio server 的
+ * /i/<ref> 都會把使用者輸入直接餵進來。
+ */
+const REF_SHAPE = /^[0-9A-HJKMNP-TV-Z]{1,26}$/;
+
+export function isValidRef(ref: string): boolean {
+  return REF_SHAPE.test(ref);
+}
+
 export function ulid(now: number = Date.now()): string {
   return encodeTime(now) + encodeRandom();
 }

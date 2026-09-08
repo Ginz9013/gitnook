@@ -47,7 +47,7 @@
 | B3 | 03 | 1 | 進行中 | OR-Set 與 comments（core 檔案，無法與 04 同批） |
 | B4 | 04 | 1 | | list 與前綴解析（core 檔案，無法與 03 同批） |
 | B5 | 05 ∥ 09 | 2 | | 真實 git 合併閘門／studio server |
-| B6 | 10 | 1 | | CLI |
+| B6 | 10 ∥ 12 | 2 | | CLI／短 ID 碰撞的渲染側接線 |
 | B7 | 11 | 1 | | 打包與體積、冷啟閘門 |
 
 B2 實測：四個 worker 零越界，golden 檔前綴策略（`table-`／`json-` vs `html-`）在同一目錄下無碰撞，三個獨立撞到票 01 characterization 測試的 worker 都選擇回報而非自行修改。
@@ -69,6 +69,7 @@ B2 實測：四個 worker 零越界，golden 檔前綴策略（`table-`／`json-
 | 09 | `src/server/{handler,serve}.ts` |
 | 10 | `src/cli/run.ts` `bin/nook.js` |
 | 11 | `tsup.config.ts` `package.json` `LICENSE` `README.md` `bench/*` |
+| 12 | `src/render/{table,html}.ts` |
 
 各票的測試檔隨其實作檔一併擁有，詳見各票。
 

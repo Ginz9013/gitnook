@@ -200,6 +200,21 @@ describe('ref 前綴解析', () => {
   });
 
   // Guard：寫完即綠。以變異測試確認它不是空的 —— 見執行報告。
+  it('ref 只接受 Crockford base32，路徑穿越不得讀到 board 以外的檔案', () => {
+    // CLI（票 10）與 studio server 的 /i/<ref>（票 09）都會把使用者輸入
+    // 直接餵進 get()。完整識別碼的快路徑原本用 existsSync(pathOf(ref))，
+    // 而 join() 會把 ../ 正規化到 .issues/issues/ 之外。
+    const outside = join(dir, 'outside.ndjson');
+    writeFileSync(outside, '{"id":"X","t":1,"a":"z","op":"create","title":"OUTSIDE"}\n', 'utf8');
+
+    const board = openBoard({ dir });
+    expect(() => board.get('../../outside')).toThrow(RefNotFound);
+    expect(() => board.get('..')).toThrow(RefNotFound);
+    expect(() => board.get('a/b')).toThrow(RefNotFound);
+    // 小寫不屬於 Crockford base32 的大寫字母集合，同樣不成立。
+    expect(() => board.get('01jbxa')).toThrow(RefNotFound);
+  });
+
   it('前綴無對應時拋 RefNotFound', () => {
     createWith(A, { title: 'A' });
 
