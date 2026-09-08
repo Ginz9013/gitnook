@@ -1,6 +1,7 @@
 {
   "name": "@nook/cli",
   "version": "0.1.0",
+  "author": "KOUHEI",
   "description": "Git-native, agent-first issue tracker. Issues are plain text in your repo and merge without conflicts.",
   "keywords": [
     "issue-tracker",
