@@ -165,7 +165,7 @@ from what the CLI does:
 
 Git-native issue tracker. Issues are plain text files in the repo.
 
-nook list [--all]          one line per issue: <id> <status> <title> [labels]
+nook list [--all]          one line per issue: <ref> <status> <title> [labels]
 nook show <ref>            title line, description, comments
 nook new "<title>"         create an issue
 nook mv <ref> <status>     backlog todo queued in_progress review blocked done cancelled

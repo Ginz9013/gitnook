@@ -1,20 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { renderTable } from '../../src/render/table.js';
 import { renderJson } from '../../src/render/json.js';
+import { SHORT_ID_MIN, shortIdLength } from '../../src/core/ids.js';
 import type { Comment, Issue, Status } from '../../src/core/types.js';
 
 /**
  * spec.md 四個硬指標之一：agent token。
  *
  * 情境（spec.md「token 情境」）：40 張 Issue 的專案 → `list` → `show` 一張 → `mv`
- * → `comment`，量測「skill 文件 + 全部 CLI 輸出」的總 byte 數，上限 4KB。
+ * → `comment`，量測「skill 文件 + 全部 CLI 輸出」的總 byte 數，上限見 LIMIT。
  * 用 byte 數而非 tokenizer 的理由見 docs/adr/0005。
  *
- * CLI 尚未存在（票 10），因此「輸出」以 render 函式的產出為準，界定如下：
- *   list     renderTable(全部 40 張)     —— 最保守：不假設任何一張被預設隱藏
- *   show     renderTable(單張)           —— 含 description 與 comments
- *   mv       renderTable([更新後那張])   —— 改完後回印該張的一行
- *   comment  renderTable([更新後那張])   —— 留言後回印該張的一行
+ * 接縫是 renderTable() 這個純函數 —— 不 spawn nook 子行程。每一段都必須與
+ * src/cli/run.ts 實際走的那一條對齊，否則閘門守的是一份沒人會看到的輸出：
+ *   list     renderTable(全部 40 張)              cmdList，最保守：不假設任何一張被隱藏
+ *   show     renderTable(單張)                    cmdShow，不傳長度（見該處註解）
+ *   mv       renderTable([更新後那張], 整批長度)  cmdMv，回印該張的一行
+ *   comment  renderTable([更新後那張], 整批長度)  cmdComment，同上
  * 每段輸出各加一個結尾換行，代表 CLI 實際寫到 stdout 的樣子。
  */
 /**
@@ -23,7 +25,7 @@ import type { Comment, Issue, Status } from '../../src/core/types.js';
  * 程式碼沒有變差，是量測變準了。
  *
  * 4608 = 4.5KB ≈ 1150 tokens，給約 14% 的餘裕，讓它是迴歸偵測器而不是
- * 誤觸的絆線。情境本身維持最壞的真實情況（批次匯入，短 ID 13 碼），
+ * 誤觸的絆線。情境本身維持最壞的真實情況（批次匯入，短 ID 14 碼），
  * 那才是這個閘門的重點。
  */
 const LIMIT = 4608;
@@ -33,7 +35,7 @@ const SKILL_DOC = `# nook
 
 Git-native issue tracker. Issues are plain text files in the repo.
 
-nook list [--all]          one line per issue: <id> <status> <title> [labels]
+nook list [--all]          one line per issue: <ref> <status> <title> [labels]
 nook show <ref>            title line, description, comments
 nook new "<title>"         create an issue
 nook mv <ref> <status>     backlog todo queued in_progress review blocked done cancelled
@@ -66,9 +68,9 @@ const issue = (
 
 /**
  * 真實形狀的 ULID：前 10 碼是時間高位，**前 6 碼每 17.5 分鐘才變一次**。
- * 批次匯入（從別的 tracker 遷移）會讓 40 張票落在同一毫秒，shortIdLength
- * 因此被推到 13 碼。閘門必須量測會先壞掉的那個情況，而不是最有利的那個 ——
- * 原本的 fixture 給每張票一個不同的 6 碼前綴，那是現實中不會出現的形狀。
+ * 批次匯入（從別的 tracker 遷移）會讓 40 張 Issue 落在同一毫秒，shortIdLength
+ * 因此被推到 14 碼。閘門必須量測會先壞掉的那個情況，而不是最有利的那個 ——
+ * 原本的 fixture 給每張 Issue 一個不同的 6 碼前綴，那是現實中不會出現的形狀。
  */
 const SHARED_TIME_PREFIX = '01M20QTC4R';
 function realisticId(seed: string): string {
@@ -136,12 +138,21 @@ const commented: Issue = {
   ],
 };
 
+/**
+ * 顯示用短 ID 的長度，對**整個 Board** 算 —— CLI 的 cmdMv / cmdComment 走的就是
+ * 這條（`displayLength(board)`）。回印那一行手上只有一張 Issue，長度卻是整批的
+ * 性質，所以必須由呼叫端算好傳進去。
+ */
+const DISPLAY_LEN = shortIdLength(board.map((i) => i.id));
+
 const parts = (): ReadonlyArray<readonly [string, string]> => [
   ['skill doc', SKILL_DOC],
   ['list', renderTable(board) + '\n'],
+  // show 不傳長度：CLI 的 cmdShow 只讀被點名的那一個 op-log（票 13），拿不到整塊
+  // Board，因此詳情實際印的就是 SHORT_ID_MIN 碼。這裡照著量，不高估也不低估。
   ['show', renderTable(shown) + '\n'],
-  ['mv', renderTable([moved]) + '\n'],
-  ['comment', renderTable([commented]) + '\n'],
+  ['mv', renderTable([moved], DISPLAY_LEN) + '\n'],
+  ['comment', renderTable([commented], DISPLAY_LEN) + '\n'],
 ];
 
 /** 逐項 byte 數 + 總計 + 餘裕。超標時要一眼看得出是哪一部分膨脹。 */
@@ -155,6 +166,26 @@ const budgetReport = (
   ].join('\n');
 
 describe('agent token 預算閘門（40 票情境）', () => {
+  it('skill 文件用 <ref>，與 CLI 的 --help 一致', () => {
+    // CONTEXT.md 的 Ref 把 `id` 明列為 _Avoid_，而 CLI 的 --help 用的就是 <ref>。
+    // 教給 agent 的詞彙若寫 <id>，是同時違反詞彙表、又與它實際要打的指令不一致。
+    expect(SKILL_DOC).not.toContain('<id>');
+    expect(SKILL_DOC).toContain('<ref>');
+  });
+
+  it('mv 與 comment 兩段量的是與 list 同一批 Issue 的真實短 ID 長度', () => {
+    const measured = new Map(parts());
+    const refOf = (text: string): string => text.split('\n')[0]!.split('  ')[0]!;
+    const listRef = refOf(measured.get('list')!);
+
+    // 回印一行的 CLI 路徑（cmdMv / cmdComment）手上只有一個單元素陣列，靠渲染層
+    // 自己算永遠得到下限 6。用 6 碼計量，閘門守的就是一個 CLI 不會產生的、偏小的
+    // 輸出 —— 而閘門的用途正是抓「輸出變大」。
+    expect(listRef.length).toBeGreaterThan(SHORT_ID_MIN);
+    expect(refOf(measured.get('mv')!)).toHaveLength(listRef.length);
+    expect(refOf(measured.get('comment')!)).toHaveLength(listRef.length);
+  });
+
   it('報告逐項 byte 數、總計與餘裕，讓超標時看得出是哪一部分膨脹', () => {
     const report = budgetReport(
       [

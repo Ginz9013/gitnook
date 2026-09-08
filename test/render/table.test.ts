@@ -71,21 +71,40 @@ describe('renderTable — 清單', () => {
 });
 
 describe('renderTable — 詳情', () => {
-  it('單張 Issue 的詳情含未截斷的 title、description，與依 t 排序的 comments 時間軸', () => {
+  it('單張 Issue 的詳情含未截斷的 title、description，與 comments 時間軸', () => {
     const detail = issue({
       id: '01JBX7A9Q3',
       title: 'Fix the login redirect loop that only reproduces on Safari 17',
       status: 'blocked',
       labels: ['bug', 'p1'],
       description: '登入後被導回 /login，只在 Safari 17 重現。\nChrome 與 Firefox 正常。',
-      // 刻意逆序傳入，時間軸應依 t 遞增排列。
+      // 以 reduce() 的 (t, a, id) 全序傳入 —— 渲染層原樣輸出，不重排。
+      comments: [
+        { id: '01JBX7C5R1', actor: 'k3f9', t: 3, body: 'safari 才會重現' },
+        { id: '01JBX8D7T4', actor: 'm8q2', t: 5, body: '等 Safari 17.4 的修正' },
+      ],
+    });
+
+    expect(asFile(renderTable(detail))).toBe(golden('table-detail.txt'));
+  });
+
+  it('依 core 給定的順序渲染 comments，不自行重排 —— 排序是 core 的責任', () => {
+    // Issue.comments 由 reduce() 以 (t, a, id) 全序產出。渲染層若複製一份比較器，
+    // 兩者就會分歧：先前這裡用的是 (t)，在 t 相同而 actor 不同時會排出與 GUI
+    // 不一致的順序。html.ts 已於 commit 463343d 移除同一個 bug，這裡是原地復發。
+    const detail = issue({
+      id: '01JBX7A9Q3',
+      title: 'Fix login redirect',
       comments: [
         { id: '01JBX8D7T4', actor: 'm8q2', t: 5, body: '等 Safari 17.4 的修正' },
         { id: '01JBX7C5R1', actor: 'k3f9', t: 3, body: 'safari 才會重現' },
       ],
     });
 
-    expect(asFile(renderTable(detail))).toBe(golden('table-detail.txt'));
+    expect(renderTable(detail).split('\n').slice(-2)).toEqual([
+      '- m8q2  等 Safari 17.4 的修正',
+      '- k3f9  safari 才會重現',
+    ]);
   });
 
   it('沒有 description 與 comments 時只輸出標題行，不留空白區塊', () => {
@@ -188,8 +207,27 @@ describe('renderTable — 短 ID 的碰撞', () => {
 });
 
 /**
- * 詳情視圖只拿得到一張 Issue，無從得知整批的情況。決定：一律顯示
- * SHORT_ID_MIN 碼。理由寫在 src/render/table.ts 的 renderDetail 上。
+ * 長度是「整批的性質」，單張 Issue 看不出來 —— 所以呼叫端算得出更好的答案時，
+ * 必須有辦法把它交進來。回印單張的 CLI 路徑（set/mv/comment/label）拿到的是
+ * 一個單元素陣列，靠 renderTable 自己算永遠只會得到下限 6。
+ */
+describe('renderTable — 呼叫端指定的短 ID 長度', () => {
+  it('清單依呼叫端給的長度顯示，而不是只對手上這幾張算', () => {
+    const issues = [issue({ id: '01JBXAAAAAAAAAAAAAAAAAAAAA', title: 'a', status: 'queued' })];
+
+    expect(renderTable(issues, 13).split('  ')[0]).toBe('01JBXAAAAAAAA');
+  });
+
+  it('詳情依呼叫端給的長度顯示 —— show 也要對當下整個 Board 重算', () => {
+    const detail = issue({ id: '01JBX7AAAAAAAAAAAAAAAAAAAA', title: 'a' });
+
+    expect(renderTable(detail, 13).split('  ')[0]).toBe('01JBX7AAAAAAA');
+  });
+});
+
+/**
+ * 詳情視圖只拿得到一張 Issue，無從得知整批的情況。決定：呼叫端沒給長度時
+ * 一律顯示 SHORT_ID_MIN 碼。理由寫在 src/render/table.ts 的 renderDetail 上。
  */
 describe('renderTable — 詳情視圖的短 ID 長度', () => {
   it('顯示 SHORT_ID_MIN 碼，不因識別碼長而顯示全長', () => {

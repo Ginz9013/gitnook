@@ -65,7 +65,7 @@ None（票 15、16 排在其後，三者都碰 `src/cli/run.ts`）
 
 ## Status
 
-todo
+done
 
 ## Done when
 

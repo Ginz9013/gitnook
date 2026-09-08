@@ -177,12 +177,18 @@ const line = (io: Io, text: string): void => io.write(`${text}\n`);
 const errLine = (io: Io, text: string): void => io.writeError(`${text}\n`);
 
 /**
- * 顯示用短 ID。盲取 6 碼會撞號 —— ULID 前綴編的是時間的高位，同一段時間內
- * 建立的 Issue 前 6 碼完全相同，印出去就是一個不能用的 ref。
+ * Ref 的分工：**顯示用短的，交付用完整的。**
+ *
+ * `list` / `show` / 看板印的是短 ID，每次對**當下的 Board** 重算 —— 它只需要
+ * 在讀者眼前那一刻無歧義。`new` 交付的則是完整的 26 碼 ULID，因為那是唯一
+ * 永久有效的 Ref。
+ *
+ * 長度一律對整個 Board 算，不是對正要印的那幾張。ULID 前綴編的是時間的高位，
+ * 前 6 碼每 17.5 分鐘才變一次；對單張（或一份過濾後的子集）去算，會得出一個
+ * 在整塊 Board 上對應到幾十張 Issue 的前綴，而解析是對整塊 Board 做的。
  */
-function shortId(board: Board, issue: Issue): string {
-  const ids = board.list({ all: true }).map((i) => i.id);
-  return issue.id.slice(0, shortIdLength(ids));
+function displayLength(board: Board): number {
+  return shortIdLength(board.list({ all: true }).map((i) => i.id));
 }
 
 /**
@@ -312,10 +318,19 @@ function cmdList(args: Args, io: Io): number {
   return 0;
 }
 
+/**
+ * `show` 刻意**不**呼叫 displayLength()：它只讀被點名的那一個 op-log（票 13 的
+ * 效能要求，`test/cli/run.test.ts` 的「單點失效的監看不該把整個 Board 掃一遍」
+ * 守住），而算長度要把整塊 Board 摺一遍。因此詳情沿用 SHORT_ID_MIN。
+ *
+ * 代價是批次匯入的 Board 上，`show` 回印的那個前綴可能有歧義。使用者手上已經
+ * 有一個能用的 Ref（他正是用它叫出這張 Issue 的），所以這是可以撐一陣子的洞；
+ * 真正的修法是讓 Board 公開一個只讀目錄清單的識別碼來源，那是 core 的改動。
+ */
 function cmdShow(args: Args, io: Io): number {
   const issue = openBoard({ dir: io.cwd }).get(requireRef(args.positional[0] ?? ''));
   warnIfUnguarded(io);
-  // 單一物件而非長度 1 的陣列 —— 串接端不必為了取一張票去拆陣列。
+  // 單一物件而非長度 1 的陣列 —— 串接端不必為了取一張 Issue 去拆陣列。
   line(io, args.has('--json') ? renderJson(issue) : renderTable(issue));
   return 0;
 }
@@ -389,7 +404,7 @@ function cmdSet(args: Args, io: Io): number {
   const updated = board.apply(ref, asChange(field as Field, text));
   remindIfBlocked(io, updated);
   // 回印更新後那一行 —— 呼叫端不必再跑一次 show 才知道結果。
-  line(io, renderTable([updated]));
+  line(io, renderTable([updated], displayLength(board)));
   return 0;
 }
 
@@ -405,7 +420,7 @@ function cmdMv(args: Args, io: Io): number {
   const board = openBoard({ dir: io.cwd });
   const updated = board.apply(ref, { status });
   remindIfBlocked(io, updated);
-  line(io, renderTable([updated]));
+  line(io, renderTable([updated], displayLength(board)));
   return 0;
 }
 
@@ -483,7 +498,8 @@ function cmdComment(args: Args, io: Io): number {
   requireRef(ref);
 
   const board = openBoard({ dir: io.cwd });
-  line(io, renderTable([board.apply(ref, { comment: longText(body, io) })]));
+  const updated = board.apply(ref, { comment: longText(body, io) });
+  line(io, renderTable([updated], displayLength(board)));
   return 0;
 }
 
@@ -513,8 +529,9 @@ function cmdLabel(args: Args, io: Io): number {
     (sign === '+' ? add : remove).push(value);
   }
 
-  const updated = openBoard({ dir: io.cwd }).apply(ref, { labels: { add, remove } });
-  line(io, renderTable([updated]));
+  const board = openBoard({ dir: io.cwd });
+  const updated = board.apply(ref, { labels: { add, remove } });
+  line(io, renderTable([updated], displayLength(board)));
   return 0;
 }
 
@@ -538,9 +555,11 @@ function cmdNew(args: Args, io: Io): number {
     ...(labels.length === 0 ? {} : { labels }),
   };
 
-  const board = openBoard({ dir: io.cwd });
-  const issue = board.create(input);
-  // 印短 ID 而非整行 —— 呼叫端接著要的就是這個 ref。
-  line(io, shortId(board, issue));
+  const issue = openBoard({ dir: io.cwd }).create(input);
+  // 印完整的 26 碼 ULID 而非短 ID —— 那是唯一**永久有效**的 Ref。短 ID 只在
+  // 印出的當下無歧義：ULID 前綴編的是時間高位，下一張 Issue 就可能延伸同一個
+  // 前綴，把剛交出去的 ref 變成有歧義的。`new` 的輸出會被存進變數、寫進腳本、
+  // 貼進 commit message，它必須在那之後仍然指得到同一張 Issue。
+  line(io, issue.id);
   return 0;
 }

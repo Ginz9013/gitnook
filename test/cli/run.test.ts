@@ -84,7 +84,7 @@ describe('init', () => {
 });
 
 describe('new', () => {
-  it('建立 Issue 並印出當下無歧義、可直接當 ref 用的短 ID', async () => {
+  it('建立 Issue 並印出可直接當 ref 用的識別碼', async () => {
     await run(['init'], capture());
 
     const first = capture();
@@ -99,9 +99,31 @@ describe('new', () => {
 
     expect(b).not.toBe(a);
     // ULID 前綴編的是時間的高位：同一個 17 分鐘窗口內建立的 Issue 前 6 碼完全相同。
-    // 盲取 SHORT_ID_MIN 碼會印出一個撞號、不能用的 ref，所以長度必須自適應。
+    // 交付用的 ref 因此不能是 SHORT_ID_MIN 碼 —— 長度見「new 交付的 ref 永久有效」。
     expect(b.length).toBeGreaterThan(SHORT_ID_MIN);
     expect(second.err).toBe('');
+  });
+});
+
+describe('new 交付的 ref 永久有效', () => {
+  it('印出完整的 26 碼 ULID —— 之後再開幾張，第一張的 ref 仍然解析得到', async () => {
+    await run(['init'], capture());
+
+    const io = capture();
+    expect(await run(['new', 'Fix login redirect'], io)).toBe(0);
+    const ref = io.out.trim();
+
+    // 之後才建立、且與第一張共用前 13 碼的 Issue。批次匯入時 40 張會落在同一
+    // 毫秒，前綴一路相同 —— 種子化的 IdSource 把那個形狀變成確定的。
+    const created = openBoard({ dir }).list({ all: true })[0]!.id;
+    for (const tail of ['A', 'B']) {
+      openBoard({ dir, actor: 'test', ids: seeded(created.slice(0, 13) + tail.repeat(13)) }) //
+        .create({ title: `Later ${tail}` });
+    }
+
+    // 短 ID 只在印出的當下無歧義，之後未必 —— 完整的 26 碼才是永久有效的 Ref。
+    expect(ref).toHaveLength(26);
+    expect(openBoard({ dir }).get(ref).title).toBe('Fix login redirect');
   });
 });
 
@@ -253,6 +275,58 @@ describe('comment', () => {
     ]);
     expect(io.out).toBe('01JBXA  queued  Fix login redirect\n');
     expect(io.err).toBe('');
+  });
+});
+
+/**
+ * 回印一行的四條路徑（set / mv / comment / label）與 show 都只拿得到一張
+ * Issue。長度若讓渲染層對那個單元素陣列去算，答案永遠是下限 6 —— 而批次
+ * 匯入的 Board 上，6 碼前綴會對應到幾十張 Issue。長度是整個 Board 的性質。
+ */
+describe('顯示用短 ID 一律對整個 Board 算', () => {
+  /** 批次匯入的真實形狀：ULID 前 10 碼是時間高位，同一毫秒建立的 Issue 前綴一路相同。 */
+  const importBatch = (): void => {
+    createWith('01JBX7A9Q3ZA', { title: 'Fix login redirect', status: 'queued' });
+    createWith('01JBX7A9Q3ZB', { title: 'Add dark mode', status: 'queued' });
+    createWith('01JBX7A9Q3ZC', { title: 'Rename ready to queued', status: 'queued' });
+  };
+
+  /** 輸出第一行的第一欄，就是那個 ref。 */
+  const printedRef = (out: string): string => out.split('\n')[0]!.split('  ')[0]!;
+
+  it('list 與 mv 在同一塊 Board 上印出等長的短 ID', async () => {
+    await run(['init'], capture());
+    importBatch();
+
+    const all = capture();
+    const moved = capture();
+    expect(await run(['list'], all)).toBe(0);
+    expect(await run(['mv', '01JBX7A9Q3ZA', 'in_p'], moved)).toBe(0);
+
+    expect(printedRef(moved.out)).toHaveLength(printedRef(all.out).length);
+  });
+
+  // show 不在這裡：它只讀被點名的那一個 op-log（票 13），拿不到整塊 Board。
+  // 理由與代價寫在 src/cli/run.ts 的 cmdShow 上。
+  it('set / mv / comment / label 印出的 ref 都解析得回同一張 Issue', async () => {
+    await run(['init'], capture());
+    importBatch();
+
+    const runs: ReadonlyArray<readonly [string, readonly string[]]> = [
+      ['set', ['set', '01JBX7A9Q3ZA', 'title', 'Fix the login redirect loop']],
+      ['mv', ['mv', '01JBX7A9Q3ZA', 'in_p']],
+      ['comment', ['comment', '01JBX7A9Q3ZA', 'safari 才會重現']],
+      ['label', ['label', '01JBX7A9Q3ZA', '+bug']],
+    ];
+
+    for (const [name, argv] of runs) {
+      const io = capture();
+      expect(await run(argv, io), name).toBe(0);
+      // 印出去的 ref 是使用者接著要拿去用的東西。撞號時 get() 會丟 AmbiguousRef。
+      expect(openBoard({ dir }).get(printedRef(io.out)).title, name).toBe(
+        'Fix the login redirect loop',
+      );
+    }
   });
 });
 
