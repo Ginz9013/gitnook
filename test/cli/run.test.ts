@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBoard, SHORT_ID_MIN } from '../../src/index.js';
@@ -576,5 +576,160 @@ describe('尚未 init 的目錄', () => {
     // 兩則訊息會讓第一次使用的人以為有兩個問題要修，其實只要跑 nook init。
     expect(io.err.trimEnd().split('\n')).toHaveLength(1);
     expect(io.err).toContain('nook init');
+  });
+});
+
+describe('label', () => {
+  it('一次加上與移除多個 Label，並回印更新後那一行', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect', status: 'queued', labels: ['bug', 'ui'] });
+    const io = capture();
+
+    // Nook 沒有優先級欄位，優先級用 Label 表達（CONTEXT.md）——
+    // 沒有這條 CLI 路徑，`list --label` 就是在過濾一個 CLI 建不出來的東西。
+    expect(await run(['label', '01JBXA', '+p1', '-ui'], io)).toBe(0);
+
+    // add-wins OR-Set 的 seen 語意全在 core；呈現順序取自第一個存活 tag 的全序位置。
+    expect(openBoard({ dir }).get('01JBXA').labels).toEqual(['bug', 'p1']);
+    expect(io.out).toBe('01JBXA  queued  Fix login redirect  [bug,p1]\n');
+    expect(io.err).toBe('');
+  });
+});
+
+describe('label 的 token 形狀', () => {
+  it('沒有 + / - 前綴、或空的 label 一律報錯，不猜測意圖', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect', labels: ['bug'] });
+
+    const bare = capture();
+    const empty = capture();
+    const noTokens = capture();
+
+    expect(await run(['label', '01JBXA', 'bug'], bare)).toBe(1);
+    expect(await run(['label', '01JBXA', '+'], empty)).toBe(1);
+    expect(await run(['label', '01JBXA'], noTokens)).toBe(1);
+
+    // 票 10 的慣例：不認得的輸入一律拒絕。把 `bug` 當成「移除 ug」是最壞的靜默。
+    expect(bare.err).toContain('bug');
+    expect(bare.out).toBe('');
+    expect(noTokens.err).toContain('用法');
+    expect(openBoard({ dir }).get('01JBXA').labels).toEqual(['bug']);
+  });
+});
+
+describe('new --label', () => {
+  it('建立時就掛上 Label，且旗標可重複', async () => {
+    await run(['init'], capture());
+    const io = capture();
+
+    // 優先級用 Label 表達，所以「開票時就標好 p1」是常態而不是後續補救。
+    expect(await run(['new', 'Fix login redirect', '--label', 'bug', '--label', 'p1'], io)).toBe(0);
+
+    expect(openBoard({ dir }).get(io.out.trim()).labels).toEqual(['bug', 'p1']);
+    expect(io.err).toBe('');
+  });
+});
+
+describe('doctor --fix', () => {
+  it('修復黏合行、重跑診斷，並印出修復了什麼', async () => {
+    gitInit();
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+
+    // 「可修復」的診斷若沒有任何修復途徑，等於只是在指責使用者。
+    const log = join(dir, '.issues', 'issues', `${fullId('01JBXA')}.ndjson`);
+    const create = '{"id":"01A","t":1,"a":"k3f9","op":"create","title":"Fix login redirect"}';
+    const status = '{"id":"01B","t":2,"a":"k3f9","op":"set","k":"status","v":"in_progress"}';
+    const label = '{"id":"01C","t":3,"a":"k3f9","op":"label.add","v":"bug"}';
+    writeFileSync(log, `${create}\n${status}${label}\n`, 'utf8');
+
+    const fixed = capture();
+    expect(await run(['doctor', '--fix'], fixed)).toBe(0);
+
+    // 只拆行、不做語意判斷 —— 被黏住的兩個 Op 都必須完整活下來。
+    const issue = openBoard({ dir }).get('01JBXA');
+    expect(issue.status).toBe('in_progress');
+    expect(issue.labels).toEqual(['bug']);
+    // 修好的檔案自己也要守住硬規則 1，否則下一次 merge 又黏起來（ADR-0001）。
+    expect(readFileSync(log, 'utf8')).toBe(`${create}\n${status}\n${label}\n`);
+    // 重跑診斷後已無 Diagnostic，所以輸出只剩「修了什麼」這一行。
+    expect(fixed.out).toContain(`.issues/issues/${fullId('01JBXA')}.ndjson:2`);
+    expect(fixed.out.trimEnd().split('\n')).toHaveLength(1);
+
+    const again = capture();
+    expect(await run(['doctor', '--fix'], again)).toBe(0);
+    expect(again.out).toBe('');
+  });
+});
+
+describe('單點失效的監看不該把整個 Board 掃一遍', () => {
+  it('show 只讀它要的那一張 —— 另一張的 op-log 讀不得也不影響', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    // 讀不得的 op-log。全量診斷會在這裡炸開；只問「零衝突保證還在不在」
+    // 則只讀 .gitattributes，碰都不會碰到它。
+    mkdirSync(join(dir, '.issues', 'issues', `${fullId('01JBXB')}.ndjson`));
+
+    const io = capture();
+    // 完整識別碼直達檔案，get() 因此只讀這一個檔。
+    expect(await run(['show', fullId('01JBXA')], io)).toBe(0);
+
+    expect(io.out).toBe('01JBXA  backlog  Fix login redirect\n');
+    expect(io.err).toBe('');
+  });
+});
+
+/**
+ * 寫完即綠的 guard：行為由上一個切片交付，這裡把它釘住。
+ * 探針是 PATH 上的一支假 git —— 不 mock 任何內部協作者，量的是「有沒有真的
+ * 生出一個子行程」這個外部可觀察的事實。同一支探針在 doctor 底下必須開火，
+ * 否則這個測試就是空的。
+ */
+describe('list 不再為了一行警告跑一次全量診斷', () => {
+  it('list 不 spawn git rev-parse；doctor 才會', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+
+    const shim = join(dir, 'shim');
+    const marker = join(dir, 'git-calls.txt');
+    mkdirSync(shim);
+    writeFileSync(join(shim, 'git'), `#!/bin/sh\necho "$@" >> "${marker}"\necho true\n`, {
+      mode: 0o755,
+    });
+
+    const realPath = process.env.PATH;
+    const listing = capture();
+    const doctoring = capture();
+    process.env.PATH = shim;
+    try {
+      expect(await run(['list'], listing)).toBe(0);
+      // 每次 list 都付一個子行程的錢，直接吃掉冷啟預算（spec.md 四個硬指標）。
+      expect(existsSync(marker)).toBe(false);
+
+      // 陽性對照：診斷確實會問 git，所以上面那個 false 不是因為探針壞了。
+      expect(await run(['doctor'], doctoring)).toBe(0);
+      expect(readFileSync(marker, 'utf8')).toContain('rev-parse');
+    } finally {
+      process.env.PATH = realPath;
+    }
+
+    // 警告本身沒有被拿掉，只是換了個更便宜的問法。
+    expect(listing.out).toBe('01JBXA  backlog  Fix login redirect\n');
+    expect(listing.err).toBe('');
+  });
+});
+
+describe('--help 涵蓋新的指令路徑', () => {
+  it('列出 label 的實際語法與 doctor --fix，且仍然短到值得每次都讀', async () => {
+    const io = capture();
+
+    expect(await run(['--help'], io)).toBe(0);
+
+    // 說明文件教一個不存在的指令，或藏起一個存在的指令，是同一種錯。
+    expect(io.out).toContain('label <ref> +bug -ui');
+    expect(io.out).toContain('--fix');
+    expect(io.out).toContain('new <title>');
+    // agent 的 token 成本是硬指標（ADR-0005）：--help 每次互動都可能被讀。
+    expect(Buffer.byteLength(io.out, 'utf8')).toBeLessThan(1024);
   });
 });

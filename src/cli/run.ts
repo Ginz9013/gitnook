@@ -12,10 +12,12 @@ import {
   RefNotFound,
   diagnose,
   initBoard,
+  inspectMergeGuarantee,
   isValidRef,
   openBoard,
   renderJson,
   renderTable,
+  repair,
   serve,
   shortIdLength,
 } from '../index.js';
@@ -133,8 +135,10 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
       return cmdMv(parseArgs(rest, NO_FLAGS), io);
     case 'comment':
       return cmdComment(parseArgs(rest, NO_FLAGS), io);
+    case 'label':
+      return cmdLabel(parseArgs(rest, NO_FLAGS), io);
     case 'doctor':
-      return cmdDoctor(io);
+      return cmdDoctor(parseArgs(rest, DOCTOR_FLAGS), io);
     case 'studio':
       return cmdStudio(parseArgs(rest, STUDIO_FLAGS), io);
   }
@@ -142,7 +146,7 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
   throw new UsageError(unknownCommand(command));
 }
 
-const COMMANDS = ['init', 'new', 'list', 'show', 'set', 'mv', 'comment', 'doctor', 'studio'];
+const COMMANDS = ['init', 'new', 'list', 'show', 'set', 'mv', 'comment', 'label', 'doctor', 'studio'];
 
 /** 打錯字與想要一個不存在的功能是兩件事，回答也該不一樣。 */
 function unknownCommand(command: string): string {
@@ -188,13 +192,14 @@ function shortId(board: Board, issue: Issue): string {
 const HELP = `nook <command>
 
 init                                   建立 .issues/ 與 .gitattributes
-new <title> [--description <text|->] [--editor]
+new <title> [--description <text|->] [--label <l>] [--editor]
 list [--all] [--status <s>] [--label <l>] [--json]
 show <ref> [--json]
 set <ref> <title|description|status|archived> <value|-> [--editor]
 mv <ref> <status>
 comment <ref> <body|->
-doctor                                 資料健康檢查
+label <ref> +bug -ui                   加減 Label（無優先級欄位，用 Label）
+doctor [--fix]                         資料健康檢查，--fix 修復黏合行
 studio [--port <n>]                    localhost 唯讀看板
 
 status: backlog todo queued in_progress review blocked done cancelled
@@ -229,10 +234,11 @@ const VALUED: ReadonlySet<string> = new Set(['--status', '--label', '--descripti
 /** 每個指令認得的旗標。不在名單上的一律報錯 —— 靜默吃掉一個打錯的旗標，
  * 呼叫端會拿到一份沒過濾的答案卻以為自己過濾了。 */
 const NO_FLAGS: ReadonlySet<string> = new Set();
-const NEW_FLAGS: ReadonlySet<string> = new Set(['--description', '--editor']);
+const NEW_FLAGS: ReadonlySet<string> = new Set(['--description', '--editor', '--label']);
 const LIST_FLAGS: ReadonlySet<string> = new Set(['--all', '--status', '--label', '--json']);
 const SHOW_FLAGS: ReadonlySet<string> = new Set(['--json']);
 const SET_FLAGS: ReadonlySet<string> = new Set(['--editor']);
+const DOCTOR_FLAGS: ReadonlySet<string> = new Set(['--fix']);
 const STUDIO_FLAGS: ReadonlySet<string> = new Set(['--port']);
 
 interface Args {
@@ -278,9 +284,14 @@ function parseArgs(args: readonly string[], allowed: ReadonlySet<string>): Args 
 /**
  * .gitattributes 是整個零衝突保證的唯一單點失效 —— 被誤刪時資料會靜默開始
  * 衝突。讀取類指令因此主動監看它。警告走 stderr，管線上的資料不受污染。
+ *
+ * 問的是 inspectMergeGuarantee 而不是 diagnose：這裡只需要知道那一行還在不在，
+ * 而完整診斷要再掃一次全部 op-log 並 spawn 一個 git rev-parse —— 對每一次
+ * list / show 都收這筆帳，直接吃掉冷啟預算（spec.md 四個硬指標）。
  */
 function warnIfUnguarded(io: Io): void {
-  if (diagnose(io.cwd).some((d) => d.kind === 'MissingMergeDriver')) {
+  // absent 與 conflicting 都表示 op-log 拿不到 union，兩者同樣要警告。
+  if (inspectMergeGuarantee(io.cwd).kind !== 'union') {
     errLine(io, '警告：.gitattributes 缺少 merge=union，合併會衝突（nook init 補回）');
   }
 }
@@ -446,8 +457,17 @@ async function cmdStudio(args: Args, io: Io): Promise<number> {
 
 /**
  * 資料健康。健康時沉默、有 Diagnostic 時逐條印出並回非 0 —— 讓 CI 接得住。
+ *
+ * `--fix` 先修再診斷：報告一個「可修復」卻不給任何修復途徑，等於只是在指責
+ * 使用者。修完必須重跑，否則印出來的是一份已經過期的診斷。
  */
-function cmdDoctor(io: Io): number {
+function cmdDoctor(args: Args, io: Io): number {
+  if (args.has('--fix')) {
+    for (const fixed of repair(io.cwd)) {
+      line(io, `Repaired  ${fixed.file}:${fixed.line}  拆回 ${fixed.ops} 個 op`);
+    }
+  }
+
   const found = diagnose(io.cwd);
   for (const d of found) {
     const where = d.file === undefined ? '' : `${d.file}${d.line === undefined ? '' : `:${d.line}`}  `;
@@ -467,6 +487,37 @@ function cmdComment(args: Args, io: Io): number {
   return 0;
 }
 
+/**
+ * Nook 沒有優先級欄位 —— 優先級用 Label 表達（CONTEXT.md）。`+bug -ui` 的寫法
+ * 讓加與減在同一行說完，而不是兩個子指令。
+ *
+ * OR-Set 的 `seen` 語意完全在 core：這裡只把 token 分成兩堆交給 apply()。
+ */
+function cmdLabel(args: Args, io: Io): number {
+  const [ref, ...tokens] = args.positional;
+  if (ref === undefined || tokens.length === 0) {
+    throw new UsageError('用法：nook label <ref> +<label> -<label>');
+  }
+  requireRef(ref);
+
+  const add: string[] = [];
+  const remove: string[] = [];
+  for (const token of tokens) {
+    const sign = token[0];
+    const value = token.slice(1);
+    // 少了正負號的 `bug` 若被當成「移除 ug」，呼叫端會以為自己改了一個
+    // 其實沒動過的 Label —— 靜默猜測比報錯貴得多（票 10 的慣例）。
+    if ((sign !== '+' && sign !== '-') || value === '') {
+      throw new UsageError(`label 要寫成 +<label> 或 -<label>：${token}`);
+    }
+    (sign === '+' ? add : remove).push(value);
+  }
+
+  const updated = openBoard({ dir: io.cwd }).apply(ref, { labels: { add, remove } });
+  line(io, renderTable([updated]));
+  return 0;
+}
+
 function cmdNew(args: Args, io: Io): number {
   const title = args.positional[0];
   if (title === undefined) throw new UsageError('用法：nook new <title>');
@@ -480,9 +531,11 @@ function cmdNew(args: Args, io: Io): number {
     if (given !== undefined) description = longText(given, io);
   }
 
+  const labels = args.all('--label');
   const input: CreateInput = {
     title,
     ...(description === undefined ? {} : { description }),
+    ...(labels.length === 0 ? {} : { labels }),
   };
 
   const board = openBoard({ dir: io.cwd });

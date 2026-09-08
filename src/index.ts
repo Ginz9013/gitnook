@@ -12,7 +12,12 @@ export type {
   IdSource,
   OpenBoardOptions,
 } from './core/types.js';
-export { initBoard, ConflictingGitAttributes } from './core/gitattributes.js';
+export {
+  initBoard,
+  inspectMergeGuarantee,
+  ConflictingGitAttributes,
+  type MergeGuarantee,
+} from './core/gitattributes.js';
 export { renderTable } from './render/table.js';
 export { renderJson } from './render/json.js';
 export { renderBoardHtml, renderIssueHtml } from './render/html.js';

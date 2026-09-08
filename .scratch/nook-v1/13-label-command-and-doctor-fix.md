@@ -54,7 +54,7 @@
 
 ## Status
 
-todo
+done
 
 ## Done when
 
