@@ -15,24 +15,6 @@ const HIDDEN_BY_DEFAULT: ReadonlySet<string> = new Set(['done', 'cancelled']);
 /** 一張 Issue 一個檔，檔名是純 ULID —— 改標題不該造成 rename，rename 會讓 merge=union 失效。 */
 const LOG_SUFFIX = '.ndjson';
 
-/**
- * 找不到 board。訊息必須交代**搜尋過的範圍** —— 只說「先執行 nook init」會把
- * 在子目錄的使用者導向一個靜默把 board 切成兩塊的操作，那正是本次修正的起因。
- *
- * 之所以是子類別而不是改 BoardNotInitialized 的建構子：那個類別在 types.ts，
- * 而本次工作對該檔的寫入權限僅限於 Board 介面。呼叫端看到的仍然是
- * BoardNotInitialized —— instanceof 與 name 都不變，只有訊息更完整。
- */
-class BoardNotFound extends BoardNotInitialized {
-  constructor(from: string, ceiling: string) {
-    super(from);
-    // 單行：CLI 把它整條寫到 stderr，換行會被讀成「有兩個問題要修」。
-    this.message =
-      `不是一個 Nook board：${from}` +
-      `（向上搜尋至 ${ceiling} 都沒有 .issues/issues/；請在專案根目錄執行 nook init）`;
-  }
-}
-
 export function openBoard(opts: OpenBoardOptions = {}): Board {
   const from = opts.dir ?? process.cwd();
   const ids: IdSource = opts.ids ?? systemIds;
@@ -48,7 +30,7 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
 
   const locate = (): string => {
     const found = findBoardRoot(from);
-    if (!found.found) throw new BoardNotFound(from, found.ceiling);
+    if (!found.found) throw new BoardNotInitialized(from, found.ceiling);
     return found.root;
   };
 

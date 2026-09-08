@@ -80,7 +80,7 @@ non-zero if any is over budget.
 | Package size, unpacked | < 3 MB | **105 KB** |
 | Cold start, `nook --version` from the packed tarball | < 500 ms | **≈52 ms** |
 | Concurrent merge of one issue on two branches | zero conflicts | **0** |
-| Agent tokens, 40-issue scenario | < 4.5 KB | **4,040 B** |
+| Agent tokens, 40-issue scenario | < 4.5 KB | **4,065 B** |
 
 The size and cold-start numbers are measured against the tarball `npm pack`
 produces, not against `src/` — only the tarball reflects what you actually

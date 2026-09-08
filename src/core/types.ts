@@ -116,8 +116,17 @@ export interface OpenBoardOptions {
 }
 
 export class BoardNotInitialized extends Error {
-  constructor(dir: string) {
-    super(`不是一個 Nook board：${dir}（先執行 nook init）`);
+  /**
+   * `ceiling` 是向上尋根搜尋到的終點。訊息刻意保持單行 —— CLI 把它整條
+   * 寫到 stderr，換行會被讀成「有兩個問題要修」。
+   */
+  constructor(dir: string, ceiling?: string) {
+    super(
+      ceiling === undefined
+        ? `不是一個 Nook board：${dir}（先執行 nook init）`
+        : `不是一個 Nook board：${dir}` +
+          `（向上搜尋至 ${ceiling} 都沒有 .issues/issues/；請在專案根目錄執行 nook init）`,
+    );
     this.name = 'BoardNotInitialized';
   }
 }

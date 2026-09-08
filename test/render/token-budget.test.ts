@@ -150,7 +150,7 @@ const parts = (): ReadonlyArray<readonly [string, string]> => [
   ['list', renderTable(board) + '\n'],
   // show 不傳長度：CLI 的 cmdShow 只讀被點名的那一個 op-log（票 13），拿不到整塊
   // Board，因此詳情實際印的就是 SHORT_ID_MIN 碼。這裡照著量，不高估也不低估。
-  ['show', renderTable(shown) + '\n'],
+  ['show', renderTable(shown, DISPLAY_LEN) + '\n'],
   ['mv', renderTable([moved], DISPLAY_LEN) + '\n'],
   ['comment', renderTable([commented], DISPLAY_LEN) + '\n'],
 ];

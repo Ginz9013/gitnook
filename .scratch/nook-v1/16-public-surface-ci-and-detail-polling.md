@@ -70,7 +70,7 @@ Scope 明寫「四個可量測的硬指標，**全部進 CI**」，但倉庫**�
 
 ## Status
 
-todo
+done
 
 ## Done when
 
