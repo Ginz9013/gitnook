@@ -14,7 +14,7 @@ export type {
 } from './core/types.js';
 export { initBoard, ConflictingGitAttributes } from './core/gitattributes.js';
 export { shortIdLength, resolvePrefix, isValidRef, normalizeRef, SHORT_ID_MIN } from './core/ids.js';
-export { diagnose } from './core/health.js';
+export { diagnose, repair, type Repair } from './core/health.js';
 export {
   STATUSES,
   BoardNotInitialized,

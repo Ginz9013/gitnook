@@ -1,12 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Diagnostic } from './types.js';
 import { MERGE_RULE, inspectMergeGuarantee } from './gitattributes.js';
+import { OP_KINDS, splitGluedLine } from './ops.js';
 
 /**
- * 資料健康診斷。彙整成一份 Diagnostic 清單 ——
- * 黏合行與未知 Op 的偵測由票 05 補進來。
+ * 資料健康診斷。彙整成一份 Diagnostic 清單：merge=union 那條唯一支柱是否還在、
+ * 黏合行（ADR-0001 硬規則 1）、未知的 op 型別（硬規則 2）、以及真正無法解析的行。
  */
 export function diagnose(dir: string): Diagnostic[] {
   const found: Diagnostic[] = [];
@@ -39,7 +40,33 @@ export function diagnose(dir: string): Diagnostic[] {
   for (const name of opLogNames(dir)) {
     const relative = `${ISSUES_DIR}/${name}`;
     for (const [line, text] of numberedLines(readFileSync(join(dir, ISSUES_DIR, name), 'utf8'))) {
-      if (isParsable(text)) continue;
+      if (isParsable(text)) {
+        // 向前相容是資料安全問題（ADR-0001 硬規則 2）：reducer 靜默忽略未知 op，
+        // 所以 doctor 必須把它說出來，否則使用者只會看到欄位莫名其妙沒生效。
+        const kind = opKindOf(text);
+        if (kind !== null && !OP_KINDS.has(kind)) {
+          found.push({
+            kind: 'UnknownOp',
+            file: relative,
+            line,
+            message: `未知的 op 型別 ${kind}：reducer 會忽略這一行（可能需要升級 nook）`,
+          });
+        }
+        continue;
+      }
+
+      // 黏合行不是壞掉的資料，是還原得回來的資料 —— 分開回報，doctor 才能修復。
+      const glued = splitGluedLine(text);
+      if (glued !== null) {
+        found.push({
+          kind: 'GluedLine',
+          file: relative,
+          line,
+          message: `${glued.length} 個 op 被黏成一行（寫入時缺少 trailing newline），可修復：${excerpt(text)}`,
+        });
+        continue;
+      }
+
       found.push({
         kind: 'UnparsableLine',
         file: relative,
@@ -50,6 +77,46 @@ export function diagnose(dir: string): Diagnostic[] {
   }
 
   return found;
+}
+
+/** 一條被還原回來的黏合行。 */
+export interface Repair {
+  readonly file: string;
+  readonly line: number;
+  /** 這一行還原出幾個 op。 */
+  readonly ops: number;
+}
+
+/**
+ * 把黏合行還原成多行。**只拆行，不做任何語意判斷** ——
+ * union merge 複製出來的重複 op 交給 reduce 的 dedupe by id 吸收，
+ * 修復不該替使用者決定哪個 op 該留下。
+ */
+export function repair(dir: string): Repair[] {
+  const done: Repair[] = [];
+
+  for (const name of opLogNames(dir)) {
+    const path = join(dir, ISSUES_DIR, name);
+    const relative = `${ISSUES_DIR}/${name}`;
+    const out: string[] = [];
+    let changed = false;
+
+    for (const [line, text] of numberedLines(readFileSync(path, 'utf8'))) {
+      const glued = isParsable(text) ? null : splitGluedLine(text);
+      if (glued === null) {
+        out.push(text);
+        continue;
+      }
+      out.push(...glued);
+      done.push({ file: relative, line, ops: glued.length });
+      changed = true;
+    }
+
+    // 修好的檔案自己也必須守住硬規則 1，否則下一次 merge 又黏起來。
+    if (changed) writeFileSync(path, out.map((l) => `${l}\n`).join(''), 'utf8');
+  }
+
+  return done;
 }
 
 const ISSUES_DIR = '.issues/issues';
@@ -80,6 +147,15 @@ function isParsable(text: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** 已知可解析的行的 op 欄位。不是物件、或 op 不是字串時回傳 null。 */
+function opKindOf(text: string): string | null {
+  if (text.trim() === '') return null;
+  const parsed: unknown = JSON.parse(text);
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const op = (parsed as { op?: unknown }).op;
+  return typeof op === 'string' ? op : null;
 }
 
 function excerpt(text: string): string {
