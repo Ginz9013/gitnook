@@ -4,11 +4,11 @@
   "author": "KOUHEI",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ginz9013/nook-cli.git"
+    "url": "git+https://github.com/Ginz9013/gitnook.git"
   },
-  "homepage": "https://github.com/Ginz9013/nook-cli#readme",
+  "homepage": "https://github.com/Ginz9013/gitnook#readme",
   "bugs": {
-    "url": "https://github.com/Ginz9013/nook-cli/issues"
+    "url": "https://github.com/Ginz9013/gitnook/issues"
   },
   "description": "Git-native, agent-first issue tracker. Issues are plain text in your repo and merge without conflicts.",
   "keywords": [
