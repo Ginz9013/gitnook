@@ -192,9 +192,9 @@ src/index.ts                公開匯出（僅 openBoard 與型別）
 | package size | < 3MB | `npm pack` 後解壓量測 |
 | `npx` 冷啟 | < 500ms | 由 packed tarball 執行 `nook --version` |
 | 並行 merge | 零衝突 | 真實 git 整合測試 |
-| agent token | < 4KB | 見下 |
+| agent token | < 4.5KB | 見下 |
 
-**token 情境**（刻意不綁定特定 agent 工作流）：40 張票的專案 → `list` → `show` 一張 → `mv` → `comment`，量測「skill 文件 + 全部 CLI 輸出」的總 byte 數。**上限 4KB（約 1000 tokens），綁定 40 票這個前提**（會隨票數線性成長）。
+**token 情境**（刻意不綁定特定 agent 工作流）：40 張票的專案 → `list` → `show` 一張 → `mv` → `comment`，量測「skill 文件 + 全部 CLI 輸出」的總 byte 數。**上限 4.5KB（約 1150 tokens），綁定 40 票這個前提**（會隨票數線性成長）。
 
 用 byte 數而非 tokenizer：`tiktoken` 是 WASM、`gpt-tokenizer` 是數 MB devDependency，且不同模型 tokenizer 不同、數字無絕對意義。byte 數是確定性、零依賴的，作為**回歸閘門**完全夠用。
 

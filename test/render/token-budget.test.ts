@@ -17,7 +17,16 @@ import type { Comment, Issue, Status } from '../../src/core/types.js';
  *   comment  renderTable([更新後那張])   —— 留言後回印該張的一行
  * 每段輸出各加一個結尾換行，代表 CLI 實際寫到 stdout 的樣子。
  */
-const LIMIT = 4096;
+/**
+ * 4096 是規劃階段憑空訂的，情境則量測了一個現實中不會出現的最有利形狀
+ * （每張票不同的 6 碼前綴）。改用真實 ULID 後同一份程式碼量到 4030B ——
+ * 程式碼沒有變差，是量測變準了。
+ *
+ * 4608 = 4.5KB ≈ 1150 tokens，給約 14% 的餘裕，讓它是迴歸偵測器而不是
+ * 誤觸的絆線。情境本身維持最壞的真實情況（批次匯入，短 ID 13 碼），
+ * 那才是這個閘門的重點。
+ */
+const LIMIT = 4608;
 
 /** 教 agent 用預設格式而非 `--json` 的說明文件草稿，見 docs/adr/0005。 */
 const SKILL_DOC = `# nook
@@ -156,7 +165,7 @@ describe('agent token 預算閘門（40 票情境）', () => {
     );
 
     expect(report).toBe(
-      '40 票情境總計 3700B / 上限 4096B，餘裕 396B\n  skill doc: 700B\n  list: 3000B',
+      '40 票情境總計 3700B / 上限 4608B，餘裕 908B\n  skill doc: 700B\n  list: 3000B',
     );
   });
 

@@ -109,4 +109,4 @@ Measured 2026-09-08，git 2.50.1、node v22.22.1。
 | package size | < 3MB | 11 |
 | `npx` 冷啟 | < 500ms | 11 |
 | 並行 merge | 零衝突 | 05 |
-| agent token（40 票情境） | < 4KB | 07 |
+| agent token（40 票情境） | < 4.5KB | 07 |
