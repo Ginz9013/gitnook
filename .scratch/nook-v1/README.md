@@ -47,8 +47,13 @@
 | B3 | 03 | 1 | 進行中 | OR-Set 與 comments（core 檔案，無法與 04 同批） |
 | B4 | 04 | 1 | | list 與前綴解析（core 檔案，無法與 03 同批） |
 | B5 | 05 ∥ 09 | 2 | | 真實 git 合併閘門／studio server |
-| B6 | 10 ∥ 12 | 2 | | CLI／短 ID 碰撞的渲染側接線 |
-| B7 | 11 | 1 | | 打包與體積、冷啟閘門 |
+| B6 | 10 ∥ 12 | 2 | ✅ | CLI／短 ID 碰撞的渲染側接線 |
+| B7 | 13 | 1 | | label 指令、doctor --fix、warnIfUnguarded 效能 |
+| B8 | 11 | 1 | | 打包與體積、冷啟閘門 |
+
+> **票 13 必須排在票 11 之前。** 票 11 要寫 README 與正式的 skill 文件，而
+> 目前的草稿已經在宣傳一個不存在的 `nook label` 指令。順序反了就會出貨一份
+> 教人用不存在指令的文件。
 
 B2 實測：四個 worker 零越界，golden 檔前綴策略（`table-`／`json-` vs `html-`）在同一目錄下無碰撞，三個獨立撞到票 01 characterization 測試的 worker 都選擇回報而非自行修改。
 
@@ -70,6 +75,7 @@ B2 實測：四個 worker 零越界，golden 檔前綴策略（`table-`／`json-
 | 10 | `src/cli/run.ts` `bin/nook.js` |
 | 11 | `tsup.config.ts` `package.json` `LICENSE` `README.md` `bench/*` |
 | 12 | `src/render/{table,html}.ts` |
+| 13 | `src/cli/run.ts` `src/index.ts`（僅 re-export） |
 
 各票的測試檔隨其實作檔一併擁有，詳見各票。
 

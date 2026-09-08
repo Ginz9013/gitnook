@@ -230,6 +230,8 @@ Measured 2026-09-08。目錄為空且**不是 git repo**（`git rev-parse` 回�
 - **protocol-relative URL（`//evil.com`）不被 scheme 白名單擋下**，因為它不帶 scheme。在唯讀的 localhost 檢視器上這是導覽困擾而非 XSS 路徑，票 08 選擇如實回報而不擅自放寬規則。
 - **`serve.test.ts` 的 LAN 綁定測試需要一個非 loopback 的 IPv4 介面。** 票 09 刻意讓它在找不到時**拋錯而非靜默跳過** —— 靜默跳過會讓 `0.0.0.0` 的迴歸在 CI 裡無聲通過。若 CI 環境沒有對外介面，這需要一個明確決定（標記為 known-skip 並在別處補償），不能默默略過。
 - **詳情頁沒有輪詢重載。** 票 09 的寫入範圍只授權放寬 `renderBoardHtml`，給 `renderIssueHtml` 同樣的選項是第二次簽章變更，worker 選擇回報而非越界。看板（開會的投影面）會自動更新，`/i/<ref>` 不會。約兩行的後續工作。
+- **渲染層的短 ID 無歧義只在「它拿到的那一批」之內成立。** `renderTable` 通常收到 `list()` 的結果，而 `list()` 預設隱藏 archived / done / cancelled —— 一個對 `list` 輸出無歧義的短 ID，仍可能與被隱藏的 Issue 在 `board.get()` 端撞號。失敗是安全的（`AmbiguousRef` 會列出候選），但仍是壞 Ref。要修得把解析用的候選集合傳進渲染層，會改變 `renderTable` 的簽章。（票 12 回報）
+- **`new` 印出的短 ID 可能日後變成有歧義。** ULID 前綴是時間高位，之後建立的 Issue 可能延長共用前綴。契約是「印出的當下無歧義」，git 有同樣的性質。要永久穩定只能印完整 26 碼。（票 10 回報）
 - **`.gitattributes` 是唯一的單點失效。** 被誤刪時資料會靜默開始衝突。`doctor` 必須檢查，`list`/`show` 偵測缺失時應印警告。
 - **description 是 LWW**，並行編輯會撞掉整份文件。敗方版本完整留在 op-log；v1 未提供 `history --restore` 撈回介面（**已知缺口，v2 補**）。將來上 RGA/Fugue 時 op-log 格式不需改變，僅新增 op 型別。
 - **跨 branch 無真正原子性。** 多個 agent 在各自 worktree 平行工作時可能重複領取同一張票；CRDT 會讓兩個 op 都存活並收斂，但工可能白做。v1 接受此限制並寫入文件。

@@ -46,7 +46,7 @@ const issue = (
   labels: readonly string[],
   extra: { description?: string; comments?: readonly Comment[] } = {},
 ): Issue => ({
-  id: shortId.padEnd(26, '0'),
+  id: realisticId(shortId),
   title,
   status,
   description: extra.description ?? '',
@@ -54,6 +54,17 @@ const issue = (
   archived: false,
   comments: extra.comments ?? [],
 });
+
+/**
+ * 真實形狀的 ULID：前 10 碼是時間高位，**前 6 碼每 17.5 分鐘才變一次**。
+ * 批次匯入（從別的 tracker 遷移）會讓 40 張票落在同一毫秒，shortIdLength
+ * 因此被推到 13 碼。閘門必須量測會先壞掉的那個情況，而不是最有利的那個 ——
+ * 原本的 fixture 給每張票一個不同的 6 碼前綴，那是現實中不會出現的形狀。
+ */
+const SHARED_TIME_PREFIX = '01M20QTC4R';
+function realisticId(seed: string): string {
+  return (SHARED_TIME_PREFIX + seed.slice(2)).padEnd(26, 'Z').slice(0, 26);
+}
 
 /** 40 張 Issue 的專案。標題長度取自真實 issue 的分佈，不是最短的樣本。 */
 const board: readonly Issue[] = [
