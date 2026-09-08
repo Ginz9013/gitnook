@@ -3,7 +3,10 @@ name: nook
 description: Operate the nook CLI — a git-native issue tracker whose issues are plain text files in the repo. Use when the working directory (or any parent) has a .issues/ directory, when the user asks to create, list, update, comment on, or close issues, when they mention a board, a ticket, or nook itself, or when a task should be recorded rather than only done. Covers every command, the queued authorization boundary, ref handling, and what nook deliberately refuses to do.
 ---
 
-# nook
+# nook — agent usage guide
+
+Point any coding agent at this file. It is plain Markdown; the YAML header above
+is metadata some tools read and others ignore.
 
 Issues are plain text files in the repo. They travel with the branch, merge without conflicts, and are readable by `cat`. There is no server and no account.
 

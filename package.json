@@ -2,6 +2,14 @@
   "name": "@nook/cli",
   "version": "0.1.0",
   "author": "KOUHEI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ginz9013/nook-cli.git"
+  },
+  "homepage": "https://github.com/Ginz9013/nook-cli#readme",
+  "bugs": {
+    "url": "https://github.com/Ginz9013/nook-cli/issues"
+  },
   "description": "Git-native, agent-first issue tracker. Issues are plain text in your repo and merge without conflicts.",
   "keywords": [
     "issue-tracker",
@@ -30,7 +38,7 @@
   "files": [
     "dist",
     "bin",
-    ".claude/skills",
+    "AGENT.md",
     "README.md",
     "LICENSE"
   ],

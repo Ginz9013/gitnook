@@ -191,20 +191,24 @@ reflex is to hand an agent JSON; measuring says the opposite:
 Same information, half the bytes, and no model has trouble reading it. `--json`
 stays for scripts that genuinely need to parse.
 
-### Claude Code skill
+### Agent usage guide
 
-The package ships a full agent skill at `.claude/skills/nook/SKILL.md`. The block
-above is the minimum an agent needs in every interaction; the skill is the
-complete reference — every command, the `queued` authorization boundary, how refs
-work, and what nook refuses to do.
+`AGENT.md` ships with the package. The block above is the minimum an agent needs
+in every interaction; `AGENT.md` is the complete reference — every command, the
+`queued` authorization boundary, how refs work, and what nook refuses to do.
 
-```sh
-mkdir -p .claude/skills
-cp -r node_modules/@nook/cli/.claude/skills/nook .claude/skills/
+It is plain Markdown with a YAML header, so point any agent at it:
+
+```
+node_modules/@nook/cli/AGENT.md
 ```
 
-Claude Code only discovers skills under `.claude/skills/` or `~/.claude/skills/`,
-so it will not be picked up from `node_modules` on its own.
+For Claude Code, symlink it in so it loads on demand:
+
+```sh
+mkdir -p ~/.claude/skills/nook
+ln -s "$PWD/node_modules/@nook/cli/AGENT.md" ~/.claude/skills/nook/SKILL.md
+```
 
 ## Library first
 
