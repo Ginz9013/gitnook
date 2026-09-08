@@ -1,0 +1,77 @@
+# spec.md 的 Scope 寫的是「四個可量測的硬指標，**全部進 CI**」。閘門本身早就
+# 寫好了（package size、冷啟、並行 merge 零衝突、agent token），但沒有任何東西
+# 會自動跑它們 —— 一個沒人執行的閘門就不是閘門。
+#
+# 三道指令即全部：`tsc --noEmit`（靜態）、`vitest run`（全套，含四個閘門測試中
+# 的兩個）、`npm run bench`（四個硬指標的單一入口，任何一個超標就 exit 1）。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同一個 ref 上只留最後一次 —— bench 會 npm pack 並實測冷啟，不便宜。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # package.json 的 engines 是 >=22，而 ADR-0002 的取捨（不用 node:sqlite）
+      # 正是為了不把最低版本綁在 experimental API 上。這裡就跑那個最低版本。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # ── serve.test.ts 的 LAN 綁定測試 ────────────────────────────────────
+      #
+      # `studio` 只綁 127.0.0.1；那個測試證明它在**本機的對外 IPv4 介面上連不
+      # 上**，因此需要一個非 loopback 的 IPv4 介面才問得出任何事。找不到時它
+      # 刻意**拋錯而非靜默跳過**（spec.md 的 Risks）—— 靜默跳過會讓一個綁上
+      # `0.0.0.0` 的迴歸在 CI 裡無聲通過，而那等於把整塊 Board 送給同一個網段。
+      #
+      # 決定：**不改成跳過，也不在 CI 裡把它關掉。** GitHub 託管的 runner 有
+      # eth0，所以這個測試在這裡是真的跑起來的。這一步只是把那個前提**明講**：
+      # 沒有介面時在第四步就以一句說得出下一步的訊息失敗，而不是讓它變成套件
+      # 深處一個看起來像 socket 壞掉的斷言。
+      #
+      # 若將來真的必須跑在無對外介面的 runner 上，正解是把這個保證移到一個有
+      # 介面的 job（或實體機）上補償，而不是讓它悄悄消失。
+      - name: 前置檢查：LAN 綁定測試需要一個非 loopback 的 IPv4 介面
+        run: |
+          node -e '
+            const os = require("node:os");
+            const found = Object.values(os.networkInterfaces())
+              .flatMap((addrs) => addrs ?? [])
+              .filter((a) => a.family === "IPv4" && !a.internal)
+              .map((a) => a.address);
+            if (found.length === 0) {
+              console.error(
+                "這個 runner 沒有非 loopback 的 IPv4 介面，" +
+                "test/server/serve.test.ts 無法驗證「studio 不綁 LAN」。\n" +
+                "不要把它改成靜默跳過（那會讓 0.0.0.0 的迴歸無聲通過）——" +
+                "請改用有對外介面的 runner，或另開一個 job 補償這個保證。",
+              );
+              process.exit(1);
+            }
+            console.log(`非 loopback IPv4：${found.join(", ")}`);
+          '
+
+      # 靜態檢查排在測試之前：型別錯誤的回饋比跑完一輪測試快得多。
+      - run: npx tsc --noEmit
+
+      # 全套。git 一律真實（ADR-0004），需要身分的測試各自在自己的暫存 repo 裡
+      # 設 local 的 user.email / user.name —— 刻意不在這裡設全域身分，那會遮掉
+      # 「某個測試其實依賴開發者機器上的設定」這種缺陷。
+      - run: npx vitest run
+
+      # 四個硬指標。npm pack + 實測冷啟，所以排在最後。
+      - run: npm run bench

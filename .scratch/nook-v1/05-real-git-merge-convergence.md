@@ -13,6 +13,7 @@
 - [ ] 兩分支各自 `apply` 不同變更 → `git merge` **exit 0、無衝突標記**，且雙方變更皆存活
 - [ ] `git rebase` 路徑同樣無衝突（spike T4）
 - [ ] 分支 A 移除 label、分支 B 並行新增同一 label → 合併後 **add 勝出**
+- [ ] ⚠️ **上一條必須涵蓋兩種 actor 排序**（票 03 用變異測試發現）。全序是 `(t, a, id)`：當移除方的 actor 排在並行新增方**之前**時，一個完全不看 `seen`、單純「以值移除」的天真實作**也會通過測試**。只測單一 actor 排序等於沒測。票 03 的 `test/core/board.labels.test.ts` 有 `ACTOR_ORDERS` 常數與理由註解，請沿用同一套
 - [ ] 兩分支並行 `set status` → 合併後結果依 `(t, a, id)` 確定，且**兩個 op 都留在檔案裡**
 - [ ] 兩分支各自新增 comment → 合併後兩則都在
 
@@ -25,6 +26,8 @@
 **向前相容（硬規則 2）**
 
 - [ ] 含未知 `op` 型別的行被**忽略而非崩潰**，同檔案的其他 op 仍正確 fold
+- [ ] 未知 op 的偵測請使用 `src/core/ops.ts` 既有的 `OP_KINDS`，不要另建一份清單（票 03 已補齊該集合的五個值；目前它還沒有任何消費者）
+- [ ] ⚠️ **壞資料測試要避開字串陷阱**（票 03 發現）：`label.rm` 的 `seen` 若寫成 `seen: 'bug'`，字串**是可迭代的**，`Array.isArray` 守衛不會被觸發，測試形同虛設。要用 `seen: 42` / `seen: null` / `seen` 缺漏這類真正不可迭代的形狀
 - [ ] 含未知欄位的已知 op 仍正確 fold
 
 ## Test seam
@@ -49,7 +52,7 @@
 
 ## Status
 
-todo
+done
 
 ## Done when
 

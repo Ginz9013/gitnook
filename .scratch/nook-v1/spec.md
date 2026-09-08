@@ -18,7 +18,7 @@
 - op-based CRDT，append-only NDJSON，每個 issue 一個檔
 - 靠 git **內建**的 `merge=union` driver 達成零衝突（`.gitattributes` 提交即對所有 clone 生效，無需任何人執行 `git config`）
 - library-first：`openBoard()` 可被 import
-- 9 個 CLI 指令，預設輸出為緊湊表格（人與 agent 共用）
+- 10 個 CLI 指令，預設輸出為緊湊表格（人與 agent 共用）
 - SSR 唯讀 GUI，兩個檢視
 - 四個可量測的硬指標，全部進 CI
 
@@ -71,12 +71,14 @@ assignee、priority、milestone、due date、estimate、可設定的 status、�
 
 ```
 1. 逐行 parse，無法 parse 的丟棄並記錄（供 doctor）
-2. dedupe by op.id，保留第一次出現              ← 冪等性
-3. 全序排序 by (t, a, id)                        ← 交換律 ★
+2. 全序排序 by (t, a, id)                        ← 交換律 ★
+3. dedupe by op.id，保留全序中的第一個            ← 冪等性
 4. fold（純函數）                                ← 結合律
 ```
 
-第 3 步是心臟：最終狀態只取決於 op **集合**，不取決於它們在檔案裡的順序，所以 union merge 如何交錯兩邊的行都無所謂。
+第 2 步是心臟：最終狀態只取決於 op **集合**，不取決於它們在檔案裡的順序，所以 union merge 如何交錯兩邊的行都無所謂。
+
+**排序必須在 dedupe 之前。** spike T3 只證實 git 會去重「位元組完全相同」的行；同 id 而內容不同的行（ULID 碰撞、當機寫到一半、`doctor` 修復黏合行、手動編輯）union merge 會照樣兩行都留。若先 dedupe，「保留第一次出現」的「第一」就定義在行順序上，收斂性隨即破功。先排序後，「第一」定義在全序上，才真正與行順序無關。
 
 ### spike 逼出的三條硬規則
 
@@ -126,7 +128,7 @@ interface Board {
 - **Seam**：`openBoard()` 本身即公開接縫。
 - **Dependencies**：`IdSource`（注入）、檔案系統（**真實**）。
 
-**刪除測試**：拿掉 `Board`，CRDT 複雜度會同時出現在 9 個 CLI 指令、GUI server、與每個第三方 importer 身上。撐得住。
+**刪除測試**：拿掉 `Board`，CRDT 複雜度會同時出現在 10 個 CLI 指令、GUI server、與每個第三方 importer 身上。撐得住。
 
 ### 兩個刻意不設的接縫
 
@@ -190,13 +192,13 @@ src/index.ts                公開匯出（僅 openBoard 與型別）
 | package size | < 3MB | `npm pack` 後解壓量測 |
 | `npx` 冷啟 | < 500ms | 由 packed tarball 執行 `nook --version` |
 | 並行 merge | 零衝突 | 真實 git 整合測試 |
-| agent token | < 4KB | 見下 |
+| agent token | < 4.5KB | 見下 |
 
-**token 情境**（刻意不綁定特定 agent 工作流）：40 張票的專案 → `list` → `show` 一張 → `mv` → `comment`，量測「skill 文件 + 全部 CLI 輸出」的總 byte 數。**上限 4KB（約 1000 tokens），綁定 40 票這個前提**（會隨票數線性成長）。
+**token 情境**（刻意不綁定特定 agent 工作流）：40 張票的專案 → `list` → `show` 一張 → `mv` → `comment`，量測「skill 文件 + 全部 CLI 輸出」的總 byte 數。**上限 4.5KB（約 1150 tokens），綁定 40 票這個前提**（會隨票數線性成長）。
 
 用 byte 數而非 tokenizer：`tiktoken` 是 WASM、`gpt-tokenizer` 是數 MB devDependency，且不同模型 tokenizer 不同、數字無絕對意義。byte 數是確定性、零依賴的，作為**回歸閘門**完全夠用。
 
-同一原因下的設計結論：**`--json` 對 agent 反而浪費**（`{"id":"01JBX7A9Q3","title":"Fix login redirect","status":"queued","labels":["bug"]}` 88 bytes vs `01JBX7  queued  Fix login redirect  [bug]` 43 bytes）。預設輸出即緊湊表格，skill 文件教 agent 用預設格式；`--json` 僅供程式化串接。
+同一原因下的設計結論：**`--json` 對 agent 反而浪費**（`{"id":"01JBX7A9Q3","title":"Fix login redirect","status":"queued","labels":["bug"]}` 83 bytes vs `01JBX7  queued  Fix login redirect  [bug]` 41 bytes）。預設輸出即緊湊表格，skill 文件教 agent 用預設格式；`--json` 僅供程式化串接。
 
 ## Test strategy
 
@@ -224,6 +226,12 @@ Measured 2026-09-08。目錄為空且**不是 git repo**（`git rev-parse` 回�
 ## Risks and deferred questions
 
 - **`@nook/cli` scope 未實際註冊。** `nook` 已被 2014-10-30 發布的 `0.0.2`（「Distributed File System」，單一 maintainer，12 年未動）佔用；`@nook` scope 底下目前 0 個套件。bin 名 `nook` 與套件名獨立，且系統無指令衝突。發布前需確認 scope 可註冊；可另行向 npm 提名稱爭議，但不應卡住時程。
+- **token 預算的餘裕只有 9.4%。** 票 07 實測 40 票情境為 3710B / 4096B，餘裕 386B。`list` 一段就佔了 69% 的預算且隨票數線性成長 —— 約 45 張票就會爆。上限已綁定 40 票這個前提，所以這是設計上接受的，但**票 10（CLI）與票 11（skill 文件正式版）任何一方多寫幾行都會撞上**。閘門的靈敏度實測約 10%（欄距從 2 空白改成 6 即被擋下）。
+- **protocol-relative URL（`//evil.com`）不被 scheme 白名單擋下**，因為它不帶 scheme。在唯讀的 localhost 檢視器上這是導覽困擾而非 XSS 路徑，票 08 選擇如實回報而不擅自放寬規則。
+- **`serve.test.ts` 的 LAN 綁定測試需要一個非 loopback 的 IPv4 介面。** 票 09 刻意讓它在找不到時**拋錯而非靜默跳過** —— 靜默跳過會讓 `0.0.0.0` 的迴歸在 CI 裡無聲通過。若 CI 環境沒有對外介面，這需要一個明確決定（標記為 known-skip 並在別處補償），不能默默略過。
+- **詳情頁沒有輪詢重載。** 票 09 的寫入範圍只授權放寬 `renderBoardHtml`，給 `renderIssueHtml` 同樣的選項是第二次簽章變更，worker 選擇回報而非越界。看板（開會的投影面）會自動更新，`/i/<ref>` 不會。約兩行的後續工作。
+- **渲染層的短 ID 無歧義只在「它拿到的那一批」之內成立。** `renderTable` 通常收到 `list()` 的結果，而 `list()` 預設隱藏 archived / done / cancelled —— 一個對 `list` 輸出無歧義的短 ID，仍可能與被隱藏的 Issue 在 `board.get()` 端撞號。失敗是安全的（`AmbiguousRef` 會列出候選），但仍是壞 Ref。要修得把解析用的候選集合傳進渲染層，會改變 `renderTable` 的簽章。（票 12 回報）
+- **`new` 印出的短 ID 可能日後變成有歧義。** ULID 前綴是時間高位，之後建立的 Issue 可能延長共用前綴。契約是「印出的當下無歧義」，git 有同樣的性質。要永久穩定只能印完整 26 碼。（票 10 回報）
 - **`.gitattributes` 是唯一的單點失效。** 被誤刪時資料會靜默開始衝突。`doctor` 必須檢查，`list`/`show` 偵測缺失時應印警告。
 - **description 是 LWW**，並行編輯會撞掉整份文件。敗方版本完整留在 op-log；v1 未提供 `history --restore` 撈回介面（**已知缺口，v2 補**）。將來上 RGA/Fugue 時 op-log 格式不需改變，僅新增 op 型別。
 - **跨 branch 無真正原子性。** 多個 agent 在各自 worktree 平行工作時可能重複領取同一張票；CRDT 會讓兩個 op 都存活並收斂，但工可能白做。v1 接受此限制並寫入文件。
