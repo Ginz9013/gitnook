@@ -39,7 +39,7 @@ nook new "<title>"         create an issue
 nook mv <ref> <status>     backlog todo queued in_progress review blocked done cancelled
 nook comment <ref> "<body>"
 nook label <ref> +bug -ui
-nook archive <ref>
+nook set <ref> archived true
 
 <ref> is any unambiguous ID prefix. Status takes prefixes too (que -> queued).
 queued means requirements are settled: act without asking.

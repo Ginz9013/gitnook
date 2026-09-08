@@ -18,7 +18,7 @@
 - op-based CRDT，append-only NDJSON，每個 issue 一個檔
 - 靠 git **內建**的 `merge=union` driver 達成零衝突（`.gitattributes` 提交即對所有 clone 生效，無需任何人執行 `git config`）
 - library-first：`openBoard()` 可被 import
-- 9 個 CLI 指令，預設輸出為緊湊表格（人與 agent 共用）
+- 10 個 CLI 指令，預設輸出為緊湊表格（人與 agent 共用）
 - SSR 唯讀 GUI，兩個檢視
 - 四個可量測的硬指標，全部進 CI
 
@@ -128,7 +128,7 @@ interface Board {
 - **Seam**：`openBoard()` 本身即公開接縫。
 - **Dependencies**：`IdSource`（注入）、檔案系統（**真實**）。
 
-**刪除測試**：拿掉 `Board`，CRDT 複雜度會同時出現在 9 個 CLI 指令、GUI server、與每個第三方 importer 身上。撐得住。
+**刪除測試**：拿掉 `Board`，CRDT 複雜度會同時出現在 10 個 CLI 指令、GUI server、與每個第三方 importer 身上。撐得住。
 
 ### 兩個刻意不設的接縫
 
