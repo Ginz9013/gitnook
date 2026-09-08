@@ -71,12 +71,14 @@ assignee、priority、milestone、due date、estimate、可設定的 status、�
 
 ```
 1. 逐行 parse，無法 parse 的丟棄並記錄（供 doctor）
-2. dedupe by op.id，保留第一次出現              ← 冪等性
-3. 全序排序 by (t, a, id)                        ← 交換律 ★
+2. 全序排序 by (t, a, id)                        ← 交換律 ★
+3. dedupe by op.id，保留全序中的第一個            ← 冪等性
 4. fold（純函數）                                ← 結合律
 ```
 
-第 3 步是心臟：最終狀態只取決於 op **集合**，不取決於它們在檔案裡的順序，所以 union merge 如何交錯兩邊的行都無所謂。
+第 2 步是心臟：最終狀態只取決於 op **集合**，不取決於它們在檔案裡的順序，所以 union merge 如何交錯兩邊的行都無所謂。
+
+**排序必須在 dedupe 之前。** spike T3 只證實 git 會去重「位元組完全相同」的行；同 id 而內容不同的行（ULID 碰撞、當機寫到一半、`doctor` 修復黏合行、手動編輯）union merge 會照樣兩行都留。若先 dedupe，「保留第一次出現」的「第一」就定義在行順序上，收斂性隨即破功。先排序後，「第一」定義在全序上，才真正與行順序無關。
 
 ### spike 逼出的三條硬規則
 

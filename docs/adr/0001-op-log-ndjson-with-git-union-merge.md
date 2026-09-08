@@ -1,6 +1,6 @@
 # Op-log NDJSON，靠 git 內建的 `merge=union` 達成零衝突
 
-同類工具（backlog.md 等）把 markdown 當**儲存格式**，用 `## Status` 這樣的 heading 當資料庫欄位；並行分支修改同一張 Issue 時必然產生人工衝突，而且 heading 解析本身就是持續的 bug 來源。我們改以 op-based CRDT 儲存：每張 Issue 一個 append-only NDJSON 檔，一行一個 Op；`.gitattributes` 中的 `.issues/issues/*.ndjson merge=union` 讓 git 在合併時保留雙方所有行，而摺疊結果只取決於 Op 的**集合**（dedupe by id、以 `(t, actor, id)` 全序排序）而非行的順序，因此合併必然收斂。
+同類工具（backlog.md 等）把 markdown 當**儲存格式**，用 `## Status` 這樣的 heading 當資料庫欄位；並行分支修改同一張 Issue 時必然產生人工衝突，而且 heading 解析本身就是持續的 bug 來源。我們改以 op-based CRDT 儲存：每張 Issue 一個 append-only NDJSON 檔，一行一個 Op；`.gitattributes` 中的 `.issues/issues/*.ndjson merge=union` 讓 git 在合併時保留雙方所有行，而摺疊結果只取決於 Op 的**集合**（先以 `(t, actor, id)` 全序排序、再 dedupe by id）而非行的順序，因此合併必然收斂。
 
 ## Considered Options
 
@@ -14,7 +14,8 @@
 
 1. **每次寫入必須以 `\n` 結尾。** 缺少時 union merge 會把兩行黏成非法 JSON 並複製前一行。reducer 必須偵測黏合行，`doctor` 必須能修復。
 2. **未知的 Op 型別必須忽略而非崩潰。** 資料活在 git 裡，隊友的版本不同步是常態；向前相容在這裡是資料安全問題。
-3. **不得真的刪除 Issue 檔。** modify/delete 是 union 不涵蓋的固有衝突。v1 因此完全不提供刪除。
+3. **排序必須在 dedupe 之前。** 實測只證實 git 會去重位元組完全相同的行；同 id 而內容不同的行會兩行都留下。先 dedupe 等於把「第一次出現」定義在行順序上，收斂性即告破功。
+4. **不得真的刪除 Issue 檔。** modify/delete 是 union 不涵蓋的固有衝突。v1 因此完全不提供刪除。
 
 代價：NDJSON 在 GitHub 網頁上不如 markdown 好讀。緩解方式是讓 Op 的 JSON 單行可讀，並提供 `show` 的 markdown 輸出。**絕不可同時提交一份產生出來的 markdown 當「可讀版本」** —— 那會製造第二個衝突來源，把剛解決的問題原地加倍。
 

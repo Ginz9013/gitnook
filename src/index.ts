@@ -12,6 +12,8 @@ export type {
   IdSource,
   OpenBoardOptions,
 } from './core/types.js';
+export { initBoard, ConflictingGitAttributes } from './core/gitattributes.js';
+export { diagnose } from './core/health.js';
 export {
   STATUSES,
   BoardNotInitialized,
