@@ -3,8 +3,8 @@
 反射動作是「給 agent 用就輸出 JSON」。量過之後發現相反：
 
 ```
-{"id":"01JBX7A9Q3","title":"Fix login redirect","status":"queued","labels":["bug"]}   88 bytes
-01JBX7  queued  Fix login redirect  [bug]                                            43 bytes
+{"id":"01JBX7A9Q3","title":"Fix login redirect","status":"queued","labels":["bug"]}   83 bytes
+01JBX7  queued  Fix login redirect  [bug]                                            41 bytes
 ```
 
 同樣的資訊，緊湊表格是 JSON 的一半，而 LLM 解析它毫無困難。JSON 的結構字元對 agent 而言幾乎是純粹的浪費。因此**人與 agent 共用同一個預設輸出**，agent 的說明文件教的是預設格式而非 `--json`；`--json` 保留給真正需要程式化剖析的串接場景。
