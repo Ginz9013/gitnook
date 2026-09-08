@@ -1,0 +1,7 @@
+01JBX7  blocked  Fix the login redirect loop that only reproduces on Safari 17  [bug,p1]
+
+登入後被導回 /login，只在 Safari 17 重現。
+Chrome 與 Firefox 正常。
+
+- k3f9  safari 才會重現
+- m8q2  等 Safari 17.4 的修正
