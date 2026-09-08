@@ -28,11 +28,27 @@ Scope 明寫「四個可量測的硬指標，**全部進 CI**」，但倉庫**�
 - [ ] 給 `renderIssueHtml` 同樣的 `inlineScript` 選項，`handleRequest` 兩條路徑都注入
 - [ ] 腳本仍須是頁面上唯一的 JS，且 `</script>` 的逸出不得退化
 
-### 接上票 15 的廉價 id 來源（票 14 揭露）
+### ⚠️ 票 15 揭露的三個接線缺口（最高優先）
+
+尋根讓 core 正確了，但 CLI 仍有三處直接用 `io.cwd`，在子目錄執行時全部錯。**實測可重現**。
+
+- [ ] **`warnIfUnguarded()` 在子目錄發出假警報。** 實測：`(in src/deep) nook list` 印出「警告：`.gitattributes` 缺少 merge=union」，而根目錄那一行好好的。**這比噪音更糟 —— 它訓練使用者忽略關於唯一單點失效的警告**，而那正是最不該被忽略的一則。改為問在 board 根目錄上
+- [ ] **`cmdDoctor` 用 `diagnose(io.cwd)` / `repair(io.cwd)`，在子目錄診斷錯的目錄。** `--fix` 會掃不到任何 op-log，等於靜默不修。`board.health()` 已經會尋根，改走它
+- [ ] **`NestedBoard` 拿到 exit 2 而非 1。** 它是使用者自己修得好的錯誤，但不在 `USER_ERRORS` 也沒從 `src/index.ts` 匯出，訊息因此被冠上 `NestedBoard: ` 前綴。同理 `findBoardRoot`、`BoardRoot` 也還沒公開匯出 —— 請一併判斷哪些該進公開面
+- [ ] **`board.health()` 目前零呼叫端、零測試。** 修完上一條它才會有第一個使用者
+
+### 由 orchestrator 裁決：`BoardNotFound` 收攏回 `BoardNotInitialized`
+
+票 15 因為對 `types.ts` 的寫入權限僅限 `Board` 介面，把「訊息交代搜尋範圍」做成 `BoardNotInitialized` 的子類別。`instanceof` 與 `name` 都不變，所以沒有壞任何東西，但為了換一段訊息而多一個型別是繞路。
+
+- [ ] 讓 `BoardNotInitialized` 收下選用的 `from` / `ceiling`，刪掉 `BoardNotFound` 子類別（約 6 行）
+- [ ] 既有的 `toThrow(BoardNotInitialized)` 與 `USER_ERRORS` 的 `instanceof` 不得改變行為
+
+### 接上票 15 的廉價 Ref 來源（票 14 揭露）
 
 - [ ] `cmdShow` 目前印 6 碼短 ID，因為改用整個 board 的長度需要 `list({ all: true })`，那會摺疊每一份 op-log 並打破票 13 的效能保證
 - [ ] `cmdList` 對**過濾後**的集合算長度 —— `nook list` 可能印出被 `nook show` 判為有歧義的 ref
-- [ ] 兩者都改用票 15 在 `Board` 上提供的廉價 id 來源（只列舉目錄、不摺疊）
+- [ ] 兩者都改用票 15 已提供的 `board.refs()`（只列舉目錄、不摺疊）。`run.ts:190` 的 `displayLength(board)` 目前仍呼叫 `board.list({ all: true })`，改成 `shortIdLength(board.refs())` 後 `cmdShow` 就能一併用上而不違反票 13 的效能保證
 - [ ] 測試釘住：`list` 與 `show` 印出的短 ID **長度相同**，且 `show` 仍然不讀其他 Issue 的 op-log 內容
 
 ### 詞彙
