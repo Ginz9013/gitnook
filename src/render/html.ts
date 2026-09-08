@@ -54,15 +54,26 @@ color:var(--muted)}
 .comment .body>p:first-child{margin-top:2px}
 `;
 
+/**
+ * 腳本內容不逸出 —— 它是 JS，不是文字。唯一要防的是提前閉合 `</script>`：
+ * `<\/` 在 JS 的字串與 regex 字面量中與 `</` 等價，因此這個替換對合法的
+ * 腳本無害，卻讓任何 `</script>` 都無法從元素裡逃出去。
+ */
+function inlineScriptTag(script: string): string {
+  return `<script>${script.replaceAll('</', '<\\/')}</script>\n`;
+}
+
 /** `title` 收未逸出的原文 —— 逸出責任留在這裡，呼叫端不必記得。 */
-function page(title: string, body: string): string {
+function page(title: string, body: string, inlineScript?: string): string {
   return (
     `<!doctype html>\n<html lang="en">\n<head>\n` +
     `<meta charset="utf-8">\n` +
     `<meta name="viewport" content="width=device-width,initial-scale=1">\n` +
     `<title>${escapeHtml(title)}</title>\n` +
     `<style>${STYLESHEET}</style>\n` +
-    `</head>\n<body>\n${body}\n</body>\n</html>\n`
+    `</head>\n<body>\n${body}\n` +
+    (inlineScript === undefined ? '' : inlineScriptTag(inlineScript)) +
+    `</body>\n</html>\n`
   );
 }
 
@@ -293,11 +304,22 @@ function card(issue: Issue): string {
   );
 }
 
+export interface BoardHtmlOptions {
+  /**
+   * 內嵌到頁面尾端的 JS。studio server 用它送出輪詢重載的腳本；
+   * 未傳入時頁面維持零 JS（票 08 的契約）。
+   */
+  readonly inlineScript?: string;
+}
+
 /**
  * 看板：八個固定 status 各一欄，順序即 STATUSES（見 docs/adr/0003）。
  * archived 是可見性欄位，預設隱藏。
  */
-export function renderBoardHtml(issues: readonly Issue[]): string {
+export function renderBoardHtml(
+  issues: readonly Issue[],
+  opts: BoardHtmlOptions = {},
+): string {
   const visible = issues.filter((i) => !i.archived);
   const cols = STATUSES.map((s) => {
     const inCol = visible.filter((i) => i.status === s);
@@ -308,7 +330,7 @@ export function renderBoardHtml(issues: readonly Issue[]): string {
       `</section>`
     );
   }).join('\n');
-  return page('Nook', `<main class="board">\n${cols}\n</main>`);
+  return page('Nook', `<main class="board">\n${cols}\n</main>`, opts.inlineScript);
 }
 
 /**

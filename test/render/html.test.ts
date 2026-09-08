@@ -529,3 +529,52 @@ describe('document title 的逸出', () => {
     expect(html).toMatch(/<title>&lt;\/title&gt;&lt;script&gt;/);
   });
 });
+
+/** 取出頁面上所有 <script> 元素的內容。 */
+function scripts(html: string): string[] {
+  return [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]!);
+}
+
+describe('renderBoardHtml 的內嵌腳本（票 09 的輪詢重載）', () => {
+  it('傳入 inlineScript 時，原樣輸出成頁面上唯一的 <script>', () => {
+    const html = renderBoardHtml([issue({ id: 'AAAAAA0001', title: 'a', status: 'todo' })], {
+      inlineScript: "setInterval(() => fetch('/hash'), 2000);",
+    });
+
+    expect(scripts(html)).toEqual(["setInterval(() => fetch('/hash'), 2000);"]);
+    // 仍然沒有外部資源 —— 腳本是內嵌的，不是 src。
+    expect(html).not.toMatch(/<script[^>]*\bsrc=/i);
+  });
+
+  it('未傳入 inlineScript 時頁面維持零 JS —— 票 08 的契約', () => {
+    const board = renderBoardHtml([issue({ id: 'AAAAAA0001', title: 'a', status: 'todo' })]);
+
+    expect(scripts(board)).toEqual([]);
+    expect(board).not.toMatch(/<script/i);
+    // 事件處理器屬性同樣是 JS。
+    expect(board).not.toMatch(/\son[a-z]+\s*=/i);
+    expect(board).not.toMatch(/javascript:/i);
+
+    // 詳情頁不接受這個參數，因此永遠是零 JS。
+    expect(scripts(renderIssueHtml(issue({ id: 'AAAAAA0001' })))).toEqual([]);
+  });
+});
+
+/** 拿掉全部 script 元素之後剩下的文件。逃出去的東西會出現在這裡。 */
+function outsideScripts(html: string): string {
+  return html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+}
+
+describe('內嵌腳本不得從 <script> 元素逃出', () => {
+  it('腳本內容中的 </script> 不提前閉合元素', () => {
+    const html = renderBoardHtml([], {
+      inlineScript: 'const s = "</script><img src=x onerror=alert(1)>";',
+    });
+
+    // payload 留在腳本內是對的（它就是那段 JS 的一部分）；
+    // 錯的是它跑到腳本外面成為真的標記。
+    expect(outsideScripts(html)).not.toMatch(/<img\b/i);
+    expect(outsideScripts(html)).not.toMatch(/<[^>]*\bonerror\b/i);
+    expect(scripts(html)).toHaveLength(1);
+  });
+});

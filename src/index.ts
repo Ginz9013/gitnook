@@ -13,6 +13,8 @@ export type {
   OpenBoardOptions,
 } from './core/types.js';
 export { initBoard, ConflictingGitAttributes } from './core/gitattributes.js';
+export { serve, PortInUse, DEFAULT_PORT } from './server/serve.js';
+export { handleRequest } from './server/handler.js';
 export { shortIdLength, resolvePrefix, isValidRef, normalizeRef, SHORT_ID_MIN } from './core/ids.js';
 export { diagnose, repair, type Repair } from './core/health.js';
 export {
