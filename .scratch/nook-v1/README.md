@@ -50,8 +50,8 @@
 | B6 | 10 ∥ 12 | 2 | ✅ | CLI／短 ID 碰撞的渲染側接線 |
 | B7 | 13 | 1 | | label 指令、doctor --fix、warnIfUnguarded 效能 |
 | B8 | 11 | 1 | ✅ | 打包與體積、冷啟閘門 |
-| B9 | 14 | 1 | | ref 的識別契約（審查發現） |
-| B10 | 15 | 1 | | board 尋根（審查發現） |
+| B9 | 14 | 1 | ✅ | ref 的識別契約（審查發現） |
+| B10 | 15 | 1 | 進行中 | board 尋根（審查發現） |
 | B11 | 16 | 1 | | 收束公開面、CI、詳情頁輪詢（審查發現） |
 
 > 票 14–16 來自 v1 完成後的兩軸審查。三者都碰 `src/cli/run.ts`，只能序列。
@@ -81,6 +81,9 @@ B2 實測：四個 worker 零越界，golden 檔前綴策略（`table-`／`json-
 | 11 | `tsup.config.ts` `package.json` `LICENSE` `README.md` `bench/*` |
 | 12 | `src/render/{table,html}.ts` |
 | 13 | `src/cli/run.ts` `src/index.ts`（僅 re-export） |
+| 14 | `src/cli/run.ts` `src/render/table.ts` `README.md` |
+| 15 | `src/core/{board,types,gitattributes}.ts` |
+| 16 | `src/index.ts` `.github/workflows/` `src/{cli,server,render}` 的 import |
 
 各票的測試檔隨其實作檔一併擁有，詳見各票。
 
