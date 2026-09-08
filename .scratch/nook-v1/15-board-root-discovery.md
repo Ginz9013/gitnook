@@ -68,7 +68,7 @@ $ find . -name .issues
 
 ## Status
 
-todo
+done
 
 ## Done when
 

@@ -7,6 +7,7 @@ import { reduce } from './reduce.js';
 import { systemIds, resolvePrefix, isValidRef, normalizeRef } from './ids.js';
 import { deriveActor } from './actor.js';
 import { diagnose } from './health.js';
+import { findBoardRoot } from './gitattributes.js';
 
 /** 預設檢視隱藏的工作結果。archived 另外處理 —— 它是可見性，兩者正交（ADR-0003）。 */
 const HIDDEN_BY_DEFAULT: ReadonlySet<string> = new Set(['done', 'cancelled']);
@@ -14,23 +15,64 @@ const HIDDEN_BY_DEFAULT: ReadonlySet<string> = new Set(['done', 'cancelled']);
 /** 一張 Issue 一個檔，檔名是純 ULID —— 改標題不該造成 rename，rename 會讓 merge=union 失效。 */
 const LOG_SUFFIX = '.ndjson';
 
+/**
+ * 找不到 board。訊息必須交代**搜尋過的範圍** —— 只說「先執行 nook init」會把
+ * 在子目錄的使用者導向一個靜默把 board 切成兩塊的操作，那正是本次修正的起因。
+ *
+ * 之所以是子類別而不是改 BoardNotInitialized 的建構子：那個類別在 types.ts，
+ * 而本次工作對該檔的寫入權限僅限於 Board 介面。呼叫端看到的仍然是
+ * BoardNotInitialized —— instanceof 與 name 都不變，只有訊息更完整。
+ */
+class BoardNotFound extends BoardNotInitialized {
+  constructor(from: string, ceiling: string) {
+    super(from);
+    // 單行：CLI 把它整條寫到 stderr，換行會被讀成「有兩個問題要修」。
+    this.message =
+      `不是一個 Nook board：${from}` +
+      `（向上搜尋至 ${ceiling} 都沒有 .issues/issues/；請在專案根目錄執行 nook init）`;
+  }
+}
+
 export function openBoard(opts: OpenBoardOptions = {}): Board {
-  const dir = opts.dir ?? process.cwd();
-  const issuesDir = join(dir, '.issues', 'issues');
+  const from = opts.dir ?? process.cwd();
   const ids: IdSource = opts.ids ?? systemIds;
   let actor: string | undefined = opts.actor;
+  let root: string | undefined;
 
-  const actorId = (): string => (actor ??= deriveActor(dir));
+  /**
+   * board 的根目錄，由 from 向上尋得（git 的行為）—— 呼叫端在哪個子目錄
+   * 執行都是同一塊 board。一個 Board 的生命週期內它不會變，所以只找一次：
+   * 讓 pathOf 每次重找，會把 list 的成本乘上目錄深度。
+   */
+  const rootDir = (): string => (root ??= locate());
 
-  const requireInitialized = (): void => {
-    if (!existsSync(issuesDir)) throw new BoardNotInitialized(dir);
+  const locate = (): string => {
+    const found = findBoardRoot(from);
+    if (!found.found) throw new BoardNotFound(from, found.ceiling);
+    return found.root;
   };
 
-  const pathOf = (id: string): string => join(issuesDir, `${id}${LOG_SUFFIX}`);
+  const issuesDir = (): string => join(rootDir(), '.issues', 'issues');
+
+  const actorId = (): string => (actor ??= deriveActor(rootDir()));
+
+  /**
+   * 尋根本身就是初始化檢查：找不到根就沒有 board 可操作。
+   *
+   * 每次公開呼叫重新確認一次快取的根還在（一次 existsSync，同改動前的成本）——
+   * board 目錄在 Board 建立之後被移除時，該說的仍然是「不是一個 Nook board」，
+   * 而不是一個看起來像 nook 內部 bug 的 ENOENT。
+   */
+  const requireInitialized = (): void => {
+    if (root !== undefined && !existsSync(issuesDir())) root = undefined;
+    rootDir();
+  };
+
+  const pathOf = (id: string): string => join(issuesDir(), `${id}${LOG_SUFFIX}`);
 
   /** 掃描出全部 Issue 的識別碼。ADR-0002：沒有索引，這就是唯一的來源。 */
   const logIds = (): string[] =>
-    readdirSync(issuesDir)
+    readdirSync(issuesDir())
       // 資料活在 repo 裡，旁邊出現 .DS_Store 或 README 是常態 —— 忽略而非崩潰。
       .filter((f) => f.endsWith(LOG_SUFFIX))
       .map((f) => f.slice(0, -LOG_SUFFIX.length))
@@ -82,6 +124,10 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
       requireInitialized();
       const id = resolve(ref);
       return reduce(id, readOps(pathOf(id)));
+    },
+    refs(): readonly string[] {
+      requireInitialized();
+      return logIds();
     },
     list(filter: Filter = {}): Issue[] {
       requireInitialized();
@@ -150,7 +196,10 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
       return reduce(id, [...existing, ...fresh]);
     },
     health(): Diagnostic[] {
-      return diagnose(dir);
+      // doctor 在還不是 board 的目錄也該答得出話（「缺少 merge=union」），
+      // 所以尋根落空時就地診斷而不是拋錯。
+      const found = findBoardRoot(from);
+      return diagnose(found.found ? found.root : from);
     },
   };
 }

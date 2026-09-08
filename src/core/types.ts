@@ -95,6 +95,15 @@ export interface IdSource {
 export interface Board {
   create(input: CreateInput): Issue;
   get(ref: string): Issue;
+  /**
+   * 整塊 Board 上每一張 Issue 的**完整** Ref，已排序。
+   *
+   * 只列目錄，**不摺疊任何 Op-log** —— 算短 Ref 的顯示長度只需要一串 Ref，
+   * 而 `list({ all: true })` 會把整塊 Board 摺一遍，那會打破「show 只讀它
+   * 要的那一張」的效能保證。同時，長度必須對整塊 Board 算而不是對過濾後的
+   * 子集算，否則 `list` 印出的 Ref 會被 `get` 判為有歧義。
+   */
+  refs(): readonly string[];
   list(filter?: Filter): Issue[];
   apply(ref: string, change: Change): Issue;
   health(): Diagnostic[];

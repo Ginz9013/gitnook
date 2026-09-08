@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdtempSync, rmSync, statSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initBoard } from '../../src/core/gitattributes.js';
@@ -87,6 +87,22 @@ const catchError = (fn: () => void): Error => {
   }
   throw new Error('預期 initBoard 會拋錯，但它正常返回了');
 };
+
+describe('initBoard 在既有 board 的子目錄', () => {
+  it('拒絕並指出既有 board 的位置，不靜默切出第二塊', () => {
+    initBoard(dir);
+    const sub = join(dir, 'src', 'deep');
+    mkdirSync(sub, { recursive: true });
+
+    const err = catchError(() => initBoard(sub));
+
+    // 兩塊 board 會各自累積 Issue，而且沒有任何東西會提示 ——
+    // 這是資料完整性問題，所以拒絕而不是照做。
+    expect(err.name).toBe('NestedBoard');
+    expect(err.message).toContain(`根目錄 ${dir}`);
+    expect(existsSync(join(sub, '.issues'))).toBe(false);
+  });
+});
 
 describe('既有的 .gitattributes 含衝突規則', () => {
   it('遇上 * -merge 時報錯停止，不靜默改變使用者的 merge 行為', () => {

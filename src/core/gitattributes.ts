@@ -1,5 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 /**
  * 整個零衝突保證的唯一支柱 —— docs/adr/0001。
@@ -44,16 +44,71 @@ export function inspectMergeGuarantee(dir: string): MergeGuarantee {
   return { kind: 'conflicting', line: setting.line, rule: setting.rule };
 }
 
+/** board 的資料目錄，相對於 board 的根目錄。 */
+const ISSUES_DIR = ['.issues', 'issues'] as const;
+
+/** 由某個目錄向上尋根的結果。 */
+export type BoardRoot =
+  | { readonly found: true; readonly root: string }
+  /** 找不到時交代搜尋到哪裡為止 —— 錯誤訊息必須說出範圍。 */
+  | { readonly found: false; readonly ceiling: string };
+
+/**
+ * 由 dir 向上找最近的一塊 board，行為同 git 尋找 `.git`。
+ * 沒有它，`cd src/deep && nook list` 會說這裡不是 board。
+ *
+ * **停止條件是 git repo 的根目錄**，只有不在任何 repo 內時才一路走到
+ * filesystem root。理由：`.issues/` 的每一個 byte 都在 git 裡（ADR-0002），
+ * 一塊 board 屬於一個 repo。越過 repo 根去命中上層的 board，等於把 Issue
+ * 寫進另一個 repo 的資料 —— 那是「board 被無聲切成兩塊」的鏡像失敗，同樣
+ * 沒有任何東西會提示。而在 `git init` 之前 board 仍然要能用，所以沒有 repo
+ * 根可停時退回 filesystem root，而不是就地拒絕。
+ */
+export function findBoardRoot(dir: string): BoardRoot {
+  let here = resolve(dir);
+  for (;;) {
+    // 只問存在，不問是不是目錄：`.issues/issues` 變成一個檔案是「board 壞了」，
+    // 不是「這裡沒有 board」—— 靜默略過它會讓呼叫端接到上層那一塊。
+    if (existsSync(join(here, ...ISSUES_DIR))) return { found: true, root: here };
+    // repo 根本身也要先看過 board 才停，所以這個檢查排在後面。
+    // `.git` 可能是檔案而不是目錄（worktree、submodule），因此同樣只問存在。
+    if (existsSync(join(here, '.git'))) return { found: false, ceiling: here };
+    const parent = dirname(here);
+    if (parent === here) return { found: false, ceiling: here };
+    here = parent;
+  }
+}
+
+/**
+ * 在既有 board 的**子目錄**中 init。照做會把 board 切成兩塊，各自累積 Issue
+ * 且沒有任何東西會提示 —— 這是資料完整性問題，所以拒絕。
+ */
+export class NestedBoard extends Error {
+  constructor(readonly dir: string, readonly root: string) {
+    super(
+      `${dir} 已經在一塊 Nook board 底下（根目錄 ${root}）：` +
+        `在子目錄再 init 會把 board 切成兩塊，各自累積 Issue。`,
+    );
+    this.name = 'NestedBoard';
+  }
+}
+
 /** 建立 .issues/issues/ 並冪等寫入 MERGE_RULE，不覆蓋既有內容。 */
 export function initBoard(dir: string): void {
-  const file = join(dir, '.gitattributes');
-  const guarantee = inspectMergeGuarantee(dir);
+  const here = resolve(dir);
+  // 排在任何寫入之前。在 board 根目錄重複 init 仍然是冪等的 —— 被擋下的
+  // 只有「在既有 board 底下另開一塊」。
+  const enclosing = findBoardRoot(here);
+  if (enclosing.found && enclosing.root !== here) throw new NestedBoard(here, enclosing.root);
+
+  const file = join(here, '.gitattributes');
+  const guarantee = inspectMergeGuarantee(here);
 
   if (guarantee.kind === 'conflicting') {
     throw new ConflictingGitAttributes(file, guarantee.line, guarantee.rule);
   }
 
-  mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
+  mkdirSync(join(here, ...ISSUES_DIR), { recursive: true });
 
   if (!existsSync(file)) {
     writeFileSync(file, `${MERGE_RULE}\n`, 'utf8');
