@@ -28,6 +28,13 @@ Scope 明寫「四個可量測的硬指標，**全部進 CI**」，但倉庫**�
 - [ ] 給 `renderIssueHtml` 同樣的 `inlineScript` 選項，`handleRequest` 兩條路徑都注入
 - [ ] 腳本仍須是頁面上唯一的 JS，且 `</script>` 的逸出不得退化
 
+### 接上票 15 的廉價 id 來源（票 14 揭露）
+
+- [ ] `cmdShow` 目前印 6 碼短 ID，因為改用整個 board 的長度需要 `list({ all: true })`，那會摺疊每一份 op-log 並打破票 13 的效能保證
+- [ ] `cmdList` 對**過濾後**的集合算長度 —— `nook list` 可能印出被 `nook show` 判為有歧義的 ref
+- [ ] 兩者都改用票 15 在 `Board` 上提供的廉價 id 來源（只列舉目錄、不摺疊）
+- [ ] 測試釘住：`list` 與 `show` 印出的短 ID **長度相同**，且 `show` 仍然不讀其他 Issue 的 op-log 內容
+
 ### 詞彙
 
 - [ ] `src/server/handler.ts` 註解中用「票」指 Issue 之處改為 Issue

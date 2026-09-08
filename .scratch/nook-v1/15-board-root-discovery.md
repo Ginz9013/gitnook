@@ -30,6 +30,24 @@ $ find . -name .issues
 - [ ] 測試涵蓋：深層子目錄的 `list`/`show`/`new` 都作用在同一塊 board
 - [ ] `list` 在子目錄執行時，回傳的 Issue 與在根目錄執行時**完全相同**
 
+## 追加：`Board` 需要一個廉價的 id 來源（票 14 揭露）
+
+票 14 撞到兩個互相衝突的要求，兩者有同一個解。
+
+`cmdShow` 若要用整個 board 的長度算短 ID，就得呼叫 `list({ all: true })`，
+那會**摺疊每一份 op-log**，直接打破票 13 立下的效能保證（`show 只讀它要的
+那一張 —— 另一張的 op-log 讀不得也不影響`）。`cmdList` 則是對**過濾後**的
+集合算長度，於是 `nook list` 印出的 ref 可能被 `nook show` 判為有歧義。
+
+根因是：**算顯示長度只需要一串 id，不需要摺疊任何東西**。`logIds()` 已經
+存在於 `src/core/board.ts:31`（單純 `readdirSync`），但不在 `Board` 介面上。
+
+- [ ] `Board` 介面加上一個廉價的 id 來源，只做目錄列舉、不摺疊任何 op-log
+- [ ] 測試釘住：取得全部 id **不會**讀取任何 `.ndjson` 的內容（可用一個讀不得的檔案當探針，同票 13 的做法）
+- [ ] 命名請遵守 `CONTEXT.md` 的 Ref 詞條（`_Avoid_: id, key, slug`），自行決定合適的名稱並說明理由
+
+**接線留給票 16** —— `cmdShow` 與 `cmdList` 在 `src/cli/run.ts`，不在本票範圍。這與票 04 提供 `shortIdLength`、票 12 接線是同一個分工。
+
 ## Test seam
 
 `openBoard()` 與 `initBoard()`，真實檔案系統 + `mkdtemp`。
@@ -37,6 +55,7 @@ $ find . -name .issues
 ## Write ownership
 
 - `src/core/board.ts`
+- `src/core/types.ts`（僅新增廉價 id 來源到 `Board` 介面）
 - `src/core/gitattributes.ts`
 - `test/core/board.root.test.ts`（新增）
 - `test/core/gitattributes.test.ts`
