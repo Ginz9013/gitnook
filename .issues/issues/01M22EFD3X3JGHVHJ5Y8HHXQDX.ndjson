@@ -4,3 +4,5 @@
 {"id":"01M22EFD46CQSB7VYA48G8A90Z","t":4,"a":"83a1","op":"label.add","v":"bug"}
 {"id":"01M22K4QGZ068YWTN42XYMWH2Q","t":5,"a":"83a1","op":"comment","body":"併入 01M22K4QDJZW4Y48Y9XHJZSZE8 一起做 —— 同一個檔案，擴 Change 形狀時一併修掉。"}
 {"id":"01M22K4QJ3X0M1YZK6BVEE1338","t":6,"a":"83a1","op":"set","k":"archived","v":true}
+{"id":"01M23393GSE596DAH99QC5P3XA","t":7,"a":"83a1","op":"comment","body":"狀態修正：工作已於 commit 051e5e7 完成（併入 studio-write/10 擴 reconcile 那張），有紅燈測試釘住 DROP(seq1)→DROP(seq2)→ACK(seq2)→ACK(seq1)。當時只改了歸檔沒改狀態。"}
+{"id":"01M23393J13QCA9SD1W997TWZ3","t":8,"a":"83a1","op":"set","k":"status","v":"done"}

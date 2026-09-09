@@ -1,0 +1,3 @@
+{"id":"01M233A9YPPVAC58EVX22Z578H","t":1,"a":"83a1","op":"create","title":"getJson 的 as T 放行形狀不對的 JSON"}
+{"id":"01M233A9Z52GGCB547ZBBY3KT5","t":2,"a":"83a1","op":"set","k":"description","v":"studio-followup3/02 的 worker 回報，超出當時票面範圍。\n\n`src/studio/api.ts` 的 `getJson` 在解析成功後直接 `as T`。所以一個合法 JSON 但形狀不對的 body（例如 `{\"nope\":1}` 當成 `BoardSnapshot`）會被放行，之後在別的地方炸成一個看起來無關的 TypeError。\n\n新加的 `'malformed'` 分類只涵蓋「解不開」，不涵蓋「解得開但不是承諾的形狀」。\n\n要驗形狀就得先決定 schema 的做法，而這個 repo 是零 runtime 相依 —— 不能為此引入驗證函式庫。所以這是一個設計決定不只是實作：手寫一個最小的形狀檢查，還是接受現況並在型別上說清楚。"}
+{"id":"01M233A9Z5R2H5FBM47KJZYH1J","t":3,"a":"83a1","op":"label.add","v":"studio"}

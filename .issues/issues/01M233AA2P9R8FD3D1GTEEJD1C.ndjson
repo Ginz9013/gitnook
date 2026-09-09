@@ -1,0 +1,3 @@
+{"id":"01M233AA2PZYKRFDXTBSZF0R14","t":1,"a":"83a1","op":"create","title":"未預期 500 的 log 只有 err.message，沒有位置資訊"}
+{"id":"01M233AA354ZJ4TNTF5MYH7FKM","t":2,"a":"83a1","op":"set","k":"description","v":"studio-followup3/01 的 worker 回報。\n\n`serve.ts` 的 `logUnexpected` 取自 `out.body`，而 `handler.ts` 的 `serverError` 只保留 `err.message`（刻意不送 stack —— 那個決定本身是對的，理由在它的註解裡）。\n\n對 `BoardNotInitialized` 這剛好是最好的結果：「先執行 nook init」可行動，stack 不可行動。\n\n但真正意外的內部 bug 會只留下一行沒有位置資訊的訊息，而 studio 現在是人的主要操作介面 —— 那一行可能是唯一的線索。\n\n要取回更多資訊，得讓 `handler.ts` 在回應之外另外保留原本的 error，那會動到 `handleRequest` 的純函數性質（它現在把 throw 在自己那一格變成值）。所以這是設計權衡不是小修。"}
+{"id":"01M233AA35MP8QD0PDW3TZ0HY5","t":3,"a":"83a1","op":"label.add","v":"studio"}
