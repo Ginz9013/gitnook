@@ -2,3 +2,4 @@
 {"id":"01M22RFASW8FR0BY26D6NEV3Q4","t":2,"a":"83a1","op":"set","k":"description","v":"票 03 的 worker 讀碼發現，同樣三行裡的第二個洞，它刻意沒修因為超出票面範圍。\n\n    snapshot: state.snapshot.map((i) => (i.id === p.issueId ? action.issue : i)),\n\n槽位用 p.issueId 選，寫進去的值是 action.issue。若回應帶的 issue id 與 pending 的 issueId 不同（server 的 ref 與 id 混淆、或回應被錯誤路由），reducer 會把它寫進**錯的槽**：快照出現重複 id，原本那張 issue 消失。\n\n這是讀碼推論不是實測。修法是把成員資格檢查與寫入都改用 action.issue.id，同一個運算式裡就能收掉。\n\n需要一條紅燈測試釘住「回應的 id 與 pending 的 id 不同」這個情況。"}
 {"id":"01M22RFASWXTAGBR0X3N9NRXS9","t":3,"a":"83a1","op":"label.add","v":"studio"}
 {"id":"01M22RFASXZHG5Y4D18VGAZX0P","t":4,"a":"83a1","op":"label.add","v":"bug"}
+{"id":"01M22Z6Z8QTSYT0G0F0RSA6S6N","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}

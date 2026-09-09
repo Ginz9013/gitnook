@@ -1,3 +1,4 @@
 {"id":"01M22RFATQN6XSE2XJTWSWKVYW","t":1,"a":"83a1","op":"create","title":"前端拿到 500 時的行為未知"}
 {"id":"01M22RFAV0M3VDAFJ0QP7RQ4FM","t":2,"a":"83a1","op":"set","k":"description","v":"票 02 的 worker 回報。它把 handler 改成任何輸入都回得出 StudioResponse，未預期例外現在是 500 而不是帶掉 process。\n\n但 studio 前端拿到 500 時會怎樣，沒有人查證過。輪詢的 connectionReduce 只分「成功／失敗」，而 fetchBoard 遇到 !res.ok 會 throw —— 所以 500 大概會被算成一次輪詢失敗，連續三次後出現「連線中斷」橫幅。\n\n那個訊息對「board 目錄被移走」是誤導的：伺服器好好的，是資料不見了。\n\n要決定的是前端要不要區分這兩種，以及區分了要說什麼。"}
 {"id":"01M22RFAV0WA677S20Z0YDQD4N","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M22Z6Z9Y5JX2CPEX8FD7MPET","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
