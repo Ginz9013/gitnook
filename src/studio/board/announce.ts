@@ -92,7 +92,7 @@ const FIELD_WORD: Record<OptimisticField, string> = {
 const FIELD_ORDER: readonly OptimisticField[] = ['status', 'title', 'labels', 'description', 'archived'];
 
 /**
- * 方框上那一行看得見的字。沒有東西在飛就是 null。
+ * 卡片上那一行看得見的字。沒有東西在飛就是 null。
  *
  * 與 `announceIssueState` 同一份 `pendingParts`：看得見的與念出來的講的必須是
  * 同一件事，兩邊各列一次欄位名遲早會分岔成兩個看板。
@@ -109,7 +109,7 @@ export function pendingLabel(
  * 同一張 Issue 的狀態講給看不見畫面的人聽 —— 虛線邊框與 ring 對他們不存在，
  * 而「這張還沒落地」正是拖完之後最需要知道的一件事。
  *
- * 這不是拖曳過程中的即時播報（上面那四個是），而是掛在方框上的敘述：Tab 到
+ * 這不是拖曳過程中的即時播報（上面那四個是），而是掛在卡片上的敘述：Tab 到
  * 這張 Issue 就會連著標題一起聽到，時機因此不限於拖曳當下。
  *
  * `held` 也講出來的理由：被抓住的那張在放開之前不接受任何來自伺服器的移動
@@ -124,7 +124,7 @@ export function announceIssueState(
   const parts = pendingParts(optimistic, unconfirmed);
   const said: string[] = [];
   // 欄位名列在冒號後面而不是接在「的變更」前面：`Status`、`Label` 是拉丁字，
-  // 直接黏上中文會念成「Status的」。開頭與方框上那一行同樣是「送出中」。
+  // 直接黏上中文會念成「Status的」。開頭與卡片上那一行同樣是「送出中」。
   if (parts.length > 0) said.push(`送出中，還沒有得到伺服器確認的變更：${parts.join('、')}。`);
   if (held) said.push('這張 Issue 正被抓著，放開之前伺服器的更新不會套用到它。');
   return said.length === 0 ? null : said.join('');

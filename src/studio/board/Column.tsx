@@ -17,7 +17,7 @@ export interface DragState extends DraggedIssue {
 export interface ColumnProps {
   /** 這一欄畫的是哪一個 Status —— 欄是版面，Status 才是它代表的東西。 */
   readonly status: Status;
-  /** 這一欄的 Issue，**已經是調和過的投影** —— 方框要畫得出「還沒落地」。 */
+  /** 這一欄的 Issue，**已經是調和過的投影** —— 卡片要畫得出「還沒落地」。 */
   readonly issues: readonly ProjectedIssue<IssueView>[];
   readonly selectedId: string | null;
   readonly onSelect: (id: string) => void;

@@ -446,8 +446,8 @@ describe('pendingParts —— 還沒落地的東西列出來', () => {
   });
 });
 
-describe('pendingLabel —— 方框上看得見的那一行', () => {
-  // null 而不是空字串：空字串會在方框上留下一條看不出原因的空行。
+describe('pendingLabel —— 卡片上看得見的那一行', () => {
+  // null 而不是空字串：空字串會在卡片上留下一條看不出原因的空行。
   it('沒有東西在飛時不顯示', () => {
     expect(pendingLabel(NOTHING_FLYING, NO_COMMENTS)).toBeNull();
   });
@@ -466,7 +466,7 @@ describe('pendingLabel —— 方框上看得見的那一行', () => {
 });
 
 /**
- * 掛在方框上的敘述，Tab 過去就連著標題一起聽到 —— 不是拖曳過程中的即時播報。
+ * 掛在卡片上的敘述，Tab 過去就連著標題一起聽到 —— 不是拖曳過程中的即時播報。
  * 虛線邊框與 ring 對看不見畫面的人不存在，而「這張還沒落地」正是拖完之後最
  * 需要知道的一件事。
  */
@@ -500,7 +500,7 @@ describe('announceIssueState —— held × pending 四種組合', () => {
     expect(said).toMatch(/抓/);
   });
 
-  it('與方框上那一行講的是同一件事 —— 兩邊各列一次遲早會分岔', () => {
+  it('與卡片上那一行講的是同一件事 —— 兩邊各列一次遲早會分岔', () => {
     for (const fields of [flying('status'), flying('title', 'labels'), flying('archived')]) {
       for (const unconfirmed of [NO_COMMENTS, comments(2)]) {
         const said = announceIssueState(fields, unconfirmed, false);
