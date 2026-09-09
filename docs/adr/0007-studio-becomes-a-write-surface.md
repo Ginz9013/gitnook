@@ -16,4 +16,6 @@ studio 原本刻意唯讀。票 09 的驗收條件寫著「**無任何寫入路�
 
 **Actor 身分是跑 studio 的那個人。** 經由 studio 產生的 op 一律記在 `git config user.email` 推導出的 actor 上。studio 是單人本機工具，這是正確的語意，但它意味著 studio 不可以變成多人共用的服務 —— 那會讓所有人的 op 記在同一個 actor 底下，破壞合併時的決勝依據。這是除了「沒有驗證」之外，第二個禁止 `--host` 的理由。
 
-**`queued` 的授權邊界在 UI 上必須看得見。** 把一張 Issue 拖進 `queued` 表示已授權 agent 直接動手，這是 board 上語意最重的一次拖曳。它不能跟 `todo` → `in_progress` 長得一模一樣。
+~~**`queued` 的授權邊界在 UI 上必須看得見。** 把一張 Issue 拖進 `queued` 表示已授權 agent 直接動手，這是 board 上語意最重的一次拖曳。它不能跟 `todo` → `in_progress` 長得一模一樣。~~
+
+**這一條已由 ADR-0010 推翻。** 授權語意留著 —— 它活在 CLI 與 AGENT.md 的工作流約定裡 —— 但看板不再替它畫任何東西：那層「人的車道／agent 的車道」是規劃時擅自加上的詮釋，而欄位的意思應該由使用者自己在用的過程裡長出來。八個 Status 在看板上一視同仁。

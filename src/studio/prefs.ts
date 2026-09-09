@@ -1,5 +1,5 @@
 import type { Status } from '@/api';
-import { STATUS_ORDER } from '@/statuses';
+import { isStatus } from '@/statuses';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 
@@ -43,7 +43,9 @@ export function resolveTheme(p: ThemePreference, systemDark: boolean): 'light' |
  *
  * 逐項而不是整份作廢：一個被改壞、或是舊版留下的欄位名字，不該讓其餘七欄的
  * 偏好一起消失。八個 Status 是固定的（ADR-0003），所以「認不認得」是一個
- * 純粹的成員判斷 —— `STATUS_ORDER` 是 studio 這一側唯一那份名單。
+ * 純粹的成員判斷，而 `@/statuses` 的 `isStatus` 就是 studio 這一側唯一那份 ——
+ * 這裡不再自己抄一個：兩份成員判斷會分歧，而分歧的樣子是「看板認得的欄位，
+ * 偏好讀不回來」。
  */
 export function readCollapsed(s: PrefStorage): ReadonlySet<Status> {
   const raw = s.getItem(COLLAPSED_KEY);
@@ -55,13 +57,7 @@ export function readCollapsed(s: PrefStorage): ReadonlySet<Status> {
     return new Set();
   }
   if (!Array.isArray(parsed)) return new Set();
-  return new Set(parsed.filter((v): v is Status => isStatus(v)));
-}
-
-const STATUS_NAMES: readonly string[] = STATUS_ORDER;
-
-function isStatus(v: unknown): v is Status {
-  return typeof v === 'string' && STATUS_NAMES.includes(v);
+  return new Set(parsed.filter(isStatus));
 }
 
 export function writeCollapsed(s: PrefStorage, c: ReadonlySet<Status>): void {

@@ -17,12 +17,13 @@ import type { ThemePreference } from '@/prefs';
  *
  * **可判定的部分不住在這裡** —— 「壞掉的偏好怎麼辦」與「跟隨系統時算出哪一個」
  * 都在 `prefs.ts`，有測試（`test/studio/prefs.test.ts`）。這個檔案剩下的是接線：
- * 讀寫 `localStorage`、把 class 掛上 `<html>`、訂閱 `prefers-color-scheme`。
+ * 讀寫 `localStorage`、把 class 掛上 `<html>`。
  * React 組件不寫測試（spec.md 的測試策略），所以留在這裡的東西必須少到用看的
  * 就對得完。
  */
 
-const MEDIA = '(prefers-color-scheme: dark)';
+/** 作業系統的亮／暗查詢。`main.tsx` 訂閱它，這裡讀它 —— 字串只有一份。 */
+export const MEDIA = '(prefers-color-scheme: dark)';
 
 const systemDark = (): boolean => window.matchMedia(MEDIA).matches;
 
@@ -37,28 +38,29 @@ export function applyTheme(p: ThemePreference): void {
 /** 開場的偏好 —— `localStorage` 讀不懂就是 `'system'`，不會拋。 */
 export const storedTheme = (): ThemePreference => readTheme(window.localStorage);
 
-const OPTIONS = [
-  { value: 'light', label: '亮色', Icon: Sun },
-  { value: 'dark', label: '暗色', Icon: Moon },
-  { value: 'system', label: '跟隨系統', Icon: Monitor },
-] as const;
+/**
+ * 三個偏好各自的樣子。**寫成以 `ThemePreference` 為鍵的表而不是陣列** ——
+ * 陣列要用 `find` 找，而 `find` 回得出 `undefined`，於是就得補一個永遠走不到
+ * 的退路。查表則由型別保證完備：少一個鍵編不過，也就沒有退路要寫。
+ */
+const OPTIONS: Readonly<Record<ThemePreference, { label: string; Icon: typeof Sun }>> = {
+  light: { label: '亮色', Icon: Sun },
+  dark: { label: '暗色', Icon: Moon },
+  system: { label: '跟隨系統', Icon: Monitor },
+};
+
+/** 選單列出來的順序。上面那張表是查詢用的，物件的鍵序不該拿來當版面。 */
+const ORDER: readonly ThemePreference[] = ['light', 'dark', 'system'];
 
 export function ThemeToggle(): React.JSX.Element {
   const [preference, setPreference] = useState<ThemePreference>(storedTheme);
 
   /**
-   * 只有 `'system'` 需要訂閱作業系統 —— 明講的亮／暗不該被系統設定改掉。
-   * 訂閱與套用寫在同一個 effect：兩者的觸發條件是同一個偏好，分開兩個
-   * effect 只會多出一個「套了但沒訂閱」的中間狀態。
+   * 偏好改了就套上去。**訂閱作業系統不在這裡** —— 它在 `main.tsx`，因為
+   * 「跟著系統走」是這個頁面的性質，不是這顆按鈕的性質：訂閱掛在組件上時，
+   * 組件一 unmount（票 B2 正要把它搬進 header）跟隨系統就靜靜死掉。
    */
-  useEffect(() => {
-    applyTheme(preference);
-    if (preference !== 'system') return;
-    const media = window.matchMedia(MEDIA);
-    const onChange = (): void => applyTheme('system');
-    media.addEventListener('change', onChange);
-    return () => media.removeEventListener('change', onChange);
-  }, [preference]);
+  useEffect(() => applyTheme(preference), [preference]);
 
   const choose = useCallback((value: string): void => {
     const p = value as ThemePreference;
@@ -66,7 +68,7 @@ export function ThemeToggle(): React.JSX.Element {
     setPreference(p);
   }, []);
 
-  const current = OPTIONS.find((o) => o.value === preference) ?? OPTIONS[2];
+  const current = OPTIONS[preference];
 
   return (
     <DropdownMenu>
@@ -77,12 +79,15 @@ export function ThemeToggle(): React.JSX.Element {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuRadioGroup value={preference} onValueChange={choose}>
-          {OPTIONS.map(({ value, label, Icon }) => (
-            <DropdownMenuRadioItem key={value} value={value}>
-              <Icon aria-hidden className="size-4" />
-              {label}
-            </DropdownMenuRadioItem>
-          ))}
+          {ORDER.map((value) => {
+            const { label, Icon } = OPTIONS[value];
+            return (
+              <DropdownMenuRadioItem key={value} value={value}>
+                <Icon aria-hidden className="size-4" />
+                {label}
+              </DropdownMenuRadioItem>
+            );
+          })}
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>

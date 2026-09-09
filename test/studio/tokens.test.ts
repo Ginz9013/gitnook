@@ -237,6 +237,46 @@ describe('UI 元件對比 —— WCAG 3:1，兩個主題都要過', () => {
 });
 
 /**
+ * **焦點環必須看得出來不是主色。**
+ *
+ * `button.tsx` 的焦點樣式有兩層：`focus-visible:border-ring` 把按鈕邊框換成
+ * `--ring`，外面再加一圈半透明的 `ring-ring/50`。外圈畫在頁面底色上，所以
+ * 上面那道 3:1 守得住它；**邊框那層畫在按鈕自己的填色上，而 `default` 按鈕
+ * 的填色就是 `--primary`** —— 兩者一旦同色，那一層就整層消失，而且沒有任何
+ * 東西會說話。dark 模式曾經讓它們逐字相同。
+ *
+ * **判準不能用 WCAG 對比。** 對比只看亮度，而 `--ring` 同時被上面那道 3:1
+ * 綁在四階表面的另一端：要它對深色表面夠亮、又對 `--primary` 夠暗，一個
+ * token 做不到。所以這裡量的是 oklab 空間裡的感知距離 —— 色相與彩度的差別
+ * 在這個尺度上算數，而那正是「看得出來是兩個顏色」的意思。
+ *
+ * 0.1 大約是「一眼看得出不同色」的量級；同色相只差一點亮度（曾經的
+ * light：0.58/0.11/200 對 0.55/0.10/200）約 0.03，過不了。
+ */
+function oklabDistance(a: Token, b: Token): number {
+  const ab = (t: Token): readonly [number, number] => [
+    t.C * Math.cos((t.H * Math.PI) / 180),
+    t.C * Math.sin((t.H * Math.PI) / 180),
+  ];
+  const [aa, ab_] = ab(a);
+  const [ba, bb] = ab(b);
+  return Math.sqrt((a.L - b.L) ** 2 + (aa - ba) ** 2 + (ab_ - bb) ** 2);
+}
+
+describe('焦點環不是主色 —— 否則 default 按鈕上的那一層焦點指示整層消失', () => {
+  it.each(THEMES)('%s：--ring 與 --primary 在感知上分得開', (theme) => {
+    const ring = tokenOf(theme, 'ring');
+    const primary = tokenOf(theme, 'primary');
+
+    expect({ '--ring': ring !== null, '--primary': primary !== null }).toEqual({
+      '--ring': true,
+      '--primary': true,
+    });
+    expect(Math.round(oklabDistance(ring!, primary!) * 1000) / 1000).toBeGreaterThanOrEqual(0.1);
+  });
+});
+
+/**
  * **`.dark` 少一格，就是那個顏色在 dark mode 下沿用了 light 的值** —— 而那是
  * 靜靜壞掉的一種：它自己那對前景／底色照樣過得了上面的對比閘門（一對顏色的
  * 比值與它擺在哪個主題無關），畫面上卻是一塊亮色貼在深色版面裡。
