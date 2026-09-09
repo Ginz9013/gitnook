@@ -1,7 +1,7 @@
 import { existsSync, appendFileSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Board, CreateInput, Change, Filter, Issue, Diagnostic, OpenBoardOptions, IdSource } from './types.js';
-import { BoardNotInitialized, RefNotFound, resolveStatus } from './types.js';
+import { BoardNotInitialized, RefNotFound, IssueDeleted, resolveStatus } from './types.js';
 import { serialize, parseLine, nextLamport, type Op, type SetKey } from './ops.js';
 import { orderOps, reduce } from './reduce.js';
 import { systemIds, resolvePrefix, isValidRef, normalizeRef } from './ids.js';
@@ -129,9 +129,12 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
 
       // 點名了 done 卻回傳空清單是沒有意義的答案，所以明確指定 status 時
       // 就不再套用 done/cancelled 的預設隱藏。archived 是另一個維度，只有 all 能打開。
+      // deleted 擋在 all 之前：`--all` 是「連 archived 與 done 都給我看」，不是
+      // 「連刪掉的都給我看」。這裡是 board 成員資格的唯一決定點 —— ADR-0009。
       const isVisible = (i: Issue): boolean =>
-        filter.all === true ||
-        (!i.archived && (status !== undefined || !HIDDEN_BY_DEFAULT.has(i.status)));
+        !i.deleted &&
+        (filter.all === true ||
+          (!i.archived && (status !== undefined || !HIDDEN_BY_DEFAULT.has(i.status))));
 
       // 多個 label 是收斂條件（AND）：過濾應該越加越窄。
       const labels = filter.labels ?? [];
@@ -148,6 +151,12 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
       const file = pathOf(id);
 
       const existing = readOps(file);
+
+      // 寫入安全的唯一決定點，擺在 resolve() 之後、任何 append 之前 ——
+      // 沿用「驗證先於任何寫入」的既有慣例（ADR-0009）。
+      // 唯一的例外是復原本身：`{ deleted: false }` 是一次普通的寫入。
+      if (change.deleted !== false && reduce(id, existing).deleted) throw new IssueDeleted(ref);
+
       let t = nextLamport(existing);
       const fresh: Op[] = [];
 
@@ -159,6 +168,7 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
       if (status !== undefined) fields.push(['status', status]);
       if (change.description !== undefined) fields.push(['description', change.description]);
       if (change.archived !== undefined) fields.push(['archived', change.archived]);
+      if (change.deleted !== undefined) fields.push(['deleted', change.deleted]);
 
       for (const [k, v] of fields) {
         fresh.push({ id: ids.ulid(), t: t++, a: actorId(), op: 'set', k, v });

@@ -278,6 +278,7 @@ describe('--json', () => {
       description: '',
       labels: ['bug'],
       archived: false,
+      deleted: false,
       comments: [],
     };
     // list 給陣列、show 給單一物件 —— 串接端不必為了取一張票去拆陣列。

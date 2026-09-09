@@ -42,6 +42,8 @@ export interface Issue {
   readonly labels: readonly string[];
   /** 可見性，與 done/cancelled 所表達的工作結果正交 —— 見 docs/adr/0003。 */
   readonly archived: boolean;
+  /** 已被刪除。與 archived 同一種東西（LWW boolean），差別全在讀取端 —— 見 docs/adr/0009。 */
+  readonly deleted: boolean;
   readonly comments: readonly Comment[];
 }
 
@@ -62,6 +64,7 @@ export interface Change {
   readonly description?: string;
   readonly status?: Status | string;
   readonly archived?: boolean;
+  readonly deleted?: boolean;
   readonly labels?: { readonly add?: readonly string[]; readonly remove?: readonly string[] };
   readonly comment?: string;
 }
@@ -154,6 +157,14 @@ export class AmbiguousRef extends Error {
   constructor(ref: string, readonly candidates: readonly string[]) {
     super(`前綴 ${ref} 對應到 ${candidates.length} 張 issue：${candidates.join(', ')}`);
     this.name = 'AmbiguousRef';
+  }
+}
+
+/** 對一張已刪的 Issue 寫入。復原（`{ deleted: false }`）不在此列 —— docs/adr/0009。 */
+export class IssueDeleted extends Error {
+  constructor(readonly ref: string) {
+    super(`issue 已被刪除：${ref}`);
+    this.name = 'IssueDeleted';
   }
 }
 

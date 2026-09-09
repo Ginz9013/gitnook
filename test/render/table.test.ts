@@ -18,6 +18,7 @@ const issue = (over: Partial<Issue> & Pick<Issue, 'id' | 'title'>): Issue => ({
   description: '',
   labels: [],
   archived: false,
+  deleted: false,
   comments: [],
   ...over,
 });
@@ -136,12 +137,14 @@ describe('renderJson', () => {
         comments: [],
         title: 'Fix login redirect',
         archived: false,
+        deleted: false,
         description: '',
         id: '01JBX7A9Q3',
       },
       {
         comments: [{ t: 3, body: 'safari 才會重現', actor: 'k3f9', id: '01JBX7C5R1' }],
         archived: true,
+        deleted: false,
         title: 'Add dark mode',
         id: '01JBX8D7T4',
         description: 'dark theme',

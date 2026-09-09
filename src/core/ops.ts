@@ -12,7 +12,7 @@ export interface CreateOp extends OpBase {
 }
 
 /** LWW 欄位。labels 是 OR-Set、comments 只增不減，兩者都不是 set —— 見 CONTEXT.md。 */
-export type SetKey = 'title' | 'status' | 'description' | 'archived';
+export type SetKey = 'title' | 'status' | 'description' | 'archived' | 'deleted';
 
 export interface SetOp extends OpBase {
   readonly op: 'set';

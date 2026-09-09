@@ -156,3 +156,50 @@ describe('label.rm 的 seen 不是陣列', () => {
     });
   }
 });
+
+describe('未知的 set 欄位（ADR-0009 的向前相容方向）', () => {
+  // 一份含 `set deleted=true` 的 op-log 傳到還沒更新的 nook 手上時，`deleted`
+  // 對它就是一個未知欄位。這裡用一個這個版本也不認得的 k 模擬那個處境。
+  const UNKNOWN_FIELD = `{"id":"01E","t":5,"a":"m8q2","op":"set","k":"未知","v":1}`;
+
+  it('未知欄位被忽略而非崩潰，同檔案的其他 op 仍正確 fold', () => {
+    writeLog(CREATE, UNKNOWN_FIELD, STATUS);
+
+    const issue = openBoard({ dir, actor: 'k3f9' }).get(ISSUE);
+
+    expect(issue.title).toBe('Fix login redirect');
+    expect(issue.status).toBe('in_progress');
+  });
+
+  it('那張 Issue 對舊版仍然看得見 —— 失敗的方向是多看見，不是東西不見了', () => {
+    writeLog(CREATE, UNKNOWN_FIELD);
+
+    // ADR-0009：多看見一張已被刪除的 Issue 是可以解釋的雜訊；
+    // 少看見一張還在的 Issue 不是。
+    expect(openBoard({ dir, actor: 'k3f9' }).list().map((i) => i.id)).toEqual([ISSUE]);
+  });
+});
+
+/**
+ * deleted 的值不是 boolean 的三種形狀。字串 `"true"` 是其中最兇的一個 ——
+ * 少了 typeof 守衛時它為真，而 `"false"` 同樣為真，於是一張還在的 Issue
+ * 會從整塊 board 上消失（連 --all 都看不到）。
+ */
+const NON_BOOLEAN_DELETED: readonly (readonly [string, string])[] = [
+  ['字串', `{"id":"01F","t":5,"a":"m8q2","op":"set","k":"deleted","v":"true"}`],
+  ['數字', `{"id":"01F","t":5,"a":"m8q2","op":"set","k":"deleted","v":1}`],
+  ['null', `{"id":"01F","t":5,"a":"m8q2","op":"set","k":"deleted","v":null}`],
+];
+
+describe('deleted 的值不是 boolean', () => {
+  for (const [shape, line] of NON_BOOLEAN_DELETED) {
+    it(`v 是${shape}時忽略該 op，那張 Issue 不會消失`, () => {
+      writeLog(CREATE, line);
+
+      // 同 archived 既有的守衛：型別不符一律忽略（ADR-0001 硬規則 2）。
+      const board = openBoard({ dir, actor: 'k3f9' });
+      expect(board.get(ISSUE).deleted).toBe(false);
+      expect(board.list().map((i) => i.id)).toEqual([ISSUE]);
+    });
+  }
+});

@@ -62,6 +62,7 @@ describe('檔案內的行順序', () => {
         description: '',
         labels: [],
         archived: true,
+        deleted: false,
         comments: [],
       });
     }

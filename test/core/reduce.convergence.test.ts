@@ -48,6 +48,7 @@ describe('set op 的 fold', () => {
       description: '',
       labels: [],
       archived: false,
+      deleted: false,
       comments: [],
     };
 
@@ -109,6 +110,49 @@ describe('冪等性：dedupe by id', () => {
 
     for (let seed = 0; seed < 200; seed++) {
       expect(reduce(ISSUE, shuffler(seed)(conflicting)).status).toBe('queued');
+    }
+  });
+});
+
+// ADR-0009：deleted 是第五個 LWW 欄位，因此收斂性是既有機器給的，一行都不用另外寫。
+// 這裡把 archived 那組性質對 deleted 再跑一次 —— 它是**寫入安全**的依據，
+// 兩個分支摺出不同答案代表一邊看得到、另一邊看不到同一張 Issue。
+describe('deleted 的收斂', () => {
+  const ops: readonly Op[] = [
+    { id: '01A', t: 1, a: 'k3f9', op: 'create', title: 'Fix login redirect' },
+    { id: '01B', t: 2, a: 'k3f9', op: 'set', k: 'deleted', v: true },
+    { id: '01C', t: 3, a: 'm8q2', op: 'set', k: 'deleted', v: false },
+  ];
+
+  it('相反的兩筆寫入，任意順序、任意重複，摺疊結果相同', () => {
+    // 期望值取自 LWW 規則（最大 t 勝出），不是執行結果：t=3 的復原勝過 t=2 的刪除。
+    const expected = {
+      id: ISSUE,
+      title: 'Fix login redirect',
+      status: 'backlog',
+      description: '',
+      labels: [],
+      archived: false,
+      deleted: false,
+      comments: [],
+    };
+
+    for (let seed = 0; seed < 200; seed++) {
+      expect(reduce(ISSUE, shuffler(seed)(ops))).toEqual(expected);
+      const injected = Array.from({ length: 3 }, () => ops).flat();
+      expect(reduce(ISSUE, shuffler(seed)(injected))).toEqual(expected);
+    }
+  });
+
+  it('刪除在後時同樣由最大 t 決定 —— 刪除不是吸收語意，也不被吸收', () => {
+    const deleteLast: readonly Op[] = [
+      { id: '01A', t: 1, a: 'k3f9', op: 'create', title: 'Fix login redirect' },
+      { id: '01B', t: 2, a: 'k3f9', op: 'set', k: 'deleted', v: false },
+      { id: '01C', t: 3, a: 'm8q2', op: 'set', k: 'deleted', v: true },
+    ];
+
+    for (let seed = 0; seed < 200; seed++) {
+      expect(reduce(ISSUE, shuffler(seed)(deleteLast)).deleted).toBe(true);
     }
   });
 });

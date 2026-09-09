@@ -24,6 +24,7 @@ export function reduce(id: string, ops: readonly Op[]): Issue {
   let status: Status = 'backlog';
   let description = '';
   let archived = false;
+  let deleted = false;
   // OR-Set：add op 的 id 即 tag。rm 收集它點名的 tag，最後才結算誰還活著。
   const addedTags: { readonly tag: string; readonly v: string }[] = [];
   const removedTags = new Set<string>();
@@ -41,6 +42,8 @@ export function reduce(id: string, ops: readonly Op[]): Issue {
         if (typeof o.v === 'string') description = o.v;
       } else if (o.k === 'archived') {
         if (typeof o.v === 'boolean') archived = o.v;
+      } else if (o.k === 'deleted') {
+        if (typeof o.v === 'boolean') deleted = o.v;
       } else if (o.k === 'status') {
         if (isStatus(o.v)) status = o.v;
       }
@@ -62,7 +65,7 @@ export function reduce(id: string, ops: readonly Op[]): Issue {
     if (!removedTags.has(tag) && !labels.includes(v)) labels.push(v);
   }
 
-  return { id, title, status, description, labels, archived, comments };
+  return { id, title, status, description, labels, archived, deleted, comments };
 }
 
 function isStatus(v: unknown): v is Status {

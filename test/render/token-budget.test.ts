@@ -62,6 +62,7 @@ const issue = (
   description: extra.description ?? '',
   labels,
   archived: false,
+  deleted: false,
   comments: extra.comments ?? [],
 });
 
