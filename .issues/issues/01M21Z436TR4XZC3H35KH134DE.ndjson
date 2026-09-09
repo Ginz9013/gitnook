@@ -6,3 +6,4 @@
 {"id":"01M2224ZY5SCCDSNQQDKGVF920","t":6,"a":"83a1","op":"set","k":"archived","v":true}
 {"id":"01M23393K5ZRMQZRZHBG5R1TAW","t":7,"a":"83a1","op":"comment","body":"取消歸檔 —— 這張從沒被處理過，歸檔只是讓它從預設檢視消失。\n\n2026-09-09 實測仍然成立（在乾淨的 mkdtemp + git init 目錄）：\n\n    nook init    第一次（建立）  → 空輸出，exit 0\n    nook init    第二次（已存在）→ 空輸出，exit 0\n    nook doctor  健康時          → 空輸出，exit 0\n\n票面原本的分析仍然準確：這是政策問題不只是 init 的 bug。init 與 doctor 都是使用者主動問「這件事做好了嗎」的指令，沉默等於沒回答。範圍建議維持在這兩個指令一起決定，不要各修各的。\n\nADR-0005 的 token 預算不構成阻礙：init 一輩子只跑一次，不在 40 票情境的量測範圍內。"}
 {"id":"01M23393M9N6V1Z7G0XPSDGJR8","t":8,"a":"83a1","op":"set","k":"archived","v":false}
+{"id":"01M2361VC7APVGY25D5S30FPAK","t":9,"a":"83a1","op":"comment","body":"決定（2026-09-09）：init 說話（列出建立了什麼、並區分 no-op），doctor 維持沉默。doctor 符合 unix 慣例「沒消息就是好消息」，而且它會進 CI —— 健康時噴東西反而是雜訊。票面原本主張兩個都說話，這裡收窄。"}
