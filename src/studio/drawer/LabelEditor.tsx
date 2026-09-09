@@ -4,8 +4,8 @@ import { XIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { addLabelChange, removeLabelChange } from './pending';
-import type { DrawerChange } from './pending';
+import { addLabelChange, removeLabelChange } from './changes';
+import type { DrawerChange } from './changes';
 
 export interface LabelEditorProps {
   readonly labels: readonly string[];
@@ -42,7 +42,7 @@ export function LabelEditor({ labels, pending, onSubmit }: LabelEditorProps): Re
         className="flex items-center gap-1"
         onSubmit={(e) => {
           e.preventDefault();
-          // 空字串與已經掛著的 label 都判定為「沒有東西要送」（pending.ts）——
+          // 空字串與已經掛著的 label 都判定為「沒有東西要送」（changes.ts）——
           // op-log 是 append-only，重複的 add 會永久留在 .ndjson 裡。
           if (onSubmit(addLabelChange(draft, labels))) setDraft('');
         }}

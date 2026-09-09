@@ -24,12 +24,12 @@ export function CardFace({
     >
       <div className="text-muted-foreground font-mono text-[10px] break-all">
         {/*
-          短 ID 的長度是「整批 Issue」的性質，唯一來源是 core 的 shortIdLength，
-          因此它必須由 server 算好隨 IssueView 一起送。`IssueView` 目前沒有那個
-          欄位（見執行報告），在它補上之前這裡顯示完整 id —— 前端自己挑一個長度
-          會在別的分支上撞號，而撞號的短 ID 比長 ID 更糟。
+          短 Ref 的長度是「整批 Issue」的性質，唯一來源是 core 的 shortIdLength，
+          所以它由 server 算好隨 `IssueView` 一起送（票 11）。前端自己截一個長度
+          會在別的分支上撞號，而撞號的短 Ref 比 26 碼更糟 —— 使用者接著就是拿
+          它去當 Ref 用。
         */}
-        {issue.id}
+        {issue.shortId}
       </div>
       <div className="mt-1 text-sm leading-snug">{issue.title}</div>
       {issue.labels.length > 0 && (

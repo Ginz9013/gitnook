@@ -1,4 +1,5 @@
 import { fetchBoard, fetchHash } from './api.js';
+import type { IssueView } from './api.js';
 import type { ClientAction } from './reconcile.js';
 
 /** 一次輪詢的結果：拿到答案，或伺服器沒回應。 */
@@ -40,8 +41,14 @@ export const POLL_INTERVAL_MS = 2000;
 export interface PollOptions {
   /** 開場那份快照的 hash —— 有它，第一次輪詢才不會白抓一次整塊 board。 */
   readonly hash: string;
-  /** 新快照交給調和 reducer。畫面該不該跟著動由它決定，不由這裡決定（票 02）。 */
-  readonly dispatch: (action: ClientAction) => void;
+  /**
+   * 新快照交給調和 reducer。畫面該不該跟著動由它決定，不由這裡決定（票 02）。
+   *
+   * 型別參數釘的是 `IssueView` 而不是 reducer 預設的 `ReconcileIssue`：這裡
+   * 派出去的快照就是 `fetchBoard()` 的產物，兩者是同一個形狀。寫成較寬的那個
+   * 會讓呼叫端（它的 state 帶著 `descriptionHtml`）在逆變位置上接不住。
+   */
+  readonly dispatch: (action: ClientAction<IssueView>) => void;
   /** 只在「中斷」與否翻面時呼叫一次，不是每次輪詢都叫。 */
   readonly onConnectionChange: (disconnected: boolean) => void;
 }

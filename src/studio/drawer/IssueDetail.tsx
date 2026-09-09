@@ -5,28 +5,31 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import type { IssueView } from '@/api';
+import type { ProjectedIssue } from '@/reconcile';
 import { CommentTimeline } from './CommentTimeline';
 import { LabelEditor } from './LabelEditor';
 import { StatusPicker } from './StatusPicker';
-import { descriptionChange, titleChange } from './pending';
-import type { DrawerChange } from './pending';
-import { useIssueEdits } from './useIssueEdits';
+import { descriptionChange, titleChange } from './changes';
+import type { DrawerChange } from './changes';
 
 export interface IssueDetailProps {
-  readonly issue: IssueView;
+  /** 快照 + 樂觀覆蓋。`project()` 的產物，由 App 持有的那一份 reducer 算出來。 */
+  readonly projected: ProjectedIssue<IssueView>;
+  readonly onSubmit: (id: string, change: DrawerChange | undefined) => boolean;
 }
 
 /**
  * 一張 issue 的詳情與內編輯。每個編輯各自走 `POST /i/<ref>`，畫面先動、
- * 回應到了再以伺服器的版本蓋回去（`useIssueEdits`）。
+ * 回應到了再以伺服器的版本蓋回去 —— 那一段在 `App.tsx`，這裡只交出 Change。
  *
- * 這個組件刻意很薄：所有「這一下該不該產生 op」的判斷都在 `pending.ts`，
+ * 這個組件刻意很薄：所有「這一下該不該產生 op」的判斷都在 `changes.ts`，
  * 這裡只負責把使用者的動作翻成一份 Change 交出去。這一票沒有自動化測試
  * （spec.md 的測試策略），能推進純函式的就不留在組件裡。
  */
-export function IssueDetail({ issue }: IssueDetailProps): React.JSX.Element {
-  const { projected, submit, failed } = useIssueEdits(issue);
-  const shown = projected.issue;
+export function IssueDetail({ projected, onSubmit }: IssueDetailProps): React.JSX.Element {
+  const shown = projected.shown;
+  // 綁上這一張的 id 之後交給子組件 —— 它們只知道「送出一份 Change」。
+  const submit = (change: DrawerChange | undefined): boolean => onSubmit(projected.id, change);
 
   return (
     <>
@@ -65,12 +68,7 @@ export function IssueDetail({ issue }: IssueDetailProps): React.JSX.Element {
       </SheetHeader>
 
       <div className="flex flex-col gap-6 px-4 pb-6">
-        {failed === null ? null : (
-          <p className="text-destructive text-sm" role="status">
-            寫入沒送到，畫面已回到伺服器上的值：{failed}
-          </p>
-        )}
-
+        {/* 寫入失敗的訊息在 App 的橫幅上：拖曳失敗時 drawer 可能根本沒開著。 */}
         <DescriptionField
           description={shown.description}
           descriptionHtml={shown.descriptionHtml}
@@ -108,7 +106,7 @@ function TitleField({ title, pending, onSubmit }: FieldProps & { readonly title:
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
         if (draft === null) return;
-        // 沒有變化（或 trim 後是空的）就不送 —— titleChange 判定，見 pending.ts。
+        // 沒有變化（或 trim 後是空的）就不送 —— titleChange 判定，見 changes.ts。
         onSubmit(titleChange(draft, title));
         setDraft(null);
       }}

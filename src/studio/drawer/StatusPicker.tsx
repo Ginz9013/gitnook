@@ -11,8 +11,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { Status } from '@/api';
-import { STATUSES, needsReason, statusChange } from './pending';
-import type { DrawerChange } from './pending';
+import { STATUSES, needsReason, statusChange } from './changes';
+import type { DrawerChange } from './changes';
 
 export interface StatusPickerProps {
   readonly status: Status;

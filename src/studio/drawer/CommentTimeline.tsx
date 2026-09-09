@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import type { CommentView } from '@/api';
-import { commentChange } from './pending';
-import type { DrawerChange, UnconfirmedComment } from './pending';
+import type { UnconfirmedComment } from '@/reconcile';
+import { commentChange } from './changes';
+import type { DrawerChange } from './changes';
 
 export interface CommentTimelineProps {
   readonly comments: readonly CommentView[];
