@@ -13,50 +13,72 @@
 @custom-variant dark (&:is(.dark *));
 
 /**
- * shadcn 的設計 token。八個 Status 各有一欄，欄位本身用 --surface 系列；
- * 卡片與 drawer 的顏色一律走 token，不散落在組件裡。
+ * nook 的設計 token —— 沿用 shadcn 的十八格架構，換成自己的顏色，另加
+ * `--success` 一對（D7／D9）。卡片與 drawer 的顏色一律走 token，不散落在組件裡。
+ *
+ * **不做 per-Status 的顏色。** 重點在卡片，八欄各一色會搶戲（D7），而看板
+ * 也不替任何 Status 預設解讀（ADR-0010）。
+ *
+ * **四階深淺，卡片最浮**（D8）：
+ * `--background`（頁面底，最沉）→ `--muted`（欄位底，凹槽）→ `--card`（最亮，
+ * 唯一有 shadow）→ `--popover`（同卡片階，靠 shadow 分開）。
+ * **dark mode 階序不變** —— 不是「全部變暗」，卡片仍然是最亮的那一階。
+ *
+ * `--primary` 不背負任何語意（ADR-0010），就是按鈕與連結的顏色。
+ * 回饋色只有三格：`--destructive`、`--success`、`--ring`。**沒有 `--warning`**
+ * —— 現在沒有「不算錯但要注意」的狀態，開一格沒有使用者的 token，下一個人
+ * 就會拿它去畫別的東西（D9）。
+ *
+ * 每一對前景／底色的對比度由 `test/studio/tokens.test.ts` 守著：文字 4.5:1、
+ * `--border` 與 `--ring` 3:1，light 與 dark 兩邊都算。改顏色時那個閘門會說話。
  */
 :root {
   --radius: 0.625rem;
-  --background: oklch(0.985 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.945 0.005 235);
+  --foreground: oklch(0.235 0.012 250);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.235 0.012 250);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.235 0.012 250);
+  --primary: oklch(0.55 0.1 200);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.965 0.006 235);
+  --secondary-foreground: oklch(0.3 0.012 250);
+  --muted: oklch(0.975 0.005 235);
+  --muted-foreground: oklch(0.47 0.012 250);
+  --accent: oklch(0.93 0.025 200);
+  --accent-foreground: oklch(0.28 0.03 220);
+  --destructive: oklch(0.52 0.2 27);
+  --destructive-foreground: oklch(1 0 0);
+  --success: oklch(0.5 0.13 150);
+  --success-foreground: oklch(1 0 0);
+  --border: oklch(0.6 0.012 235);
+  --input: oklch(0.6 0.012 235);
+  --ring: oklch(0.58 0.11 200);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --background: oklch(0.175 0.01 250);
+  --foreground: oklch(0.955 0.005 250);
+  --card: oklch(0.265 0.012 250);
+  --card-foreground: oklch(0.965 0.005 250);
+  --popover: oklch(0.265 0.012 250);
+  --popover-foreground: oklch(0.965 0.005 250);
+  --primary: oklch(0.72 0.11 200);
+  --primary-foreground: oklch(0.2 0.02 220);
+  --secondary: oklch(0.295 0.012 250);
+  --secondary-foreground: oklch(0.955 0.005 250);
+  --muted: oklch(0.235 0.012 250);
+  --muted-foreground: oklch(0.72 0.012 250);
+  --accent: oklch(0.34 0.035 210);
+  --accent-foreground: oklch(0.95 0.01 210);
+  --destructive: oklch(0.7 0.17 25);
+  --destructive-foreground: oklch(0.2 0.03 25);
+  --success: oklch(0.74 0.14 150);
+  --success-foreground: oklch(0.2 0.04 150);
+  --border: oklch(0.57 0.014 250);
+  --input: oklch(0.57 0.014 250);
+  --ring: oklch(0.72 0.11 200);
 }
 
 @theme inline {
@@ -79,6 +101,9 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
