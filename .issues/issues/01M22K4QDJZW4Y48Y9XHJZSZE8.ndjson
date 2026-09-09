@@ -4,3 +4,4 @@
 {"id":"01M22K4QK8AKEBWYGNFB8D6XV5","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M22M00WHPFSY73F9RRKA8WEX","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
 {"id":"01M22QF8HGG7NJ72HZ8ASMYSS9","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M23DQ4DV27PT1ZQ1JMAPNWC5","t":7,"a":"83a1","op":"set","k":"archived","v":true}

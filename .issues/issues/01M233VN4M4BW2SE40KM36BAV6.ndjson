@@ -6,3 +6,5 @@
 {"id":"01M236BET83P6CZ2PKH6Q67QWF","t":6,"a":"83a1","op":"comment","body":"ADR-0003 的收法決定（2026-09-09）：改寫 ADR，接受資訊遺失。blocked 維持是 Status —— ADR-0003 另一條理由（八個固定值讓 agent 不必先查詢這個專案有哪些狀態）不受影響。ADR 要改成「blocked 與 archived 的正交性問題相同，但我們接受 blocked 的資訊遺失：強制留言的成本高於它補回的價值，而狀態不該帶有額外效果」。"}
 {"id":"01M236J67D1C9Q6CPX0PG91X5X","t":7,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M237GYP5XNEY69J7R3NN1JFK","t":8,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M23DPME0KTWZ1VCSM1P12N7S","t":9,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M23DQ580CV0WTF43VN7EM7DT","t":10,"a":"83a1","op":"set","k":"archived","v":true}

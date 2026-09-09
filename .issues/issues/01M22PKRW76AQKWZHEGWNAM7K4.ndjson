@@ -5,3 +5,4 @@
 {"id":"01M22VRQN3H126HBA9XHKAY0KV","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
 {"id":"01M22VRQP63QD0PWGNZ041ET6G","t":6,"a":"83a1","op":"comment","body":"完成（8ebd19a）＋ escapeHtml 去重由整合修正補上（下一個 commit）。票面有四項在執行時已失效，最重要的是 ProjectedIssue.held —— 票 05 之後看板樣式與播報都靠它，保留而非照票面盲刪。"}
 {"id":"01M23155M78PXBBKM5H54EQ066","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M23DQ4R3F84YK3AQF0NZ8EY2","t":8,"a":"83a1","op":"set","k":"archived","v":true}

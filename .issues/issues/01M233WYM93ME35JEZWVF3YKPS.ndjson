@@ -4,3 +4,5 @@
 {"id":"01M236BEYTQ0WDVNFE0C6498ST","t":4,"a":"83a1","op":"comment","body":"決定（2026-09-09）：不做，改寫 ADR-0001。\n\n那句緩解是 v1 規劃時寫的，而 v1 之後 studio 出現了 ——「NDJSON 在 GitHub 網頁上不如 markdown 好讀」現在有更好的答案（在本機開 studio 看），而 --json 已經足以串接工具。\n\nADR-0001 的那句改成記錄實際發生的事：緩解手段是「Op 的 JSON 單行可讀」加上「studio 提供人看的檢視」，markdown 輸出評估後不做。\n\n這張票因此變成純文件。"}
 {"id":"01M236J69MN4N2VPX9GQBXMYC9","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M2383D8BRYA1PN4FCCTMF61N","t":6,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M23DPMG91VFF9XQ35Q7M239X","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M23DQ5A9YR8T4AT0EH4DVAXS","t":8,"a":"83a1","op":"set","k":"archived","v":true}

@@ -5,3 +5,5 @@
 {"id":"01M2361VB3T1QT331R2E5QB46R","t":5,"a":"83a1","op":"comment","body":"決定（2026-09-09）：dogfood 一律用完整路徑 node node_modules/gitnook/bin/nook.js，並寫進 AGENT.md 與 dogfood 票。可以配一個 npm script 包起來。不改 package.json 的 alias —— 那多一層間接且行為靠 npm 版本。"}
 {"id":"01M236J61WATZMT7P7VGBXX44G","t":6,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M2383D5YZBEVXPT0WBMKSMNK","t":7,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M23DPM84SSMXBVKD0ADPDT24","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M23DQ52BE3P2XKBQ4D5M817Q","t":9,"a":"83a1","op":"set","k":"archived","v":true}

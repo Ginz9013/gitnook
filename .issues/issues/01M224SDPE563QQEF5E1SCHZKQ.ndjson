@@ -5,3 +5,4 @@
 {"id":"01M22FM94THB5Q9SJ239RA4M6K","t":5,"a":"83a1","op":"comment","body":"程式碼完成（33f1a07）。樂觀更新走 drawer/pending.ts 而非 reconcile.ts —— 後者的 pending 值是單一 status 字串，裝不下 label 集合與留言時間軸。後果是與看板各持一份樂觀狀態，待整合。"}
 {"id":"01M22FM95XFR4KRH04ABD0KKPE","t":6,"a":"83a1","op":"set","k":"status","v":"review"}
 {"id":"01M22QF8E55S4ZJVEV6PF5AAXE","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M23DQ4930WNG4K1R11GGK5WK","t":8,"a":"83a1","op":"set","k":"archived","v":true}

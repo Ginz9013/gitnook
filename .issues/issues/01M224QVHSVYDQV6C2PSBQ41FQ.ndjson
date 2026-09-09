@@ -6,3 +6,4 @@
 {"id":"01M22EFCYFN96BVVZA68HDNYT2","t":6,"a":"83a1","op":"set","k":"status","v":"review"}
 {"id":"01M22EFD1QQM3TX8XV1VPTBJPP","t":7,"a":"83a1","op":"comment","body":"完成（f5f26ff）。POST /i/<ref> 鏡射 board.apply。票 09 那條「方法檢查在路由之前」的性質保留，破壞它的變異會讓 PUT / 回 200 服務 SPA 殼 —— 測試抓得到。票 01 刪掉的 AmbiguousRef 覆蓋已補回，並額外斷言兩張 issue 都沒被寫入。"}
 {"id":"01M22QF88K5TMRAY4DVMGDJJVQ","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M23DQ40FHG09PCDVPT5AVTZ6","t":9,"a":"83a1","op":"set","k":"archived","v":true}

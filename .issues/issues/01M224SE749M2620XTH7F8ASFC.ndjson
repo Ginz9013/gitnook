@@ -5,3 +5,4 @@
 {"id":"01M22FM92GFNKVFZDJMYWW82M4","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
 {"id":"01M22FM93QF13J09SFQQ9JHV3P","t":6,"a":"83a1","op":"comment","body":"程式碼完成（4f36adc）。connectionReduce 有測試；接線無自動化測試但用 repo 外的一次性 driver 實測過。注意：poll.ts 尚未被 App.tsx 啟動，所以在實際 app 裡還看不見。"}
 {"id":"01M22QF8F9XB1DW32S8JGE7SRY","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M23DQ4A97E53CPKX490Z3SGM","t":8,"a":"83a1","op":"set","k":"archived","v":true}

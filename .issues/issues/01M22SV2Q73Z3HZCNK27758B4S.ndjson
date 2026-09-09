@@ -6,3 +6,4 @@
 {"id":"01M2307YDT3E8EQR6TNJJDWGAX","t":6,"a":"83a1","op":"set","k":"status","v":"review"}
 {"id":"01M2307YH5Q7ZRFBM4H8VKJEGA","t":7,"a":"83a1","op":"comment","body":"完成（107bda3）。我的診斷不完整：那個洞不只是我票面措辭造成的，底下還有一個機械原因 —— vitest.config.ts 沒有 @ 別名，所以那些模組從測試根本 import 不動。在補上別名之前那些測試不可能存在。57 條測試，每條都用變異證明會咬。"}
 {"id":"01M2315AAY6HYGMB43KAX07KN7","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M23DQ4VHPAF8Z5JNRG0835XK","t":9,"a":"83a1","op":"set","k":"archived","v":true}

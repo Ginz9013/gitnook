@@ -5,3 +5,4 @@
 {"id":"01M22BXANYJ56MWF542GG87EJR","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M22PB07D6TZYJ84KSV2K64B8","t":6,"a":"83a1","op":"set","k":"status","v":"review"}
 {"id":"01M22QF8GD24BR40K1Q8VSQW7R","t":7,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M23DQ4BFZ05P89VSYBJ5H66H","t":8,"a":"83a1","op":"set","k":"archived","v":true}
