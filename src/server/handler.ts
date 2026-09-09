@@ -49,6 +49,19 @@ function badRequest(message: string): StudioResponse {
 }
 
 /**
+ * 兜底的 500。**只送 message，不送 `err.stack`** —— 堆疊講的是 nook 的內部
+ * 結構，對讀者（就是跑 `nook studio` 的那個人）沒有一個字是可行動的，而
+ * 「board 目錄不見了，先執行 nook init」有。同 missingAssetsPage 的模型：
+ * 訊息裡的本機路徑沒有外洩對象，因為只綁 loopback（ADR-0007）。
+ *
+ * 非 Error 的擲出物不做猜測 —— 沒有 message 可信，就不要假裝有。
+ */
+function serverError(err: unknown): StudioResponse {
+  const message = err instanceof Error ? err.message : '伺服器內部錯誤';
+  return { status: 500, headers: { 'content-type': TEXT }, body: `${message}\n` };
+}
+
+/**
  * 當前 board 狀態的指紋。ADR-0002：沒有快取也沒有版本戳，每次就是全量掃描
  * 加摺疊 —— 500 張 Issue 14ms，每 2 秒問一次的成本趨近於零。
  *
@@ -353,11 +366,40 @@ function applyChange(board: Board, ref: string, body: string): StudioResponse {
   }
 }
 
+/**
+ * 一個請求，一份回應。**這是一個全函數（total function）：任何輸入都回得出
+ * 一份 StudioResponse，一個例外都不往上拋。**
+ *
+ * 兜底放在這裡而不是 serve.ts 的 callback 外圍，是刻意的取捨：
+ *
+ * 1. **狀態碼的決定權集中在一處。** 404（RefNotFound / AmbiguousRef）、
+ *    400（InvalidStatus、非法 body）、405（方法白名單）全都在這個檔案裡；
+ *    把「其餘一律 500」搬到 serve.ts，會讓「這個請求會拿到什麼」這個問題
+ *    必須讀兩個檔案才答得出來，而下一個新的 core 例外要對應到哪一層也就
+ *    多了一個可以吵的地方。代價是 500 成為本模組新的回應詞彙 —— 划算。
+ * 2. **例外在它產生的那一格就變成值。** serve.ts 是
+ *    `readBody(req).then(onOk, onErr)`，onOk 跑在後來的一個 tick 上，所以
+ *    包在 `createServer` callback 外圍的 try/catch 一個字都接不到 ——
+ *    它會變成 unhandled rejection，也就是**整個 process 當場結束**。
+ *    在這裡接住，那條路徑就不存在，而不是靠再包一層 `.catch` 補救。
+ * 3. **純函數性質不變。** try/catch 不碰 node:http，這條兜底因此在不綁 port
+ *    的情況下測得動（見 handler.test.ts），也保護 serve.ts 以外的呼叫端。
+ */
 export function handleRequest(
   board: Board,
   req: StudioRequest,
   opts: HandlerOptions = {},
 ): StudioResponse {
+  try {
+    return route(board, req, opts);
+  } catch (err) {
+    // 認得的例外在 applyChange 裡就已經對應完畢（404 / 400）；走到這裡的
+    // 一律是「沒預期到」—— 例如 session 進行中 board 目錄被移走。
+    return serverError(err);
+  }
+}
+
+function route(board: Board, req: StudioRequest, opts: HandlerOptions): StudioResponse {
   // 手動切掉 query string，不走 new URL() —— 後者會把 `..` 正規化掉，
   // 使路徑穿越在到達 /assets/ 的守衛之前就消失，而那個守衛正是這一層要證明的。
   const path = req.url.split('?')[0]!;

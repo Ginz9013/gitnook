@@ -825,3 +825,53 @@ describe('dist/studio/ 不存在時', () => {
     expect(res.body).not.toContain('npm run build');
   });
 });
+
+describe('未預期的例外', () => {
+  it('board 在中途消失：回 500 而不是往上拋，內文說得出發生什麼事', () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+    const alive = board();
+    // 先確認這塊 board 本來是好的 —— 否則下面的 500 證明不了是「中途消失」。
+    expect(alive.list({ all: true })).toHaveLength(1);
+
+    rmSync(join(dir, '.issues'), { recursive: true, force: true });
+
+    const res = handleRequest(alive, { method: 'GET', url: '/api/board' }, { assetsDir: assets });
+
+    expect(res.status).toBe(500);
+    expect(res.headers['content-type']).toMatch(/^text\/plain/);
+    // 讀者就是跑 nook studio 的那個人（同 missingAssetsPage 的模型）：
+    // 只說「內部錯誤」等於要他自己去猜看板為什麼整個空了。
+    expect(res.body).toContain('不是一個 Nook board');
+  });
+
+  it('500 的內文不得外洩堆疊追蹤', () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+    const alive = board();
+    rmSync(join(dir, '.issues'), { recursive: true, force: true });
+
+    const res = handleRequest(alive, { method: 'GET', url: '/api/board' }, { assetsDir: assets });
+
+    expect(res.status).toBe(500);
+    expect(res.body).not.toMatch(/\n\s*at /);
+    expect(res.body).not.toContain('board.ts');
+    expect(res.body).not.toContain('handler.ts');
+    expect(res.body).not.toContain('node:internal');
+  });
+
+  it('寫入面同樣兜底，而且不搶既有的對應：500 只給沒被對應到的例外', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const alive = board();
+
+    // 對應得到的仍然照舊 —— 兜底不得把 400 吃成 500。
+    const invalid = handleRequest(alive, { method: 'POST', url: `/i/${id}`, body: '{"status":"nope"}' });
+    expect(invalid.status).toBe(400);
+
+    rmSync(join(dir, '.issues'), { recursive: true, force: true });
+
+    // board 消失不是「找不到這張 issue」（404），也不是請求的錯（400）。
+    const gone = handleRequest(alive, { method: 'POST', url: `/i/${id}`, body: '{"status":"queued"}' });
+    expect(gone.status).toBe(500);
+    expect(gone.body).toContain('不是一個 Nook board');
+  });
+});

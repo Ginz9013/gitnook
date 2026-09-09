@@ -300,3 +300,26 @@ describe('前端資產', () => {
     expect(await (await fetch(`${studio.url}/assets/studio.js`)).text()).toBe('const version = 2\n');
   });
 });
+
+describe('未預期的例外不得帶掉整個 process', () => {
+  it('board 在 server 起來之後被移走：回 500，而且下一個請求仍然有人接', async () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+    const studio = await start();
+
+    // 先確認這條路徑本來是好的 —— 否則下面的 500 可能根本不是 board 造成的。
+    expect((await fetch(`${studio.url}/api/board`)).status).toBe(200);
+
+    // session 進行中 board 目錄被移走：下一次 board.list() 丟 BoardNotInitialized，
+    // 而那個 throw 發生在 createServer callback 的 promise 續行裡。
+    rmSync(join(dir, '.issues'), { recursive: true, force: true });
+
+    expect((await fetch(`${studio.url}/api/board`)).status).toBe(500);
+
+    // 這一行才是這張票的重點：狀態碼誰都答得出來，但 process 死了就沒有下一個回應。
+    expect((await fetch(`${studio.url}/api/board`)).status).toBe(500);
+
+    // 而且是「還在服務」而不是「還在但壞了」：board 回來就照常回答。
+    mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
+    expect((await fetch(`${studio.url}/hash`)).status).toBe(200);
+  });
+});

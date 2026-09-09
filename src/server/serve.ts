@@ -68,6 +68,13 @@ export function serve(board: Board, opts: ServeOptions = {}): Promise<Studio> {
   const server = createServer((req, res) => {
     // 主體一律先讀完再交給 handler：handleRequest 是純函數（不接觸 node:http），
     // 所以串流不能穿過那道接縫。非 POST 的請求沒有主體，'end' 下一個 tick 就到。
+    //
+    // **這裡刻意沒有 try/catch，而且不要加一個。** 下面那個成功續行跑在後來的
+    // 一個 tick 上，包在這個 callback 外圍的 try/catch 接不到它拋的任何東西 ——
+    // 那會變成 unhandled rejection，也就是整個 process 當場結束（例如 session
+    // 進行中 board 目錄被移走，下一個請求丟 BoardNotInitialized）。真正的保證
+    // 來自 handleRequest 是全函數：它對任何輸入都回傳一份 StudioResponse，
+    // 未預期的例外在它自己那一格就變成 500。要改那條保證，改 handler.ts。
     void readBody(req).then(
       (body) => {
         const out = handleRequest(board, { method: req.method ?? 'GET', url: req.url ?? '/', body }, handlerOpts);
