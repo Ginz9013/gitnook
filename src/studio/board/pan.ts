@@ -31,11 +31,12 @@ export function panTo(origin: PanOrigin, x: number): number {
 
 /**
  * 一次平移要走多遠才算數。**4px，與 `Board.tsx` 給 `PointerSensor` 的
- * `activationConstraint` 是同一個數字**，因為問的是同一件事：這隻手是想按下去，
+ * `activationConstraint` **就是這一個常數**（`Board.tsx` import 它），因為問的是
+ * 同一件事：這隻手是想按下去，
  * 還是想拉著走。卡片上分得開、空白處分不開的話，使用者會發現同樣穩的一下按得
  * 動卡片、按不動欄頂的 `+`。
  */
-const PAN_SLOP = 4;
+export const PAN_SLOP = 4;
 
 /**
  * 這一下已經走得夠遠，是一次平移而不是一次點擊了嗎。

@@ -16,8 +16,8 @@ import type { DragState } from './Column';
 import { announceCancel, announceDrop, announceGrab, announceOver, dragInstructions } from './announce';
 import { collapsedNow, revealOver, toggleCollapsed } from './collapse';
 import { boardCollision, columnKeyboardCoordinates, draggedIssue, statusOf } from './dnd';
-import { allLabels, matchesLabels } from './filter';
-import { panStarted, panTo } from './pan';
+import { allLabels, matchesLabels, toggleLabel } from './filter';
+import { PAN_SLOP, panStarted, panTo } from './pan';
 import type { PanOrigin } from './pan';
 
 /**
@@ -149,8 +149,10 @@ export function Board({
   const [panning, setPanning] = useState(false);
 
   const sensors = useSensors(
-    // 4px 的門檻讓「點一下開細節」與「拖走」分得開。
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    // 門檻讓「點一下開細節」與「拖走」分得開。**與空白處平移共用同一個常數**
+    // （`pan.ts` 的 `PAN_SLOP`）—— 兩邊問的是同一件事，而分歧的樣子是同樣穩的
+    // 一下按得動卡片、按不動欄頂的 `+`。抄一個字面量的話沒有東西擋得住那件事。
+    useSensor(PointerSensor, { activationConstraint: { distance: PAN_SLOP } }),
     useSensor(KeyboardSensor, {
       // 預設 Enter 也是「開始拖曳」，這裡讓出來給開啟細節（見 Card.tsx）。
       keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space'] },
@@ -211,15 +213,9 @@ export function Board({
     setCollapsed(next);
   }
 
-  /**
-   * 勾起或取消一個 Label。**永遠交出一個新陣列** —— 就地 `push` 再把同一個參照
-   * 交回 `useState`，React 看到的是同一個東西，於是不重繪：勾勾按下去畫面什麼
-   * 都不會發生，而程式沒有任何錯誤（同 `collapse.ts` 的 `toggleCollapsed`）。
-   *
-   * 取消時**保留其餘的順序** —— 那是 `allLabels` 的出現順序，面板照著它畫。
-   */
-  function toggleLabel(label: string): void {
-    setSelectedLabels((s) => (s.includes(label) ? s.filter((l) => l !== label) : [...s, label]));
+  /** 規則在 `filter.ts` 的 `toggleLabel`，這裡只是把它接上 state。 */
+  function onToggleLabel(label: string): void {
+    setSelectedLabels((s) => toggleLabel(s, label));
   }
 
   /**
@@ -351,7 +347,7 @@ export function Board({
         onToggleArchived={() => setShowArchived((v) => !v)}
         labels={labels}
         selectedLabels={selectedLabels}
-        onToggleLabel={toggleLabel}
+        onToggleLabel={onToggleLabel}
         onClearLabels={() => setSelectedLabels([])}
         // 只算 Label 這一刀藏掉的：被封存藏起來的那些由「顯示已封存（N）」
         // 自己交代。兩個維度各自說自己藏了什麼。

@@ -10,6 +10,11 @@
 一個待處理的工作項目。Nook 追蹤的唯一實體。
 _Avoid_: task, ticket, card, story, 票
 
+> `票` 這個字**只有一種合法用法**：指 `.scratch/<feature>/` 底下某一張規劃用的
+> 工作單（「票 B3」）。那是規劃流程的東西，不是 Nook 的實體，兩者不會混淆是
+> 因為它永遠帶著編號。單獨用「票」或「這張票」來指一個 Issue 仍然是禁止的 ——
+> 程式碼註解裡指涉自己這一批工作時，說「這一批」。
+
 **Board**:
 一個 repo 內全部 Issue 的集合。
 _Avoid_: project, workspace, backlog（`backlog` 是一個 Status 值，不是集合的名稱）

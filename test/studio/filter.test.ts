@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { allLabels, matchesLabels } from '../../src/studio/board/filter.js';
+import { allLabels, matchesLabels, toggleLabel } from '../../src/studio/board/filter.js';
 
 // 純函式，environment: 'node'。不 import React、不碰 DOM
 // （spec.md 的測試策略：React 組件不寫測試，不得新增 jsdom／@testing-library／playwright）。
@@ -89,5 +89,25 @@ describe('大小寫敏感 —— Label 是自由文字，不是 Ref', () => {
 
   it('大小寫不同的 Label 是清單上的兩格', () => {
     expect(allLabels([issue('Bug'), issue('bug')])).toEqual(['Bug', 'bug']);
+  });
+});
+
+describe('toggleLabel —— 勾選與取消勾選', () => {
+  it('沒勾過的加進去，順序是勾的順序而不是字典序', () => {
+    expect(toggleLabel(['ux'], 'bug')).toEqual(['ux', 'bug']);
+  });
+
+  it('勾過的再勾一次就拿掉', () => {
+    expect(toggleLabel(['ux', 'bug'], 'ux')).toEqual(['bug']);
+  });
+
+  // 原地改過的陣列 useState 認得出是同一個參照，於是不重繪 —— 畫面會停在
+  // 上一次的篩選結果上，而使用者剛剛才點了那一格。
+  it('兩個方向都回新的陣列，不動原本那一份', () => {
+    const before = ['ux'];
+
+    expect(toggleLabel(before, 'bug')).not.toBe(before);
+    expect(toggleLabel(before, 'ux')).not.toBe(before);
+    expect(before).toEqual(['ux']);
   });
 });

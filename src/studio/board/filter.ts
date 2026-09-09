@@ -47,3 +47,15 @@ export function matchesLabels(
 ): boolean {
   return selected.every((label) => issue.labels.includes(label));
 }
+
+/**
+ * 勾選／取消勾選一個 Label。**永遠回一個新的陣列**，同 `collapse.ts` 的
+ * `toggleCollapsed` —— 原地 `push`／`splice` 過的陣列，React 的 `useState`
+ * 認得出它是同一個參照就不重繪，畫面於是停在上一次的篩選結果上。
+ *
+ * 順序是勾選的順序，不排序：那份清單只餵給 `matchesLabels`（AND，與順序無關）
+ * 與 header 的那句「同時帶著 a + b」，而後者照著人勾的順序念比較好讀。
+ */
+export function toggleLabel(selected: readonly string[], label: string): readonly string[] {
+  return selected.includes(label) ? selected.filter((l) => l !== label) : [...selected, label];
+}

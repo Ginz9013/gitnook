@@ -11,18 +11,13 @@
  * `pointer-events-none`：它蓋在整塊看板上，包括 header 那顆按鈕與八個欄頂的
  * `+`。**攔得住點擊的空狀態會攔掉它自己叫人去按的那顆按鈕。**
  *
- * **住在 `App.tsx` 的那一層而不是 `Board.tsx` 裡**（`fixed` 而不是 `absolute`）：
- * 這批票並行進行，`Board.tsx` 由另一張票持有。代價是它對齊的是視窗中央而不是
- * 欄位那條帶子的中央 —— 差的是 header 的高度。日後有人動 `Board.tsx` 時，
- * 把它移進欄位容器裡改成 `absolute inset-0` 就對齊了，這個組件本身不必改。
- *
  * **這裡沒有自動化測試**（spec.md：React 組件不寫測試）。沒有 props、沒有
  * state、沒有分支 —— 該不該畫它是呼叫端的一個 `length === 0`。
  *
  * `absolute inset-0` 對齊的是**欄位帶**（`Board.tsx` 裡那個 `relative` 的捲動
- * 容器），不是視窗。B5 當初只能用 `fixed`，因為 `Board.tsx` 那時是 B4 的地盤 ——
- * 對齊視窗會讓這段話比欄位帶的中線高出半個 header。`pointer-events-none` 讓它
- * 指得動的那顆「新增 Issue」按鈕真的按得到。
+ * 容器），不是視窗 —— 對齊視窗會讓這段話比欄位帶的中線高出半個 header。
+ * 量過：1400px 視窗、空 board，欄位帶中心 524、這段話中心 517，差的 7px 是
+ * 橫向捲軸的高度（八欄 2132px 一定溢出），不是定位錯誤。
  */
 export function EmptyBoard(): React.JSX.Element {
   return (

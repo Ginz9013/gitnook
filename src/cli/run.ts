@@ -412,12 +412,6 @@ function cmdList(args: Args, io: Io): number {
 }
 
 /**
- * `show` 與 `list` 印的是同一個顯示用表示法，所以長度也必須一樣 —— 對整塊
- * Board 算。`board.refs()` 只列目錄、不摺疊任何 Op-log，因此票 13 的效能保證
- * （`test/cli/run.test.ts` 的「單點失效的監看不該把整個 Board 掃一遍」守住）
- * 仍然成立：詳情這條路徑只會讀被點名的那一個 op-log。
- */
-/**
  * 讀到一張已刪的 Issue 時該說的那句話。**前半段的字串歸 `IssueDeleted` 所有**
  * —— 手抄一份，兩邊遲早各自漂移，而它們講的是同一件事。
  *
@@ -428,6 +422,12 @@ function deletedMessage(ref: string): string {
   return `${new IssueDeleted(ref).message}（nook history ${ref} 撈得回寫過的值，nook set ${ref} deleted false 復原）`;
 }
 
+/**
+ * `show` 與 `list` 印的是同一個顯示用表示法，所以長度也必須一樣 —— 對整塊
+ * Board 算。`board.refs()` 只列目錄、不摺疊任何 Op-log，因此票 13 的效能保證
+ * （`test/cli/run.test.ts` 的「單點失效的監看不該把整個 Board 掃一遍」守住）
+ * 仍然成立：詳情這條路徑只會讀被點名的那一個 op-log。
+ */
 function cmdShow(args: Args, io: Io): number {
   const board = openBoard({ dir: io.cwd });
   const ref = requireRef(args.positional[0] ?? '');

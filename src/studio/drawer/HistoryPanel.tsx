@@ -22,8 +22,10 @@ export interface HistoryPanelProps {
 }
 
 /**
- * `null` 表示「還沒有人展開過」。這個狀態與 `loading` 分開，因為它們對畫面的
- * 意思不同：一個是沒問過，一個是問了還沒回。
+ * `null` 表示「還沒有人展開過」。**畫面上它與 `loading` 是同一格** —— 收合時
+ * 什麼都不畫，而展開的那一瞬間到 effect 送出請求之間只有一個 frame，那一格
+ * 畫成別的樣子就是閃一下。分成兩個狀態純粹是因為它們的**來源**不同：一個是
+ * 初始值，一個是 effect 設的；合成一個就得用 `open` 去反推現在算哪一種。
  */
 type Load =
   | { readonly state: 'loading' }
