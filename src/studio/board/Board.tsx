@@ -1,17 +1,17 @@
-import { Fragment, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { Announcements, DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 
 import type { IssueView, Status } from '@/api';
 import type { ProjectedIssue } from '@/reconcile';
 import { Button } from '@/components/ui/button';
+import { STATUS_ORDER, groupByStatus } from '@/statuses';
 
 import { CardFace } from './Card';
 import { Column } from './Column';
 import type { DragState } from './Column';
 import { announceCancel, announceDrop, announceGrab, announceOver, dragInstructions } from './announce';
 import { boardCollision, columnKeyboardCoordinates, draggedIssue, statusOf } from './dnd';
-import { STATUS_LANES, dropEffect, groupByStatus } from './lanes';
 
 /**
  * 看板對外的那一面。`App` 是唯一的呼叫端 —— 它持有調和 state 與寫入面，看板
@@ -122,20 +122,16 @@ export function Board({
     setDragging(null);
     if (drag === null) return;
 
+    // 換了 Status 才是一次移動。沒放進任何一欄、或放回原本那一欄，都只是放開 ——
+    // op-log 是 append-only，一次什麼都沒改的放下不該在 .ndjson 上留下痕跡。
+    //
+    // 八個 Status 走的是同一條（ADR-0010）：沒有哪一格放下去會發生別的事。
     const to = statusOf(event.over);
-    if (to === null) {
+    if (to === null || to === drag.status) {
       onRelease();
       return;
     }
-    switch (dropEffect(drag.status, to)) {
-      case 'none':
-        onRelease();
-        return;
-      case 'authorize':
-      case 'move':
-        onMove(drag.id, to);
-        return;
-    }
+    onMove(drag.id, to);
   }
 
   function handleDragCancel(): void {
@@ -180,17 +176,17 @@ export function Board({
         onDragCancel={handleDragCancel}
       >
         <div className="flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto pb-2">
-          {STATUS_LANES.map(({ status, opensLane }) => (
-            <Fragment key={status}>
-              {opensLane && <LaneBoundary />}
-              <Column
-                status={status}
-                issues={byStatus.get(status) ?? []}
-                selectedId={selectedId}
-                onSelect={onSelect}
-                dragging={dragging}
-              />
-            </Fragment>
+          {/* 由左到右照 `STATUS_ORDER`，鍵盤的左右鍵也照同一份（`dnd.ts`）。
+              中間不插任何東西 —— 八欄一視同仁（ADR-0010）。 */}
+          {STATUS_ORDER.map((status) => (
+            <Column
+              key={status}
+              status={status}
+              issues={byStatus.get(status) ?? []}
+              selectedId={selectedId}
+              onSelect={onSelect}
+              dragging={dragging}
+            />
           ))}
         </div>
 
@@ -205,21 +201,3 @@ export function Board({
   );
 }
 
-/**
- * 人的車道與 agent 的車道之間那條線（CONTEXT.md）。它一直畫在那裡，不是只有
- * 拖曳時才出現 —— 「現在塞住的是哪一邊」是看一眼就要看得出來的事。
- */
-function LaneBoundary(): React.JSX.Element {
-  return (
-    <div className="flex shrink-0 flex-col items-center gap-2 self-stretch px-1">
-      <div className="border-primary/50 min-h-4 flex-1 border-l border-dashed" />
-      <span
-        className="text-primary/70 text-[10px] whitespace-nowrap"
-        style={{ writingMode: 'vertical-rl' }}
-      >
-        人 ／ agent 的交接
-      </span>
-      <div className="border-primary/50 min-h-4 flex-1 border-l border-dashed" />
-    </div>
-  );
-}

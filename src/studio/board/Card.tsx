@@ -127,10 +127,15 @@ export function Card({ projected, selected, onSelect }: CardProps): React.JSX.El
         className={cn(
           'focus-visible:ring-ring cursor-grab rounded-md outline-none focus-visible:ring-2',
           selected && 'ring-ring ring-2',
-          // 抓著的那張。`held` 不等於 `isDragging`：放開之後 blocked 閘門還開著
-          // 的那段期間，指標已經放掉了但這張仍然被押著不接受伺服器的更新
-          // （Board 那時刻意不送 RELEASE），而那正是最需要看得出來的一刻。
-          projected.held && 'ring-primary cursor-grabbing ring-2',
+          // 抓著的那張：抬高一階再加上游標。`held` 不等於 `isDragging` —— 前者
+          // 來自調和 state（`GRAB` 到 `RELEASE`／`DROP` 之間），後者是 @dnd-kit
+          // 自己的旗標，兩個不同的來源。它講的是「這張不接受伺服器的更新」。
+          //
+          // **刻意不是 `ring-primary`。** 那層預設的解讀拆掉之後主色沒有語意
+          // （ADR-0010），拿它當通用的反白會稀釋它的意思；而 `ring` 這個記號
+          // 已經被上面的 `selected` 用掉了。抬高則接得上拖曳中的 `shadow-lg`
+          // （見 Board 的 DragOverlay）：靜止是 `shadow-xs`，抓著在中間。
+          projected.held && 'cursor-grabbing shadow-md',
           // 拖曳中：原地留一個淡掉的位置，真正跟著走的是 DragOverlay。
           isDragging && 'opacity-40',
         )}

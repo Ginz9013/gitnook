@@ -22,8 +22,9 @@ type Client = ClientState<IssueView>;
  * 樂觀狀態：兩份樂觀模型會分歧，而分歧的樣子是「同一張 Issue 看板上停在 A，
  * drawer 說它在 B」。
  *
- * **可判定的邏輯不留在這個檔案。** 調和規則在 `reconcile.ts`，Status 與車道的
- * 判斷在 `board/lanes.ts` 與 `drawer/changes.ts`，連線中斷的門檻在 `poll.ts`
+ * **可判定的邏輯不留在這個檔案。** 調和規則在 `reconcile.ts`，八個 Status 那份
+ * 清單與分組在 `statuses.ts`，一次編輯送不送得出去在 `drawer/changes.ts`，
+ * 連線中斷的門檻在 `poll.ts`
  * 的 `connectionReduce` —— 那些都有測試。這裡只剩接線，接線沒有自動化測試
  * （spec.md 的測試策略：不引入 jsdom）。
  */

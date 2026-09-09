@@ -2,12 +2,11 @@ import { KeyboardCode, closestCenter, pointerWithin } from '@dnd-kit/core';
 import type { Active, CollisionDetection, KeyboardCoordinateGetter, Over } from '@dnd-kit/core';
 
 import type { Status } from '@/api';
-
-import { STATUS_LANES, isStatus } from './lanes';
+import { STATUS_ORDER, isStatus } from '@/statuses';
 
 /**
  * `@dnd-kit` 與這個看板之間的轉接層：把它的 id、rect 與座標翻成 Status。
- * 領域規則不在這裡（在 `lanes.ts`），畫面也不在這裡。
+ * 八個 Status 本身不在這裡（在 `@/statuses`），畫面也不在這裡。
  */
 
 /** 被拖的那張 Issue 掛在 draggable 上的資料。播報要靠它才講得出「哪一張、從哪個 Status」。 */
@@ -71,14 +70,14 @@ export const columnKeyboardCoordinates: KeyboardCoordinateGetter = (
   const { collisionRect, droppableRects } = context;
   if (collisionRect === null) return;
 
-  // 欄位由左到右的順序只有一份定義 —— `STATUS_LANES`，`Board.tsx` 就是照它畫的。
+  // 欄位由左到右的順序只有一份定義 —— `STATUS_ORDER`，`Board.tsx` 就是照它畫的。
   // 這裡照同一份取 rect，左右鍵走過的順序因此不可能與畫面上的不一致。
   //
   // 不改走 `droppableRects` 自己的順序（那是 droppable 的註冊順序，跟著掛載走，
   // 與版面無關），也不改成照 `rect.left` 排（那是拿量出來的座標反推版面，等於
   // 替「哪一欄在隔壁」多立一份會漂的定義）。兩者壞掉的樣子一樣：按右鍵卡片往
   // 左邊跑，而鍵盤使用者手上沒有第二種挑欄位的方法。
-  const rects = STATUS_LANES.map(({ status }) => droppableRects.get(status));
+  const rects = STATUS_ORDER.map((status) => droppableRects.get(status));
   const dragCenter = collisionRect.left + collisionRect.width / 2;
 
   // 目前在哪一欄：中心最接近的那一欄。用距離而不是「包含」，欄位之間的空隙

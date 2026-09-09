@@ -1,17 +1,20 @@
 import type { Status } from '@/api';
 import type { OptimisticField, UnconfirmedComment } from '@/reconcile';
 
-import { dropEffect } from './lanes';
-
 /**
  * 念給 screen reader 聽的字。純函式 —— 它們是這個看板對看不見畫面的人講的
  * 全部內容。兩種：拖曳過程中的即時播報（`announceGrab` 等四個），以及掛在
  * 一張 Issue 上、Tab 過去就聽得到的敘述（`announceIssueState`）。
  *
  * ADR-0008 選 React 的唯一理由是 `@dnd-kit` 的鍵盤拖曳與播報，所以這裡的字不是
- * 裝飾：**看得見的那一套區別（`queued` 的授權邊界）必須在這裡同樣講出來**，
- * 否則鍵盤與 screen reader 使用者收到的是另一個看板。反過來也一樣：`blocked`
- * 沒有額外效果（ADR-0003），所以這裡也不能多講一句只有它才聽得到的話。
+ * 裝飾：**看得見的那一套區別必須在這裡同樣講出來**，否則鍵盤與 screen reader
+ * 使用者收到的是另一個看板。
+ *
+ * 反過來也一樣，而這一面現在管得更嚴：**八個 Status 一視同仁（ADR-0010）**。
+ * 換欄的措辭是同一個模板，只有 Status 名不同 —— 沒有任何一格有自己的字。
+ * `queued` 曾經有（「授權 agent 不再詢問、直接動手」），那是規劃時擅自加上的
+ * 解讀；授權語意留在 CLI 與 AGENT.md，看板不替使用者念它。唯一分得出來的兩種
+ * 結果是「換了欄」與「沒換」，那講的是這次拖曳，不是某個 Status。
  */
 
 /**
@@ -32,26 +35,14 @@ export function announceGrab(title: string, from: Status): string {
 
 export function announceOver(title: string, from: Status, to: Status | null): string {
   if (to === null) return `「${title}」不在任何 Status 上，放開不會移動。`;
-  switch (dropEffect(from, to)) {
-    case 'none':
-      return `「${title}」回到原本的 ${to}。`;
-    case 'authorize':
-      return `「${title}」停在 queued。queued 是人與 agent 的交接閘門：放下代表需求已釐清，授權 agent 不再詢問、直接動手。`;
-    case 'move':
-      return `「${title}」停在 ${to}。`;
-  }
+  if (to === from) return `「${title}」回到原本的 ${to}。`;
+  return `「${title}」停在 ${to}。`;
 }
 
 export function announceDrop(title: string, from: Status, to: Status | null): string {
   if (to === null) return `放開「${title}」，沒有放進任何 Status，維持在 ${from}。`;
-  switch (dropEffect(from, to)) {
-    case 'none':
-      return `放回原處，「${title}」仍然在 ${from}。`;
-    case 'authorize':
-      return `已把「${title}」從 ${from} 移到 queued，agent 現在可以不再詢問、直接動手。`;
-    case 'move':
-      return `已把「${title}」從 ${from} 移到 ${to}。`;
-  }
+  if (to === from) return `放回原處，「${title}」仍然在 ${from}。`;
+  return `已把「${title}」從 ${from} 移到 ${to}。`;
 }
 
 export function announceCancel(title: string, from: Status): string {

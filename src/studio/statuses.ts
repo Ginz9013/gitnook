@@ -55,3 +55,37 @@ const _ordered: SameSequence<typeof STATUS_ORDER, typeof CoreStatuses> extends t
   ? true
   : ['順序與 core 的 STATUSES 不一致'] = true;
 void _ordered;
+
+/**
+ * 這個字串是不是那八個 Status 之一。**不猜**：前綴（`in_p`）與大小寫（`TODO`）
+ * 都不算 —— `resolveStatus` 收無歧義前綴是 CLI 給人打字的便利，而看板收到的是
+ * 拖放目標的 id，那本來就是完整值。
+ *
+ * 用 `STATUS_ORDER` 逐一比對，而不是查一張以 Status 為鍵的表：查表得記得加
+ * `hasOwnProperty` 守衛，否則 `toString`、`__proto__` 這些 `Object.prototype`
+ * 上的名字會變成合法的 Status。陣列從頭到尾只認它自己裝的那八個字串，那道
+ * 守衛因此不必存在 —— 少一個「忘了就靜靜壞掉」的地方。
+ *
+ * `typeof` 那一半也不是多的：它擋掉 `new String('todo')` 這種包裝物件，
+ * 而型別述詞（`value is Status`）本來就得先確定它是字串。
+ */
+export function isStatus(value: unknown): value is Status {
+  return typeof value === 'string' && (STATUS_ORDER as readonly string[]).includes(value);
+}
+
+/**
+ * 每個 Status 各自的 Issue。沒有 Issue 的 Status 也要在 map 裡，否則它會從畫面上消失。
+ *
+ * Status 用 `statusOf` 取而不是直接讀 `item.status`：看板拿的是 `project()` 的
+ * 投影，而投影把 Issue 包了一層（Status 在 `shown` 裡）。用取值函式而不是要求
+ * 呼叫端先攤平成 `IssueView[]`——攤平就是把 `optimistic` 與 `held` 丟掉，那正是
+ * 這一版要停止做的事。
+ */
+export function groupByStatus<T>(
+  items: readonly T[],
+  statusOf: (item: T) => Status,
+): ReadonlyMap<Status, readonly T[]> {
+  const groups = new Map<Status, T[]>(STATUS_ORDER.map((s) => [s, []]));
+  for (const item of items) groups.get(statusOf(item))?.push(item);
+  return groups;
+}

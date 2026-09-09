@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { STATUSES } from '../../src/core/types.js';
 import type { Status } from '../../src/core/types.js';
-import { STATUS_ORDER } from '../../src/studio/statuses.js';
-import { STATUS_LANES, isStatus, dropEffect, groupByStatus } from '../../src/studio/board/lanes.js';
+import { STATUS_ORDER, isStatus, groupByStatus } from '../../src/studio/statuses.js';
 import {
   dragInstructions,
   announceGrab,
@@ -18,38 +17,17 @@ import type { OptimisticField, UnconfirmedComment } from '../../src/studio/recon
 // 純函式，environment: 'node'。不 import React、不碰 DOM。
 //
 // spec.md 的測試策略是「**React 組件**不寫測試」，不是「board/ 底下不寫測試」。
-// 可判定的規則被推進 `board/lanes.ts` 與 `board/announce.ts` 正是為了讓它們
+// 可判定的規則被推進 `statuses.ts` 與 `board/announce.ts` 正是為了讓它們
 // 測得到 —— 邏輯放對了位置，這個檔案是把網子張開。
+//
+// `board/lanes.ts` 消失了（ADR-0010）：`isStatus` 與 `groupByStatus` 與車道無關，
+// 搬去 `@/statuses` —— 那裡已經有 `STATUS_ORDER`，而 drawer 也要用同一份。
 
 describe('STATUS_ORDER —— 與 core 的 STATUSES 同一份順序', () => {
   // `statuses.ts` 的 `_members` / `_ordered` 是編譯期守衛。這是執行期的第二道：
   // 它在 `npx vitest run` 就會響，不必等到有人跑 `tsc`。
   it('八個 Status 的內容與順序都與 core 一致', () => {
     expect([...STATUS_ORDER]).toEqual([...STATUSES]);
-  });
-
-  it('看板由左到右的順序就是那一份 —— 看板與 core 不會各排各的', () => {
-    expect(STATUS_LANES.map((l) => l.status)).toEqual([...STATUSES]);
-  });
-});
-
-describe('STATUS_LANES —— 人與 agent 的交接線', () => {
-  // CONTEXT.md：`backlog`/`todo` 是人的車道，`queued` 之後是 agent 的車道。
-  // 這條線是 Board 上最重要的分界，而分界只出現在換手的那一格。
-  it('交接線只畫一條，就在 queued 前面', () => {
-    const opens = STATUS_LANES.filter((l) => l.opensLane).map((l) => l.status);
-
-    expect(opens).toEqual(['queued']);
-  });
-
-  it('最左邊那一格左側不畫線 —— 那裡沒有換手', () => {
-    expect(STATUS_LANES[0]?.opensLane).toBe(false);
-  });
-
-  it('每個 Status 都恰好出現一次', () => {
-    const seen = new Set<Status>(STATUS_LANES.map((l) => l.status));
-
-    expect(seen.size).toBe(STATUS_LANES.length);
   });
 });
 
@@ -66,8 +44,9 @@ describe('isStatus —— 只認那八個 Status', () => {
     }
   });
 
-  // 判斷是查一張以 Status 為鍵的表，所以 Object.prototype 上的名字必須擋掉 ——
-  // 否則 `?to=toString` 這種 query 就變成一個合法的 Status。
+  // Object.prototype 上的名字必須擋掉 —— 否則 `?to=toString` 這種 query 就變成
+  // 一個合法的 Status。（判斷曾經是查一張以 Status 為鍵的表，靠 hasOwnProperty
+  // 擋；現在比對 STATUS_ORDER，這一條釘的是換了作法之後性質沒有掉。）
   it('擋得掉 Object.prototype 上的名字', () => {
     for (const inherited of ['toString', 'constructor', 'hasOwnProperty', 'valueOf', '__proto__']) {
       expect(isStatus(inherited)).toBe(false);
@@ -86,44 +65,6 @@ describe('isStatus —— 只認那八個 Status', () => {
     for (const notExact of ['in_p', 'q', 'TODO', 'Blocked', 'todo ', ' todo']) {
       expect(isStatus(notExact)).toBe(false);
     }
-  });
-});
-
-describe('dropEffect —— 一次放下會發生什麼', () => {
-  const others = (self: Status): readonly Status[] => STATUSES.filter((s) => s !== self);
-
-  // op-log 是 append-only：一次什麼都沒改的放下不該在 .ndjson 上留下痕跡。
-  // 這一條排在最前面，所以連 queued 與 blocked 放回自己身上也還是 none。
-  it('放回原本的 Status 什麼都不是', () => {
-    for (const s of STATUSES) expect(dropEffect(s, s)).toBe('none');
-  });
-
-  // CONTEXT.md：進 queued 表示需求已釐清、已授權 agent 不再詢問直接動手。
-  // 它是授權邊界，不是第三欄，所以不能與一般搬移共用同一個結果。
-  it('進 queued 是一次授權，不是一次搬移', () => {
-    for (const from of others('queued')) expect(dropEffect(from, 'queued')).toBe('authorize');
-  });
-
-  // blocked 就只是一個 Status（ADR-0003）：它不帶任何額外效果，所以拖進去與
-  // 拖進 review 是同一件事。這裡釘的正是「沒有第四種效果」——'needs-reason'
-  // 曾經是它的回答，而閘門就開在那個值上。
-  it('進 blocked 只是一次搬移', () => {
-    for (const from of others('blocked')) expect(dropEffect(from, 'blocked')).toBe('move');
-  });
-
-  it('其餘每一種換 Status 都只是一次搬移', () => {
-    for (const from of STATUSES) {
-      for (const to of STATUSES) {
-        if (from === to || to === 'queued') continue;
-        expect(dropEffect(from, to)).toBe('move');
-      }
-    }
-  });
-
-  // 授權發生在進去的那一下。從 queued 出來 —— agent 開始動工 —— 不需要再授權一次。
-  it('從 queued 出來只是一次搬移', () => {
-    expect(dropEffect('queued', 'in_progress')).toBe('move');
-    expect(dropEffect('queued', 'todo')).toBe('move');
   });
 });
 
@@ -185,17 +126,6 @@ const TITLE = '把 op-log 摺疊成快照';
  */
 const asOrdinaryWordingFor = (ordinary: string, from: Status, to: Status): string =>
   ordinary.replaceAll(from, to);
-
-/**
- * 這則播報有沒有把「授權」那件事講出來。
- *
- * CONTEXT.md 對 queued 的定義是「已授權 agent 不再詢問、直接動手」。收的是那個
- * **概念**而不是某一句話：兩半的詞任一半都算數（現行的實作停留時說「授權」、
- * 放下時說「不再詢問」），措辭改寫不該讓這裡變紅 —— 不再提到 agent 可以自行
- * 動手才該。
- */
-const speaksOfAuthorization = (said: string): boolean =>
-  /agent/.test(said) && /授權|不再詢問/.test(said);
 
 describe('dragInstructions —— Tab 到一張 Issue 就聽得到的操作說明', () => {
   it('四個鍵都講：抓起、移動、放下、取消', () => {
@@ -261,42 +191,49 @@ describe('放回原處 —— 沒有變化就不是一次搬移', () => {
 });
 
 /**
- * queued 不是第三欄，是人與 agent 之間的**授權邊界**：一張 Issue 進 queued
- * 表示需求已釐清，且已授權 agent 不再詢問、直接動手（CONTEXT.md）。
+ * **看板不替任何 Status 預設解讀（ADR-0010）的可執行版本。**
  *
- * 畫面上它有自己的視覺處理，但鍵盤使用者看不到那個 —— 對他們來說**這串字就是
- * 全部的 affordance**。所以下面釘的是兩件事：它與一般搬移不是同一句話，而且
- * 它講的是授權。措辭本身可以改寫。
+ * ADR-0010 說「這是減法，因此沒有辦法用測試釘住」—— 對畫面那一面是的，但對
+ * 播報這一面不是：一個 Status 有沒有被偷偷加上解讀，會在它的措辭上露出來。
+ * 所以這裡釘的是**同一個模板**：換欄的那句話從頭到尾只有 Status 名不同，
+ * 任何一個 Status 都不准有專屬的字。曾經 queued 有（授權閘門的兩句），
+ * 而下一個想替某一格加解讀的人會先撞上這一組。
+ *
+ * `from === to` 不在範圍內：放回原處是一次**沒有變化的拖曳**，不是某個 Status
+ * 的特別待遇，它由上面「放回原處」那一組管。
  */
-describe('進 queued —— 授權邊界要念得出來', () => {
-  const ordinaryOver = announceOver(TITLE, 'todo', 'review');
-  const queuedOver = announceOver(TITLE, 'todo', 'queued');
-  const ordinaryDrop = announceDrop(TITLE, 'todo', 'review');
-  const queuedDrop = announceDrop(TITLE, 'todo', 'queued');
+describe('看板不替任何 Status 預設解讀 —— 措辭是同一個模板', () => {
+  // 'review' 當基準的 Status 名。來源固定 'todo'：它與被檢查的 Status 都不會
+  // 與 'review' 撞名，`asOrdinaryWordingFor` 的 replaceAll 才不會換錯地方。
+  it('停在任何一個 Status 上，都是同一個模板換一個 Status 名', () => {
+    const ordinary = announceOver(TITLE, 'todo', 'review');
 
-  it('停在 queued 上的措辭不是把一般搬移換個 Status 名', () => {
-    expect(queuedOver).not.toBe(asOrdinaryWordingFor(ordinaryOver, 'review', 'queued'));
-  });
-
-  it('放下到 queued 的措辭不是把一般搬移換個 Status 名', () => {
-    expect(queuedDrop).not.toBe(asOrdinaryWordingFor(ordinaryDrop, 'review', 'queued'));
-  });
-
-  it('停在 queued 與放下到 queued，兩則都講出授權這件事', () => {
-    expect(speaksOfAuthorization(queuedOver)).toBe(true);
-    expect(speaksOfAuthorization(queuedDrop)).toBe(true);
-  });
-
-  it('一般搬移不提授權 —— 否則那件事就不再有區別', () => {
-    expect(speaksOfAuthorization(ordinaryOver)).toBe(false);
-    expect(speaksOfAuthorization(ordinaryDrop)).toBe(false);
-  });
-
-  it('從任何 Status 進 queued 都講授權，不只從 todo', () => {
-    for (const from of STATUSES.filter((s) => s !== 'queued')) {
-      expect(speaksOfAuthorization(announceDrop(TITLE, from, 'queued'))).toBe(true);
-      expect(speaksOfAuthorization(announceOver(TITLE, from, 'queued'))).toBe(true);
+    for (const to of STATUSES.filter((s) => s !== 'todo')) {
+      expect(announceOver(TITLE, 'todo', to)).toBe(asOrdinaryWordingFor(ordinary, 'review', to));
     }
+  });
+
+  // 'review' 不當來源：那句話裡會出現兩次 'review'（來源與去處），
+  // replaceAll 會把來源也一起換掉。
+  it('從任何 Status 放下到任何 Status，也都是同一個模板', () => {
+    for (const from of STATUSES.filter((s) => s !== 'review')) {
+      const ordinary = announceDrop(TITLE, from, 'review');
+
+      for (const to of STATUSES.filter((s) => s !== from)) {
+        expect(announceDrop(TITLE, from, to)).toBe(asOrdinaryWordingFor(ordinary, 'review', to));
+      }
+    }
+  });
+
+  // 點名 queued：它是被拆掉的那一個，也是最可能被加回去的那一個。上面兩條已經
+  // 涵蓋它，這一條是為了讓「queued 在看板上沒有任何特別待遇」講得出名字來。
+  it('queued 也一樣 —— 它在播報上與其他七個沒有任何區別', () => {
+    expect(announceOver(TITLE, 'todo', 'queued')).toBe(
+      asOrdinaryWordingFor(announceOver(TITLE, 'todo', 'review'), 'review', 'queued'),
+    );
+    expect(announceDrop(TITLE, 'todo', 'queued')).toBe(
+      asOrdinaryWordingFor(announceDrop(TITLE, 'todo', 'review'), 'review', 'queued'),
+    );
   });
 });
 
@@ -367,16 +304,15 @@ describe('播報的通則', () => {
     for (const line of said) expect(line).toContain(TITLE);
   });
 
-  // 三種 DropEffect 是三件不同的事，播報必須分得出來 —— 兩種講成同一句，
-  // 鍵盤使用者就少了一個區別。
-  it('三種放下結果念出三句不同的話', () => {
+  // 放下只有兩種結果：換了欄，或沒換。播報必須分得出來 —— 兩種講成同一句，
+  // 鍵盤使用者就少了一個區別。（第三種 'authorize' 拆掉了，見 ADR-0010。）
+  it('兩種放下結果念出兩句不同的話', () => {
     const byEffect = [
-      announceDrop(TITLE, 'todo', 'todo'), // none
-      announceDrop(TITLE, 'todo', 'review'), // move
-      announceDrop(TITLE, 'todo', 'queued'), // authorize
+      announceDrop(TITLE, 'todo', 'todo'), // 沒換欄
+      announceDrop(TITLE, 'todo', 'review'), // 換了欄
     ];
 
-    expect(new Set(byEffect).size).toBe(3);
+    expect(new Set(byEffect).size).toBe(2);
   });
 });
 
