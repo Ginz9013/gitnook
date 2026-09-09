@@ -1,0 +1,4 @@
+{"id":"01M21Z3RY82YPX5MFD1QARKYBT","t":1,"a":"83a1","op":"create","title":"用 nook 自己管 nook 的開發（dogfood）"}
+{"id":"01M21Z3RYMM65X5EZH69C5JH6E","t":2,"a":"83a1","op":"set","k":"description","v":"自 0.1.0 起，nook 的開發工作改用 nook 自己的 board 追蹤，不再手寫 .scratch/*.md 的票。\n\n規則：\n- 使用的一律是 npm 上發布的版本（devDependency，目前 pin 在 0.1.0），不是工作目錄的 build。打包路徑本身也要被 dogfood 到。\n- 用起來卡住、覺得指令怪、輸出難讀，當下就開票並標 dogfood。這些票是 dogfood 的產出。\n- 每次發版後：bump 自我依賴 → nook doctor → nook list。舊 board 讀不動就是前向相容壞了。\n\n.scratch/nook-v1/ 保留為 v1 的歷史紀錄，不匯入。"}
+{"id":"01M21Z3RYMAXKA02M4PWJ1WJ8W","t":3,"a":"83a1","op":"label.add","v":"dogfood"}
+{"id":"01M2224ZWYWC4AQCFKX73YW7KX","t":4,"a":"83a1","op":"set","k":"archived","v":true}
