@@ -28,9 +28,9 @@ export function CardFace({
     <div
       className={cn(
         'bg-card text-card-foreground rounded-md border p-2 text-left shadow-xs',
-        // 還在飛的那張畫虛線邊框。**刻意不新增顏色**（index.css 那份 token 是
-        // 票 01 的）—— 已落地與未落地的差別畫在邊框的形狀上，而形狀在任何
-        // 主題、任何色覺底下都成立。
+        // 還在飛的那張畫虛線邊框。**刻意不新增顏色** —— 已落地與未落地的差別
+        // 畫在邊框的形狀上，而形狀在任何主題、任何色覺底下都成立。顏色做不到
+        // 這件事，這是選形狀而不是選顏色的理由。
         pending !== null && 'border-dashed',
         className,
       )}
