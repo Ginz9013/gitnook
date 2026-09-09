@@ -88,6 +88,62 @@ describe('init', () => {
     );
     expect(io.err).toBe('');
   });
+
+  it('第一次 init 印出建立了哪些東西 —— 目錄與那條 merge=union', async () => {
+    const io = capture();
+
+    expect(await run(['init'], io)).toBe(0);
+
+    // init 一輩子只跑一次且不在 ADR-0005 的 40 票量測情境內，所以說得清楚比省 byte 重要。
+    // 欄位形狀沿用 doctor 的「動詞 + 兩個空白 + 對象」。
+    expect(io.out).toBe(
+      'Created  .issues/issues/\n' +
+        'Created  .gitattributes  .issues/issues/*.ndjson merge=union\n',
+    );
+    expect(io.err).toBe('');
+  });
+
+  it('第二次 init 說出這次什麼都沒做，長得與第一次不同，exit 仍是 0', async () => {
+    const first = capture();
+    await run(['init'], first);
+
+    const again = capture();
+
+    // 已經初始化過不是錯誤 —— 是 no-op，所以 exit 0 而不是 1。
+    expect(await run(['init'], again)).toBe(0);
+
+    expect(again.out).toBe('Unchanged  這裡已經是一塊 board，這次沒有建立任何東西\n');
+    // 「這次是不是 no-op」是使用者唯一問的問題：兩次輸出一樣就等於沒回答。
+    expect(again.out).not.toBe(first.out);
+    expect(again.err).toBe('');
+  });
+
+  it('.gitattributes 在但缺 merge=union：說它補上了那一行，不是建檔也不是 no-op', async () => {
+    // 第三種結果。那一行是整個零衝突保證的單點失效（ADR-0001），被補回來
+    // 是使用者最需要被告知的一件事 —— 不能混進前兩種裡。
+    writeFileSync(join(dir, '.gitattributes'), '*.png binary\n', 'utf8');
+    const fresh = capture();
+
+    expect(await run(['init'], fresh)).toBe(0);
+
+    expect(fresh.out).toBe(
+      'Created  .issues/issues/\n' +
+        'Added    .gitattributes  .issues/issues/*.ndjson merge=union\n',
+    );
+    // 補行不得動到使用者原本的規則。
+    expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toBe(
+      '*.png binary\n.issues/issues/*.ndjson merge=union\n',
+    );
+
+    // 那一行事後被誤刪、board 已經在了 —— warnIfUnguarded 叫使用者跑的正是這個。
+    writeFileSync(join(dir, '.gitattributes'), '*.png binary\n', 'utf8');
+    const refill = capture();
+
+    expect(await run(['init'], refill)).toBe(0);
+
+    expect(refill.out).toBe('Added    .gitattributes  .issues/issues/*.ndjson merge=union\n');
+    expect(refill.err).toBe('');
+  });
 });
 
 describe('new', () => {

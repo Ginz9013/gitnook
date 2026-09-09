@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { openBoard } from '../core/board.js';
 import {
   ConflictingGitAttributes,
+  MERGE_RULE,
   NestedBoard,
   findBoardRoot,
   initBoard,
@@ -125,9 +126,7 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
 
   switch (command) {
     case 'init':
-      initBoard(io.cwd);
-      // 成功即沉默 —— 每一行輸出都在吃 agent 的 token 預算（docs/adr/0005）。
-      return 0;
+      return cmdInit(io);
     case 'new':
       return cmdNew(parseArgs(rest, NEW_FLAGS), io);
     case 'list':
@@ -559,6 +558,33 @@ function cmdLabel(args: Args, io: Io): number {
   const board = openBoard({ dir: io.cwd });
   const updated = board.apply(ref, { labels: { add, remove } });
   line(io, renderTable([updated], displayLength(board)));
+  return 0;
+}
+
+/**
+ * init 是一次性的建置動作，因此它說話 —— 而 doctor 不說（unix「沒消息就是好
+ * 消息」，且它會進 CI）。ADR-0005 的 token 預算管的是 40 票的日常情境，init
+ * 一輩子只跑一次且不在該情境內，這幾行買到的是「我到底建了什麼」。
+ *
+ * 狀態必須在 initBoard 之前讀完 —— 之後再讀，看到的是它剛寫完的結果，
+ * 三種結果會全部塌成「本來就在」。initBoard 丟例外時一行都不印。
+ */
+function cmdInit(io: Io): number {
+  const enclosing = findBoardRoot(io.cwd);
+  const boardExisted = enclosing.found && enclosing.root === io.cwd;
+  const guarded = inspectMergeGuarantee(io.cwd).kind === 'union';
+  const attributesExisted = existsSync(join(io.cwd, '.gitattributes'));
+
+  initBoard(io.cwd);
+
+  if (!boardExisted) line(io, 'Created  .issues/issues/');
+  // 補一行進別人的檔案與整個檔案都是我建的，是兩件不同的事 —— 說成 Created
+  // 會讓使用者以為原本的規則被蓋掉了。動詞補到等寬，路徑才對得起來。
+  const verb = attributesExisted ? 'Added  ' : 'Created';
+  if (!guarded) line(io, `${verb}  .gitattributes  ${MERGE_RULE}`);
+  // 兩件事都已經在了才是 no-op。沉默在這裡會與第一次的成功長得一模一樣，
+  // 而使用者問的正是「這次到底有沒有動到東西」。
+  if (boardExisted && guarded) line(io, 'Unchanged  這裡已經是一塊 board，這次沒有建立任何東西');
   return 0;
 }
 
