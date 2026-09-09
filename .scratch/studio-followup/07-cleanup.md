@@ -34,6 +34,15 @@ nook ref：`01M22PKRW76AQKWZHEGWNAM7K4`
       所以它不是看板的財產，該搬到 `src/studio/statuses.ts`。票 04 的寫入範圍
       進不了那個路徑，所以留給這張票
 
+**票 06 留下的三條**
+
+- [ ] `drawer/changes.ts` 的模組說明還寫「Drawer 的可判定規則」，但 `board/lanes.ts`
+      現在也 import 它的 `needsReason` —— blocked 那條規則是共用的，不是 drawer 專屬
+- [ ] 閘門是一個穿著 `role="alertdialog"` 的 `Dialog`。`@radix-ui/react-alert-dialog`
+      才是表達那個語意的 primitive；換過去要動 `package.json`，所以留給這張票
+- [ ] `<main data-slot="board">` 沒有可及名稱。焦點退回它時（那張 Issue 已不在
+      看板上）screen reader 幾乎念不出東西。一個 `aria-label` 就夠
+
 **重複**
 
 - [ ] `escapeHtml` 現在在 `render/html.ts` 與 `server/handler.ts` 各一份
