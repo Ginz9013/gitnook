@@ -1,6 +1,7 @@
 import { useDroppable } from '@dnd-kit/core';
 
 import type { IssueView, Status } from '@/api';
+import type { ProjectedIssue } from '@/reconcile';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -16,7 +17,8 @@ export interface DragState extends DraggedIssue {
 export interface ColumnProps {
   /** 這一欄畫的是哪一個 Status —— 欄是版面，Status 才是它代表的東西。 */
   readonly status: Status;
-  readonly issues: readonly IssueView[];
+  /** 這一欄的 Issue，**已經是調和過的投影** —— 方框要畫得出「還沒落地」。 */
+  readonly issues: readonly ProjectedIssue<IssueView>[];
   readonly selectedId: string | null;
   readonly onSelect: (id: string) => void;
   readonly dragging: DragState | null;
@@ -84,11 +86,11 @@ export function Column({
       )}
 
       <ul className="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2">
-        {issues.map((issue) => (
+        {issues.map((projected) => (
           <Card
-            key={issue.id}
-            issue={issue}
-            selected={issue.id === selectedId}
+            key={projected.id}
+            projected={projected}
+            selected={projected.id === selectedId}
             onSelect={onSelect}
           />
         ))}

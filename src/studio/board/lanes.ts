@@ -71,11 +71,19 @@ export function dropEffect(from: Status, to: Status): DropEffect {
   return 'move';
 }
 
-/** 每個 Status 各自的 Issue。沒有 Issue 的 Status 也要在 map 裡，否則它會從畫面上消失。 */
-export function groupByStatus<T extends { readonly status: Status }>(
+/**
+ * 每個 Status 各自的 Issue。沒有 Issue 的 Status 也要在 map 裡，否則它會從畫面上消失。
+ *
+ * Status 用 `statusOf` 取而不是直接讀 `item.status`：看板拿的是 `project()` 的
+ * 投影，而投影把 Issue 包了一層（Status 在 `shown` 裡）。用取值函式而不是要求
+ * 呼叫端先攤平成 `IssueView[]`——攤平就是把 `optimistic` 與 `held` 丟掉，那正是
+ * 這一版要停止做的事。
+ */
+export function groupByStatus<T>(
   items: readonly T[],
+  statusOf: (item: T) => Status,
 ): ReadonlyMap<Status, readonly T[]> {
   const groups = new Map<Status, T[]>(STATUS_ORDER.map((s) => [s, []]));
-  for (const item of items) groups.get(item.status)?.push(item);
+  for (const item of items) groups.get(statusOf(item))?.push(item);
   return groups;
 }

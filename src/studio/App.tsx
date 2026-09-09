@@ -165,8 +165,12 @@ export function App(): React.JSX.Element {
       <Board
         // 看板拿的是 `project()` 的產物而不是原始快照 —— 飛行中的變更蓋過快照，
         // 否則輪詢帶回舊快照時那張 Issue 會彈回去再彈回來（reconcile 的第一條規則）。
-        // `BoardProps` 收的是 `IssueView[]`，所以這裡交出每一張的 `shown`。
-        issues={projected.map((p) => p.shown)}
+        //
+        // **整份投影交出去，不再 `.map(p => p.shown)`。** 攤平會把 `optimistic`
+        // 與 `held` 丟在這一行，而那兩格正是「這張還沒落地」「這張正被抓著」的
+        // 唯一來源 —— 看板拿不到就只能畫得跟已落地的一模一樣。drawer 收的一直
+        // 是投影（`IssueDrawerProps`），兩邊從此是同一個形狀。
+        issues={projected}
         selectedId={selectedId}
         onSelect={setSelectedId}
         onMove={onMove}

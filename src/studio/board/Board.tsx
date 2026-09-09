@@ -3,6 +3,7 @@ import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, useSensor, useS
 import type { Announcements, DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 
 import type { IssueView, Status } from '@/api';
+import type { ProjectedIssue } from '@/reconcile';
 import { Button } from '@/components/ui/button';
 
 import { BlockedGate } from './BlockedGate';
@@ -19,8 +20,16 @@ import { STATUS_LANES, dropEffect, groupByStatus } from './lanes';
  * 不必回頭動 `App.tsx`。
  */
 export interface BoardProps {
-  /** 目前這一版快照裡的全部 Issue，含 archived —— 藏不藏是這一層的決定。 */
-  readonly issues: readonly IssueView[];
+  /**
+   * 目前這一版快照裡的全部 Issue，含 archived —— 藏不藏是這一層的決定。
+   *
+   * **收的是 `project()` 的投影，不是攤平過的 `IssueView[]`。** 攤平（原本
+   * `App.tsx` 的 `.map(p => p.shown)`）會把 `optimistic` 與 `held` 丟掉，而丟掉
+   * 之後一張還在飛的 Issue 與一張已經落地的長得一模一樣 —— 那正是這一層唯一
+   * 能講、也只有這一層講得出來的區別。drawer 的 `IssueDrawerProps` 一直都是這
+   * 個形狀，看板這裡是補齊。
+   */
+  readonly issues: readonly ProjectedIssue<IssueView>[];
   /** drawer 目前開在哪一張；沒開就是 null。 */
   readonly selectedId: string | null;
   readonly onSelect: (id: string | null) => void;
@@ -70,11 +79,13 @@ export function Board({
     }),
   );
 
-  const archivedCount = issues.filter((i) => i.archived).length;
+  // archived 與 status 都讀 `shown`：畫面該照著樂觀值分欄，否則拖走的那張會
+  // 留在原本的欄位裡，等 ACK 回來才跳過去。
+  const archivedCount = issues.filter((i) => i.shown.archived).length;
   // archived 是可見性欄位而不是第九個 Status（ADR-0003）：它不多佔一欄，而是
   // 從八欄裡隱藏起來，預設不顯示。
-  const visible = showArchived ? issues : issues.filter((i) => !i.archived);
-  const byStatus = groupByStatus(visible);
+  const visible = showArchived ? issues : issues.filter((i) => !i.shown.archived);
+  const byStatus = groupByStatus(visible, (i) => i.shown.status);
   const activeIssue = dragging === null ? null : (issues.find((i) => i.id === dragging.id) ?? null);
 
   const announcements = useMemo<Announcements>(
@@ -178,7 +189,9 @@ export function Board({
 
         {/* 欄位會 overflow-y-auto，被拖的那張放在 overlay 上才不會被裁掉。 */}
         <DragOverlay dropAnimation={null}>
-          {activeIssue !== null && <CardFace issue={activeIssue} className="rotate-1 shadow-lg" />}
+          {activeIssue !== null && (
+            <CardFace projected={activeIssue} className="rotate-1 shadow-lg" />
+          )}
         </DragOverlay>
       </DndContext>
 
