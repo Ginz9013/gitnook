@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Board, Issue, Status } from '../core/types.js';
+import type { Board, Change, Issue, Status } from '../core/types.js';
+import { AmbiguousRef, InvalidStatus, RefNotFound } from '../core/types.js';
 import { renderMarkdown } from '../render/html.js';
 
 /**
@@ -12,6 +13,8 @@ import { renderMarkdown } from '../render/html.js';
 export interface StudioRequest {
   readonly method: string;
   readonly url: string;
+  /** 請求主體。只有 `POST /i/<ref>` 會看它，內容是一份 `Change` 的 JSON。 */
+  readonly body?: string;
 }
 
 export interface StudioResponse {
@@ -23,10 +26,10 @@ export interface StudioResponse {
 const HTML = 'text/html; charset=utf-8';
 const TEXT = 'text/plain; charset=utf-8';
 const JSON_TYPE = 'application/json; charset=utf-8';
-const ALLOWED_METHOD = 'GET';
 const HASH_PATH = '/hash';
 const API_BOARD_PATH = '/api/board';
 const ASSETS_PREFIX = '/assets/';
+const ISSUE_PREFIX = '/i/';
 
 function html(body: string): StudioResponse {
   return { status: 200, headers: { 'content-type': HTML }, body };
@@ -38,6 +41,10 @@ function json(payload: unknown): StudioResponse {
 
 function notFound(message = 'not found'): StudioResponse {
   return { status: 404, headers: { 'content-type': TEXT }, body: `${message}\n` };
+}
+
+function badRequest(message: string): StudioResponse {
+  return { status: 400, headers: { 'content-type': TEXT }, body: `${message}\n` };
 }
 
 /**
@@ -243,24 +250,113 @@ export interface HandlerOptions {
   readonly assetsDir?: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  // 陣列也是 object，而 `["queued"]` 絕不是一份 Change。
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((v) => typeof v === 'string');
+}
+
+/** `Change.labels` 的形狀：只有 add 與 remove，兩者都是字串陣列。 */
+function isLabelEdit(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(([k, v]) => (k === 'add' || k === 'remove') && isStringArray(v))
+  );
+}
+
+/**
+ * `Change` 每個欄位的形狀。逐欄列出而不是信任 `as Change` —— JSON 來自網路，
+ * 型別斷言在執行期什麼都不檢查。
+ */
+const CHANGE_SHAPE: Readonly<Record<string, (value: unknown) => boolean>> = {
+  title: (v) => typeof v === 'string',
+  description: (v) => typeof v === 'string',
+  status: (v) => typeof v === 'string',
+  archived: (v) => typeof v === 'boolean',
+  labels: isLabelEdit,
+  comment: (v) => typeof v === 'string',
+};
+
+/**
+ * 把請求主體解讀成一份 Change，形狀不符時回傳 undefined。
+ *
+ * 不認得的欄位一律拒絕，而不是忽略：append-only 之下沒有「被拒絕的寫入」
+ * 可以事後翻查（ADR-0007），一個打錯的欄位名若被靜靜吃掉，呼叫端看到的是
+ * 200 加上一張沒有變化的 Issue —— 那是最難查的一種失敗。
+ */
+function parseChange(body: string): Change | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+
+  if (!isRecord(parsed)) return undefined;
+  for (const [key, value] of Object.entries(parsed)) {
+    const shaped = CHANGE_SHAPE[key];
+    if (shaped === undefined || !shaped(value)) return undefined;
+  }
+  return parsed as Change;
+}
+
+/**
+ * 一次寫入。端點直接鏡射 `board.apply(ref, change)` —— `Change` 已經是領域裡
+ * 「呼叫端表達的意圖」的型別（CONTEXT.md），studio 因此不發明任何新詞彙。
+ * 特別是 `blocked` **不在這裡強制配留言**：CLI 是提醒而非拒絕，server 多一條
+ * CLI 沒有的規則只會讓兩個介面分歧。
+ *
+ * ref 原樣交給 core：前綴解析、大小寫正規化與路徑穿越檢查只有一份實作，
+ * 就是 `board` 自己那一份。
+ */
+function applyChange(board: Board, ref: string, body: string): StudioResponse {
+  const change = parseChange(body);
+  if (change === undefined) return badRequest('body 必須是一份 Change 的 JSON 物件');
+
+  try {
+    return json(toIssueView(board.apply(ref, change)));
+  } catch (err) {
+    // 解析不出來的 Ref 是「這個 URL 沒有對應的東西」，不是伺服器錯誤 ——
+    // 沿用讀取面既有的對應。有歧義時把候選原樣送出去：猜一張來寫是
+    // append-only 之下最貴的錯，事後只能再寫一筆蓋回去。
+    if (err instanceof RefNotFound || err instanceof AmbiguousRef) return notFound(err.message);
+    // 呼叫端送了一個不是 Status 的值 —— 這是請求的問題，不是找不到東西。
+    if (err instanceof InvalidStatus) return badRequest(err.message);
+    throw err;
+  }
+}
+
 export function handleRequest(
   board: Board,
   req: StudioRequest,
   opts: HandlerOptions = {},
 ): StudioResponse {
-  // Nook studio 是唯讀的。方法檢查放在路由之前 —— 「哪些路徑存在」不該
-  // 決定「能不能寫」，白名單一個方法就沒有漏列某條寫入路徑的可能。
-  if (req.method !== 'GET') {
-    return {
-      status: 405,
-      headers: { 'content-type': TEXT, allow: ALLOWED_METHOD },
-      body: `studio 是唯讀的；只接受 ${ALLOWED_METHOD}\n`,
-    };
-  }
-
   // 手動切掉 query string，不走 new URL() —— 後者會把 `..` 正規化掉，
   // 使路徑穿越在到達 /assets/ 的守衛之前就消失，而那個守衛正是這一層要證明的。
   const path = req.url.split('?')[0]!;
+
+  // ADR-0007 解除了「無任何寫入路徑」的契約，但白名單是**收窄而非移除**：
+  // 多出來的只有 `POST /i/<ref>`。方法檢查仍然放在路由之前 —— 「哪些路徑
+  // 存在」不該決定「能不能寫」，所以 POST 到一個不存在的路徑是 405 而不是
+  // 404：不存在的路徑不會因為不存在就變得可寫。
+  const writable = path.startsWith(ISSUE_PREFIX);
+  if (req.method !== 'GET' && !(req.method === 'POST' && writable)) {
+    // Allow 講的是這個資源支援什麼（RFC 9110），所以兩條路徑答案不同：
+    // `/i/<ref>` 只收 POST（伺服器渲染的詳情頁在票 01 就沒了），其餘只收 GET。
+    const allow = writable ? 'POST' : 'GET';
+    return {
+      status: 405,
+      headers: { 'content-type': TEXT, allow },
+      body: `${path} 只接受 ${allow}\n`,
+    };
+  }
+
+  if (req.method === 'POST') {
+    return applyChange(board, path.slice(ISSUE_PREFIX.length), req.body ?? '');
+  }
 
   if (path === '/') {
     // 殼不碰 board。看板的內容一律走 /api/board —— 兩條路徑各渲染一次同一份

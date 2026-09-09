@@ -1,13 +1,23 @@
 import { createServer } from 'node:http';
+import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Board } from '../core/types.js';
 import { handleRequest } from './handler.js';
 import type { HandlerOptions } from './handler.js';
 
 /**
- * 只綁 loopback，且刻意不提供 --host。studio 是唯讀的會議投影用檢視器，
- * 沒有任何驗證 —— 讓它出現在其他介面上就是把整個 board 送給同一個網段。
- * 要跨機器看，用 SSH port forward。
+ * 只綁 loopback。ADR-0007 之後 `--host` 不是「暫時沒做」而是**永遠不做** ——
+ * studio 開放寫入之後，綁 127.0.0.1 從保守的預設值升格為**唯一的安全機制**。
+ *
+ * 兩個理由，各自都足以否決 `--host`：
+ *
+ * 1. **studio 沒有任何驗證。** 讓它出現在其他介面上，就是把整塊 board 的
+ *    **寫入權**送給同一個網段 —— 唯讀時期漏的是內容，現在漏的是控制權。
+ * 2. **actor 是跑 `nook studio` 的那個人。** 經由 studio 產生的每一個 op 都
+ *    記在 `git config user.email` 推導出的同一個 actor 上。變成多人共用的
+ *    服務會讓所有人的 op 記在同一個名字底下，摺疊時的決勝依據就此失效。
+ *
+ * 要跨機器看，用 SSH port forward —— 那條路徑上驗證的是 SSH，不是 nook。
  */
 const HOST = '127.0.0.1';
 
@@ -38,6 +48,17 @@ export class PortInUse extends Error {
   }
 }
 
+/** 一個請求的主體，讀成 utf8 字串。 */
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk: string) => (body += chunk));
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
+}
+
 export function serve(board: Board, opts: ServeOptions = {}): Promise<Studio> {
   const port = opts.port ?? DEFAULT_PORT;
   // 只把有指定的欄位往下傳：exactOptionalPropertyTypes 之下，
@@ -45,9 +66,19 @@ export function serve(board: Board, opts: ServeOptions = {}): Promise<Studio> {
   const handlerOpts: HandlerOptions = opts.assetsDir === undefined ? {} : { assetsDir: opts.assetsDir };
 
   const server = createServer((req, res) => {
-    const out = handleRequest(board, { method: req.method ?? 'GET', url: req.url ?? '/' }, handlerOpts);
-    res.writeHead(out.status, out.headers);
-    res.end(out.body);
+    // 主體一律先讀完再交給 handler：handleRequest 是純函數（不接觸 node:http），
+    // 所以串流不能穿過那道接縫。非 POST 的請求沒有主體，'end' 下一個 tick 就到。
+    void readBody(req).then(
+      (body) => {
+        const out = handleRequest(board, { method: req.method ?? 'GET', url: req.url ?? '/', body }, handlerOpts);
+        res.writeHead(out.status, out.headers);
+        res.end(out.body);
+      },
+      () => {
+        // 請求還沒送完連線就斷了 —— 已經沒有人在等這個回應。
+        res.destroy();
+      },
+    );
   });
 
   return new Promise<Studio>((resolve, reject) => {

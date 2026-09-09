@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { connect } from 'node:net';
@@ -234,7 +234,7 @@ describe('線上（wire）行為', () => {
     }
   });
 
-  it('寫入型方法在真實連線上被拒為 405', async () => {
+  it('寫入型方法在真實連線上被拒為 405 —— 唯一的例外是 POST /i/<ref>', async () => {
     const studio = await start();
 
     for (const method of ['POST', 'PUT', 'DELETE']) {
@@ -242,6 +242,45 @@ describe('線上（wire）行為', () => {
       expect(res.status, method).toBe(405);
       expect(res.headers.get('allow'), method).toBe('GET');
     }
+  });
+
+  it('POST /i/<ref> 在真實連線上把 op 寫進磁碟上的 .ndjson', async () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const studio = await start();
+    const hashBefore = await (await fetch(`${studio.url}/hash`)).text();
+
+    const res = await fetch(`${studio.url}/i/${id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'queued', comment: 'authorised' }),
+    });
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).status).toBe('queued');
+
+    // 回應說寫成功了不算數 —— 磁碟上那一份 op-log 才是事實。
+    const ops = readFileSync(join(dir, '.issues', 'issues', `${id}.ndjson`), 'utf8')
+      .split('\n')
+      .filter((l) => l !== '')
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(ops.filter((o) => o['op'] === 'set')).toMatchObject([{ k: 'status', v: 'queued' }]);
+    expect(ops.at(-1)).toMatchObject({ op: 'comment', body: 'authorised', a: 'test' });
+
+    // 輪詢看得見這次寫入（票 09 的性質）。
+    expect(await (await fetch(`${studio.url}/hash`)).text()).not.toBe(hashBefore);
+  });
+
+  it('非法的 body 在真實連線上是 400，且不讓 server 掛掉', async () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const studio = await start();
+
+    const bad = await fetch(`${studio.url}/i/${id}`, { method: 'POST', body: 'not json' });
+    expect(bad.status).toBe(400);
+
+    // server 還活著：下一個請求照樣被服務。
+    expect((await fetch(`${studio.url}/hash`)).status).toBe(200);
   });
 });
 

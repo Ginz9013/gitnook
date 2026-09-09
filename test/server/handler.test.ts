@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBoard } from '../../src/index.js';
@@ -174,23 +174,327 @@ describe('路徑穿越', () => {
   });
 });
 
-describe('無任何寫入路徑', () => {
-  it('POST / PUT / DELETE 一律 405，且不改動 board', () => {
+/**
+ * ADR-0007 解除了票 09「無任何寫入路徑」的契約：studio 可以寫了。**白名單是
+ * 收窄而不是移除** —— 唯一多出來的是 `POST /i/<ref>`，其餘一切照舊 405。
+ */
+describe('方法白名單收窄而非移除', () => {
+  it('PUT / DELETE / PATCH 一律 405，POST 只在非 /i/<ref> 的路徑上 405，且不改動 board', () => {
     createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
     const before = board().list({ all: true });
 
-    for (const method of ['POST', 'PUT', 'DELETE', 'PATCH']) {
+    for (const method of ['PUT', 'DELETE', 'PATCH']) {
       for (const url of ['/', '/i/01JBXA', '/hash']) {
         const res = handleRequest(board(), { method, url });
         expect(res.status, `${method} ${url}`).toBe(405);
         // 405 必須告訴呼叫端還剩什麼方法可用（RFC 9110）。
-        expect(res.headers['allow'], `${method} ${url}`).toBe('GET');
+        expect(res.headers['allow'], `${method} ${url}`).toBeDefined();
       }
+    }
+
+    for (const url of ['/', '/hash']) {
+      const res = handleRequest(board(), { method: 'POST', url });
+      expect(res.status, `POST ${url}`).toBe(405);
+      expect(res.headers['allow'], `POST ${url}`).toBe('GET');
     }
 
     expect(board().list({ all: true })).toEqual(before);
   });
 });
+
+describe('「哪些路徑存在」不能決定「能不能寫」', () => {
+  /**
+   * 這是票 09 那條防線的全部價值，ADR-0007 之後仍然成立：方法檢查在路由**之前**。
+   * 換個講法 —— 一條路徑不會因為不存在就變得可寫。若順序倒過來，未來任何一條
+   * 新路徑都得自己記得拒絕寫入，漏掉一條就是一個寫入漏洞。
+   */
+  const NOT_WRITABLE = [
+    '/',
+    '/hash',
+    '/api/board',
+    '/assets/studio.js',
+    '/assets/nope.js',
+    // 這幾條 GET 起來是 404 —— 不存在，但同樣不可寫。
+    '/nope',
+    '/i',
+    '/favicon.ico',
+    '/api/board/extra',
+  ];
+
+  it('POST 到任何非 /i/<ref> 的路徑都是 405，即使那條路徑根本不存在', () => {
+    fakeAssets({ 'studio.js': 'x\n' });
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+    const before = board().list({ all: true });
+
+    for (const url of NOT_WRITABLE) {
+      const res = post(url, { comment: 'should never land' });
+      // 404 在這裡是錯的答案：那等於讓「路徑存在與否」回答了「能不能寫」。
+      expect(res.status, `POST ${url}`).toBe(405);
+      expect(res.headers['allow'], `POST ${url}`).toBe('GET');
+    }
+
+    expect(board().list({ all: true })).toEqual(before);
+  });
+
+  it('PUT / DELETE / PATCH 在每一條路徑上都是 405，/i/<ref> 也不例外', () => {
+    fakeAssets({ 'studio.js': 'x\n' });
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const before = board().list({ all: true });
+
+    for (const method of ['PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']) {
+      for (const url of [...NOT_WRITABLE, `/i/${id}`, '/i/01JBXA']) {
+        const res = handleRequest(
+          board(),
+          { method, url, body: JSON.stringify({ comment: 'should never land' }) },
+          { assetsDir: assets },
+        );
+        expect(res.status, `${method} ${url}`).toBe(405);
+      }
+    }
+
+    expect(board().list({ all: true })).toEqual(before);
+  });
+
+  it('/i/<ref> 的 Allow 說的是 POST —— 伺服器渲染的詳情頁在票 01 就沒了', () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+
+    expect(handleRequest(board(), { method: 'PUT', url: '/i/01JBXA' }).headers['allow']).toBe('POST');
+  });
+});
+
+/** 一次寫入。body 是 `Change` 的 JSON —— 端點直接鏡射 `board.apply(ref, change)`。 */
+const post = (url: string, body: unknown) =>
+  handleRequest(
+    board(),
+    { method: 'POST', url, body: typeof body === 'string' ? body : JSON.stringify(body) },
+    { assetsDir: assets },
+  );
+
+/** 磁碟上那一份 op-log 的每一行。回應說寫成功了不算數，檔案裡有才算。 */
+const opsOnDisk = (id: string): Record<string, unknown>[] =>
+  readFileSync(join(dir, '.issues', 'issues', `${id}.ndjson`), 'utf8')
+    .split('\n')
+    .filter((l) => l !== '')
+    .map((l) => JSON.parse(l) as Record<string, unknown>);
+
+describe('POST /i/<ref>', () => {
+  it('搬移 status：回 200 + IssueView，且 op 真的 append 到 .ndjson', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const beforeOps = opsOnDisk(id).length;
+
+    const res = post(`/i/${id}`, { status: 'queued' });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+
+    const view = JSON.parse(res.body) as IssueView;
+    expect(view.id).toBe(id);
+    expect(view.status).toBe('queued');
+    // IssueView，不是 Issue：預渲染的安全 HTML 一併回來，drawer 才不必再問一次。
+    expect(view.descriptionHtml).toBeTypeOf('string');
+
+    // 回應可能是任何東西編出來的 —— 檔案才是事實。
+    const ops = opsOnDisk(id);
+    expect(ops).toHaveLength(beforeOps + 1);
+    expect(ops.at(-1)).toMatchObject({ op: 'set', k: 'status', v: 'queued', a: 'test' });
+  });
+
+  it('接受無歧義前綴，且大小寫不敏感 —— ref 原樣交給 core', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+
+    expect(post('/i/01jbxa', { status: 'todo' }).status).toBe(200);
+
+    expect(opsOnDisk(id).at(-1)).toMatchObject({ op: 'set', k: 'status', v: 'todo' });
+  });
+});
+
+describe('POST /i/<ref> 涵蓋 Change 的全部意圖', () => {
+  it('欄位編輯：title / description / archived 各自成為一個 set op', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+
+    const view = JSON.parse(
+      post(`/i/${id}`, {
+        title: 'Fix the login redirect',
+        description: 'safari 才會重現',
+        archived: true,
+      }).body,
+    ) as IssueView;
+
+    expect(view).toMatchObject({
+      title: 'Fix the login redirect',
+      description: 'safari 才會重現',
+      archived: true,
+    });
+    // 預渲染的 HTML 跟著新的原文走，不是回舊值。
+    expect(view.descriptionHtml).toBe('<p>safari 才會重現</p>');
+
+    const ops = opsOnDisk(id);
+    expect(ops.filter((o) => o['op'] === 'set')).toMatchObject([
+      { k: 'title', v: 'Fix the login redirect' },
+      { k: 'description', v: 'safari 才會重現' },
+      { k: 'archived', v: true },
+    ]);
+  });
+
+  it('留言：append 一個 comment op，且回應帶預渲染的 bodyHtml', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+
+    const view = JSON.parse(post(`/i/${id}`, { comment: 'reproduced on `2.50.1`' }).body) as IssueView;
+
+    expect(view.comments).toHaveLength(1);
+    expect(view.comments[0]).toMatchObject({
+      actor: 'test',
+      body: 'reproduced on `2.50.1`',
+      bodyHtml: '<p>reproduced on <code>2.50.1</code></p>',
+    });
+
+    expect(opsOnDisk(id).at(-1)).toMatchObject({ op: 'comment', body: 'reproduced on `2.50.1`' });
+  });
+
+  it('label 增減：add 與 remove 各自寫成 OR-Set 的 op', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect', labels: ['p1'] });
+
+    expect([...(JSON.parse(post(`/i/${id}`, { labels: { add: ['bug'] } }).body) as IssueView).labels].sort()).toEqual(
+      ['bug', 'p1'],
+    );
+    expect(opsOnDisk(id).at(-1)).toMatchObject({ op: 'label.add', v: 'bug' });
+
+    expect((JSON.parse(post(`/i/${id}`, { labels: { remove: ['p1'] } }).body) as IssueView).labels).toEqual(['bug']);
+    // rm 帶著它觀察到的 add tag —— add-wins 全靠 seen（ops.ts）。
+    expect(opsOnDisk(id).at(-1)).toMatchObject({ op: 'label.rm', v: 'p1' });
+    expect((opsOnDisk(id).at(-1)!['seen'] as string[]).length).toBe(1);
+  });
+
+  it('blocked 不強制配留言 —— CLI 是提醒而非拒絕，server 保持一致', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+
+    // 在 server 端加一條 CLI 沒有的規則會讓兩個介面分歧（ADR-0007 的分工）。
+    const res = post(`/i/${id}`, { status: 'blocked' });
+
+    expect(res.status).toBe(200);
+    expect((JSON.parse(res.body) as IssueView).status).toBe('blocked');
+  });
+
+  it('寫入之後 /hash 換值 —— 票 09 的輪詢性質不得被寫入面破壞', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const before = get('/hash').body;
+
+    post(`/i/${id}`, { status: 'queued' });
+
+    expect(get('/hash').body).not.toBe(before);
+  });
+});
+
+describe('POST /i/<ref> 的錯誤對應', () => {
+  it('RefNotFound → 404，不是 500，也不外洩例外', () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+
+    for (const url of [`/i/${fullId('01JBXC')}`, '/i/ZZZZZZ', '/i/']) {
+      const res = post(url, { status: 'queued' });
+      expect(res.status, url).toBe(404);
+      expect(res.body, url).not.toContain('Fix login redirect');
+      expect(res.body, url).not.toContain('at Object');
+    }
+  });
+
+  /**
+   * 票 01 移除了伺服器渲染的 `GET /i/<ref>`，連帶把「有歧義的 ref」那個
+   * describe 一起刪掉。這條性質在寫入面上更重要：猜錯一張 Issue 的寫入是
+   * append-only 的，事後只能再寫一筆蓋回去 —— 所以絕不猜測。
+   */
+  it('AmbiguousRef → 404，且內文含足以區分的候選', () => {
+    createWith(fullId('01JBXAB'), { title: 'Fix login redirect' });
+    createWith(fullId('01JBXAC'), { title: 'Union merge spike' });
+
+    const res = post('/i/01JBXA', { status: 'queued' });
+
+    expect(res.status).toBe(404);
+    // 「足以區分」的長度：6 碼兩張一模一樣，所以候選必須印到第 7 碼。
+    expect(res.body).toContain('01JBXAB');
+    expect(res.body).toContain('01JBXAC');
+    // 兩張都不得被寫到 —— 有歧義時什麼都不做，而不是挑一張。
+    for (const id of [fullId('01JBXAB'), fullId('01JBXAC')]) {
+      expect(opsOnDisk(id).some((o) => o['op'] === 'set')).toBe(false);
+    }
+  });
+
+  it('InvalidStatus → 400', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const before = opsOnDisk(id).length;
+
+    // 不存在的值，以及對應到多個 Status 的前綴（backlog / blocked）。
+    for (const status of ['shipped', 'b', '']) {
+      const res = post(`/i/${id}`, { status });
+      expect(res.status, status).toBe(400);
+    }
+
+    // 驗證先於任何寫入：被拒絕的 Change 不得留下半個 Op。
+    expect(opsOnDisk(id)).toHaveLength(before);
+  });
+
+  it('body 不是合法 JSON → 400，不是 500', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const before = opsOnDisk(id).length;
+
+    for (const body of ['', '{', 'not json', '{"status":}']) {
+      const res = post(`/i/${id}`, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    expect(opsOnDisk(id)).toHaveLength(before);
+  });
+
+  it('body 是合法 JSON 但不是 Change 的形狀 → 400', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const before = opsOnDisk(id).length;
+
+    const notChanges: unknown[] = [
+      null,
+      42,
+      'queued',
+      ['queued'],
+      { title: 5 },
+      { archived: 'yes' },
+      { labels: 'bug' },
+      { labels: { add: 'bug' } },
+      { labels: { add: [1] } },
+      { comment: { body: 'hi' } },
+      // 打錯的欄位名靜靜地什麼都不做，是最糟的失敗模式：append-only 之下
+      // 沒有「被拒絕的寫入」可以事後翻查，畫面只會顯示「我按了但沒動」。
+      { statuss: 'queued' },
+    ];
+
+    for (const body of notChanges) {
+      const res = post(`/i/${id}`, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    expect(opsOnDisk(id)).toHaveLength(before);
+  });
+
+  it('穿越用的 ref 在寫入面上同樣是 404，且不在 board 外面造出檔案', () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+
+    for (const url of ['/i/../../OUTSIDE', '/i/../../../etc/passwd', '/i/..%2f..%2fOUTSIDE']) {
+      const res = post(url, { comment: 'LEAKED' });
+      expect(res.status, url).toBe(404);
+    }
+
+    expect(existsSync(join(dir, 'OUTSIDE.ndjson'))).toBe(false);
+  });
+});
+
 
 describe('GET /hash', () => {
   it('回傳當前 board 狀態的雜湊，200，text/plain', () => {
