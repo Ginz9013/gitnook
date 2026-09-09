@@ -429,3 +429,106 @@ describe('FAIL —— 只回滾它自己那一筆', () => {
     expect(state.pending.map((x) => x.seq)).toEqual([1]);
   });
 });
+
+// ---- 票 03：ACK 帶回不在快照裡的 issue ----
+
+// 這一條先以特徵測試寫下（當時就是綠的），釘住修改**不得**碰的那一面：快照的
+// 成員資格是 server 的決定，client 憑一則寫入回應就把一張 issue 塞進快照是另一個
+// bug。ACK 落空時 payload 照樣丟掉 —— 改變的只有「不再無聲無息」，見下一條。
+// 今天不會發生（`/api/board` 是 `all: true` 全量），只要有人給它加上過濾就會。
+describe('ACK 帶回不在快照裡的 issue —— 不得無條件 append', () => {
+  it('伺服器回的那張仍然丟掉，快照一張都不多，畫面上沒有那張卡片', () => {
+    // 一份被過濾過的快照：輪詢那一輪把 a1 濾掉了（它已經不符合過濾條件）。
+    const filteredOut = reduceAll(
+      initialClient(snap(['a1', 'todo'], ['b2', 'backlog'])),
+      { type: 'EDIT', issueId: 'a1', change: { title: '我改的標題' } }, // seq 1
+      { type: 'POLL', issues: snap(['b2', 'backlog']) },
+    );
+
+    const acked = clientReduce(filteredOut, {
+      type: 'ACK',
+      seq: 1,
+      issue: full('a1', { title: '我改的標題' }),
+    });
+
+    // 伺服器剛剛告訴我們 a1 摺疊後長這樣 —— 這份資訊沒有留下任何痕跡。
+    expect(acked.snapshot).toEqual(filteredOut.snapshot);
+    expect(project(acked).map((p) => p.id)).toEqual(['b2']);
+    // 而飛行中的那筆確實退場了。
+    expect(acked.pending).toEqual([]);
+  });
+});
+
+// 落空的 ACK 必須在 state 上留下痕跡。純 reducer 沒有 log、沒有 DOM，唯一能說話
+// 的地方就是它回傳的那份 state —— 呼叫端據此重新輪詢一份新快照。
+describe('ACK —— 落不到快照上時不得靜默', () => {
+  it('記下這次落空，pending 照常退場，快照仍然一張都不多', () => {
+    const filteredOut = reduceAll(
+      initialClient(snap(['a1', 'todo'], ['b2', 'backlog'])),
+      { type: 'EDIT', issueId: 'a1', change: { title: '我改的標題' } }, // seq 1
+      { type: 'POLL', issues: snap(['b2', 'backlog']) },
+    );
+
+    const acked = clientReduce(filteredOut, {
+      type: 'ACK',
+      seq: 1,
+      issue: full('a1', { title: '我改的標題' }),
+    });
+
+    expect(acked.unmatchedAck).toEqual({ seq: 1, issueId: 'a1' });
+    expect(acked.pending).toEqual([]);
+    expect(acked.snapshot).toEqual(filteredOut.snapshot);
+  });
+
+  it('落得到快照上的 ACK 不留痕跡', () => {
+    const acked = reduceAll(
+      initialClient(snap(['a1', 'todo'])),
+      { type: 'DROP', issueId: 'a1', to: 'review' },
+      { type: 'ACK', seq: 1, issue: full('a1', { status: 'review' }) },
+    );
+
+    expect(acked.unmatchedAck).toBeNull();
+  });
+});
+
+// 標記必須自己退場，否則它只是另一種「永遠留在畫面上」。答覆它的東西就是下一份
+// 快照 —— 那份快照到達時，「我手上這份落後了」這句話已經沒有意義了。
+describe('unmatchedAck —— 由下一份套用的快照清掉', () => {
+  /** 一份「落後的快照 + 一則落空的 ACK」。 */
+  const stale = (): ClientState =>
+    reduceAll(
+      initialClient(snap(['a1', 'todo'], ['b2', 'backlog'])),
+      { type: 'EDIT', issueId: 'a1', change: { title: '我改的標題' } }, // seq 1
+      { type: 'POLL', issues: snap(['b2', 'backlog']) },
+      { type: 'ACK', seq: 1, issue: full('a1', { title: '我改的標題' }) },
+    );
+
+  it('POLL 套用新快照之後標記歸零', () => {
+    const before = stale();
+
+    expect(before.unmatchedAck).toEqual({ seq: 1, issueId: 'a1' });
+
+    const after = clientReduce(before, {
+      type: 'POLL',
+      issues: snap(['a1', 'todo'], ['b2', 'backlog']),
+    });
+
+    expect(after.unmatchedAck).toBeNull();
+  });
+
+  it('拖曳中押後的快照不清標記，放開真的套用時才清', () => {
+    const before = stale();
+    const held = clientReduce(before, { type: 'GRAB', issueId: 'b2' });
+    const polled = clientReduce(held, {
+      type: 'POLL',
+      issues: snap(['a1', 'todo'], ['b2', 'backlog']),
+    });
+
+    // 押後期間畫面與 state 都不動 —— 這份快照還沒套用。
+    expect(polled.unmatchedAck).toEqual({ seq: 1, issueId: 'a1' });
+
+    const released = clientReduce(polled, { type: 'RELEASE' });
+
+    expect(released.unmatchedAck).toBeNull();
+  });
+});

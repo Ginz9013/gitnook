@@ -60,6 +60,16 @@ export interface PendingWrite {
   readonly landed: boolean;
 }
 
+/**
+ * 一則落不到快照上的 ACK：伺服器確認了對這張 issue 的寫入，但它不在我們手上的
+ * 這份快照裡。它說的是「這份快照落後了」，不是「這張 issue 不存在」——
+ * 成員資格永遠是 server 的決定。
+ */
+export interface UnmatchedAck {
+  readonly seq: number;
+  readonly issueId: string;
+}
+
 export interface ClientState<I extends ReconcileIssue = ReconcileIssue> {
   /** 最後一次輪詢拿到的伺服器真相。 */
   readonly snapshot: readonly I[];
@@ -70,6 +80,11 @@ export interface ClientState<I extends ReconcileIssue = ReconcileIssue> {
   /** 因為正在拖曳而被押後的快照。 */
   readonly deferred: readonly I[] | null;
   readonly seq: number;
+  /**
+   * 最後一則落空的 ACK，沒有就是 `null`。純 reducer 不能 log、不能碰 DOM ——
+   * 回傳的 state 是它唯一能說話的地方，這一格就是那句話。
+   */
+  readonly unmatchedAck: UnmatchedAck | null;
 }
 
 export type ClientAction<I extends ReconcileIssue = ReconcileIssue> =
@@ -116,7 +131,7 @@ export interface ProjectedIssue<I extends ReconcileIssue = ReconcileIssue> {
 }
 
 export function initialClient<I extends ReconcileIssue>(snapshot: readonly I[]): ClientState<I> {
-  return { snapshot, pending: [], drag: null, deferred: null, seq: 0 };
+  return { snapshot, pending: [], drag: null, deferred: null, seq: 0, unmatchedAck: null };
 }
 
 export function clientReduce<I extends ReconcileIssue>(
@@ -170,8 +185,22 @@ export function clientReduce<I extends ReconcileIssue>(
       // 這一筆可能已經不在飛行中了（已回滾、或回應重複送達）——那就什麼都不做。
       const p = state.pending.find((x) => x.seq === action.seq);
       if (p === undefined) return state;
+      // 這張 issue 不在快照裡時（有人給 /api/board 加了過濾、或這張已經被濾掉），
+      // `snapshot.map` 什麼都對不上，伺服器剛送回來的那張就被丟掉了。三個可能的
+      // 形狀，這裡選第三個：
+      //   1. append 進快照 —— 不行。成員資格是 server 的決定，client 憑一則寫入
+      //      回應就把一張 issue 塞進快照，是另一個 bug 而不是修好這一個。
+      //   2. throw —— 不行。過濾一旦存在，這就是**正常**情況（把卡片移出過濾條件
+      //      就會發生），為正常情況炸掉整塊看板顯然過頭。
+      //   3. payload 照樣丟掉，但**把落空這件事記在 state 上**。呼叫端讀到它就知道
+      //      「手上這份快照落後了」，正確的反應是重新輪詢一份 —— 決定權仍然留在
+      //      server 手上。下一份快照套用時這個標記自動清掉（見 applySnapshot）。
+      // pending 無論如何都要退場：伺服器已經回應過這筆寫入了，把它留在飛行中就是
+      // 讓一個永遠不會再有下文的樂觀值掛在畫面上。
+      const known = state.snapshot.some((i) => i.id === p.issueId);
       return {
         ...state,
+        unmatchedAck: known ? state.unmatchedAck : { seq: action.seq, issueId: p.issueId },
         // 同一張 issue 上，連同 `seq <= action.seq` 的一起退場，不只是 action.seq
         // 那一筆：兩次寫入的回應在網路上換了位置時，只拿掉 seq2 會讓 seq1 留在
         // pending 上，而它帶的是已經被 seq2 取代的舊值 —— 卡片當場閃回舊欄位。
@@ -229,12 +258,16 @@ function endDrag<I extends ReconcileIssue>(state: ClientState<I>): ClientState<I
 /**
  * 套用一份新快照。關鍵規則：還在飛的樂觀變更蓋過快照 —— 那條覆蓋由 project()
  * 負責，因此這裡只換 snapshot、絕不動 pending。
+ *
+ * `unmatchedAck` 在這裡歸零，而不是在 POLL 那個 case：拖曳中的快照是被押後的，
+ * 還沒套用，那時清掉就是在說一句還沒成真的話。清的時機正是「答覆它的那份快照
+ * 真的上場了」—— 不管它來自 POLL 還是放開時補上的那份。
  */
 function applySnapshot<I extends ReconcileIssue>(
   state: ClientState<I>,
   issues: readonly I[],
 ): ClientState<I> {
-  return { ...state, snapshot: issues };
+  return { ...state, snapshot: issues, unmatchedAck: null };
 }
 
 /** 使用者實際看到的東西：快照 + 樂觀覆蓋 + 拖曳鎖。 */
