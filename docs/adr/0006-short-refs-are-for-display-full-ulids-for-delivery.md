@@ -23,4 +23,6 @@ nook label $A +bug             # 前綴 01M20V 對應到 3 張 issue
 
 四個回印路徑（`set` / `mv` / `comment` / `label`）原本走 `renderTable([updated])`，單元素陣列讓長度計算直接回下限 6 —— 那是「顯示」的表示法卻算錯了批次。它們現在對整個 board 算長度。
 
-同源但尚未修的一處記在 spec 的 Risks：`list` 對**過濾後**的集合算長度（預設隱藏 archived/done/cancelled），所以它印出的 ref 可能被 `show` 判為有歧義。正確的解是讓 `Board` 提供一個只列舉、不摺疊的廉價 id 來源。
+**同源的最後一處已經修掉了（v1 的票 15 ＋ 票 16）。** 當時的洞是：`list` 對**過濾後**的集合算長度（預設隱藏 archived/done/cancelled），所以它印出的 ref 可能被 `show` 判為有歧義 —— 解析是對整塊 Board 做的，長度卻是對一份子集算的。修法正如本 ADR 當初的預測：讓 `Board` 公開一個只列舉、不摺疊的廉價 id 來源，也就是 `board.refs()`（票 15）。現在 `src/cli/run.ts` 的 `displayLength(board)` 就是 `shortIdLength(board.refs())`，是唯一的長度來源，六個渲染呼叫點 —— `list`、`show`，以及 `set` / `mv` / `comment` / `label` 四個回印路徑 —— 全都明確傳入它。連原本因為效能顧慮而沿用下限 6 的 `show` 也付得起了：`refs()` 只列目錄，票 13 的「`show` 只讀它要的那一張」因此不受影響。
+
+**預測與實際的落差值得留下來。** spec 的 Risks 當時（票 12 回報）判斷「要修得把解析用的候選集合傳進渲染層，會改變 `renderTable` 的簽章」。簽章一行都沒有動：渲染層要的從來不是候選集合，而是一個**算好的長度**，而 `renderTable(input, shortIdLen?)` 的第二個參數在票 12 自己就已經存在。錯的不是渲染層的介面，是 CLI 餵給它的那一批資料。真正缺的那塊在 core —— 一個便宜到 `show` 也叫得起的 id 來源。**「渲染層拿到的批次不等於解析用的母體」這一類問題，修的地方在餵資料的那一端，不在渲染層的簽章。**
