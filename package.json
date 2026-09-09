@@ -43,17 +43,37 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup && npm run build:types",
+    "build": "tsup && npm run build:types && npm run build:studio",
     "build:types": "tsc --ignoreConfig src/index.ts src/cli/run.ts --declaration --emitDeclarationOnly --outDir dist --module esnext --moduleResolution bundler --target es2023 --strict --skipLibCheck --types node --verbatimModuleSyntax",
+    "build:studio": "vite build",
     "prepack": "npm run build",
     "bench": "node bench/index.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@radix-ui/react-alert-dialog": "^1.1.23",
+    "@radix-ui/react-dialog": "^1.1.23",
+    "@radix-ui/react-dropdown-menu": "^2.1.24",
+    "@radix-ui/react-slot": "^1.3.3",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.5.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "gitnook": "0.1.0",
+    "lucide-react": "^1.43.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.3",
     "tsup": "^8.5.1",
+    "tw-animate-css": "^1.4.0",
     "typescript": "^7.0.2",
+    "vite": "^8.2.2",
     "vitest": "^5.0.0"
   }
 }

@@ -11,9 +11,23 @@ npx nook new "Fix login redirect loop on Safari"
 npx nook list
 ```
 
-No database. No native binary. No daemon. No account. `nook` has **zero runtime
-dependencies** — every import in the shipped bundle is either a `node:` builtin
-or a file inside the package.
+No database. No native binary. No daemon. No account. **The CLI has zero runtime
+dependencies** — every import in `nook`'s shipped bundle is either a `node:`
+builtin or a file inside the package.
+
+`npm i -D gitnook` installs **zero transitive packages**. `dependencies` is
+empty and stays empty: studio's frontend (React 19, Radix, Tailwind) is a set of
+`devDependencies` compiled ahead of time into two static files —
+`dist/studio/studio.js` and `studio.css`, 413 KB together — that ship inside the
+tarball and are read from disk when a browser asks for them. Nothing resolves,
+downloads or executes at install time.
+
+The half of that claim which genuinely weakened: **React's and Radix's CVE
+surface now lives inside our tarball.** Your `npm audit` cannot see it and no
+Dependabot PR will open in your repo, because as far as npm is concerned there
+is nothing there. Keeping that bundle current is *our* job, and shipping a fixed
+one means cutting a nook release — not an `npm update` on your side. If you only
+use the CLI, `nook studio` is the only thing that ever loads those bytes.
 
 ## Why another one
 
@@ -22,7 +36,7 @@ or a file inside the package.
 | Linear / Jira + MCP | someone else's server | n/a | SaaS |
 | [git-bug](https://github.com/git-bug/git-bug) (10,023★) | `refs/bugs/*`, outside the working tree | yes | Go binary |
 | [backlog.md](https://github.com/MrLesk/Backlog.md) (6,668★) | markdown, `## Status` headings as database columns | **no** | 67.5 MB Bun binary, one per platform |
-| **nook** | `.issues/issues/*.ndjson`, in the working tree | **yes** | ~105 KB npm package |
+| **nook** | `.issues/issues/*.ndjson`, in the working tree | **yes** | ~543 KB npm package, 413 KB of it studio's prebuilt frontend |
 
 git-bug's issues are not in the working tree, so GitHub's web UI does not show
 them, `grep` does not find them, and an agent cannot `cat` them. backlog.md's
@@ -72,13 +86,13 @@ issues takes 3 ms, 2,000 takes 53 ms, 10,000 takes 266 ms. Node's own startup is
 
 ## The four hard metrics
 
-These are gates, not aspirations. `npm run bench` prints all four and exits
-non-zero if any is over budget.
+These are gates, not aspirations. `npm run bench` prints all four — plus the two
+structural rows below them — and exits non-zero if any is over budget.
 
 | Metric | Budget | Measured |
 |---|---|---|
-| Package size, unpacked | < 3 MB | **105 KB** |
-| Cold start, `nook --version` from the packed tarball | < 500 ms | **≈52 ms** |
+| Package size, unpacked | < 3 MB | **542,919 B** (17% of the gate) |
+| Cold start, `nook --version` from the packed tarball | < 500 ms | **≈26 ms** |
 | Concurrent merge of one issue on two branches | zero conflicts | **0** |
 | Agent tokens, 40-issue scenario | < 4.5 KB | **4,065 B** |
 
@@ -90,8 +104,23 @@ instructions plus every command's output for a 40-issue project doing
 `list → show → mv → comment`; the budget is bound to that scenario, because
 output grows linearly with issue count.
 
-(Measured on node 22.22.1 / darwin-arm64. Cold start varies by machine; run
-`npm run bench` for yours.)
+(Measured on node 22.22.1 / darwin-arm64, from a clean `dist/`. Cold start
+varies by machine; run `npm run bench` for yours.)
+
+Two more rows exist because those four cannot see what they need to see:
+
+| Row | Budget | Measured |
+|---|---|---|
+| studio assets, `dist/studio/` | < 768 KB | **412,686 B** |
+| React markers in `dist/cli/run.js` | 0 | **0** |
+
+studio is three quarters of the package, so it could grow by half and package
+size would still read as comfortable — its own row is what makes that growth
+visible. The marker row enforces ADR-0008's hard constraint directly: the studio
+bundle must never reach `src/cli/run.ts`'s import chain. Cold start was guarding
+that only by proxy, and timing drifts — on a noisy machine it says "a bit slower"
+where counting `react` / `createRoot` / `radix` / `tailwind` in the shipped CLI
+bundle says "React is in the CLI bundle".
 
 ## What nook refuses to do
 
@@ -104,7 +133,9 @@ beside it. So, explicitly and permanently out of scope:
 - **configurable statuses** — the eight are fixed, so an agent never has to ask
   what this project's statuses are before it can act
 - **sub-tasks** — `- [ ]` in a description is text, and stays text
-- **search / filter UI, GUI editing, a TUI**
+- **search / filter UI, a TUI** — `nook studio` is a GUI and it does edit
+  (ADR-0007), but it has no search, no filtering, and no terminal UI, and it
+  cannot create issues
 - **an MCP server** — the CLI is the interface
 - **op-log compaction**
 - **issue deletion** — `git merge` cannot resolve modify/delete
@@ -149,7 +180,7 @@ mv <ref> <status>
 comment <ref> <body|->
 label <ref> +bug -ui
 doctor [--fix]                         data health check; --fix repairs glued lines
-studio [--port <n>]                    read-only board on localhost
+studio [--port <n>]                    board on localhost; drag, edit, comment
 ```
 
 `-` as a value reads the value from stdin.
@@ -247,10 +278,32 @@ taking one away is not, so this package starts narrow.
 npx nook studio
 ```
 
-A server-rendered, **read-only** board on `127.0.0.1` — eight columns, a detail
-view per issue, and a two-second poll that reloads **either view** when the
-files change. It binds loopback only and never the LAN. Editing stays in the
-CLI, and markdown is rendered with raw HTML disabled.
+The **human** interface, on `127.0.0.1`. The CLI is the agent's: composable,
+parseable, cheap in tokens. Dragging six issues into `todo` and ordering them is
+six `nook mv`s there and six seconds here (ADR-0007).
+
+Eight columns you drag issues between, and a drawer per issue for editing the
+title, the description, labels, status and comments. It **cannot create
+issues** — that stays in `nook new`. Writes go through `POST /i/<ref>` into the
+same append-only op-log the CLI writes, so the CLI and studio can be open at
+once. There is no rollback on failure and none is needed: an op that lands is
+permanent, and a card that ends up somewhere else lost a last-writer-wins tie to
+whoever wrote later. A two-second poll applies changes in place rather than
+reloading the page, and an issue you are holding the pointer on never moves
+underneath you.
+
+**Loopback-only is now the entire security model, not a conservative default.**
+studio has no authentication, so anything that can reach it can write to the
+whole board. That is why it binds `127.0.0.1` and why `--host` is not "not yet"
+but **never** (ADR-0007). Every op studio writes is attributed to the actor from
+your `git config user.email`, which is the second reason it must not be shared:
+a shared studio would file everyone's work under one actor and break the
+tiebreak that merging depends on.
+
+The frontend is a React SPA (`src/studio/`, built by Vite into `dist/studio/`).
+Markdown is still rendered to safe HTML on the server, by the same escape-first
+renderer as before — the browser is handed strings that are already safe rather
+than being trusted to sanitise them.
 
 ## doctor
 
@@ -286,11 +339,23 @@ script, no `git config` for anyone on the team.
 ```bash
 npm test              # vitest
 npm run typecheck     # tsc --noEmit
-npm run bench         # the four hard metrics
-npm run build         # tsup bundle + declarations into dist/
+npm run bench         # the four hard metrics, plus the two structural rows
+npm run build         # tsup bundle + declarations + the studio assets
 ```
 
-All three run in CI (`.github/workflows/ci.yml`) on every push and pull request.
+The first three run in CI (`.github/workflows/ci.yml`) on every push and pull
+request.
+
+**Always build with `npm run build`. Never run `npx tsup` on its own.** There are
+two build targets in this repo — tsup for the node side, Vite for studio — and
+tsup cleans the *whole* of `dist/`, including `dist/studio/`, which only
+`vite build` writes. Run tsup alone and the build looks like it succeeded while
+`nook studio` has no assets left to serve.
+
+For the same reason, read the package size off `npm run bench` and never off
+`dist/` directly. bench packs the tarball through `prepack`, so it always
+measures a freshly built tree; a `dist/` you happen to be looking at may be
+carrying artifacts from an earlier build and reads far larger than what ships.
 
 One test needs a non-loopback IPv4 interface: `test/server/serve.test.ts`
 asserts that `studio` refuses to bind anything but loopback, and it **throws

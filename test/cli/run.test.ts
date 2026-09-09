@@ -502,9 +502,15 @@ describe('studio', () => {
 
     // studio 只綁 loopback —— 讓它出現在其他介面上等於把整個 Board 送給同一個網段。
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    // `/` 送的是 SPA 的殼（票 01）—— 看板的內容走 /api/board。
+    // 刻意不對殼的內容下斷言：dist/studio/ 在不在會換掉那一頁，而
+    // packed-smoke 會在測試中途 `tsup --clean` 把 dist/ 清掉。
     const res = await fetch(`${url}/`);
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain('Fix login redirect');
+    expect(res.headers.get('content-type')).toMatch(/^text\/html/);
+
+    const snapshot = await (await fetch(`${url}/api/board`)).json();
+    expect(snapshot.issues.map((i: { title: string }) => i.title)).toContain('Fix login redirect');
 
     stop.abort();
     expect(await finished).toBe(0);

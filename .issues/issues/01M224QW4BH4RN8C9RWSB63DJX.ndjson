@@ -1,0 +1,7 @@
+{"id":"01M224QW4B8GP2Q8RJBPHAYWBW","t":1,"a":"83a1","op":"create","title":"把調和 reducer 從 prototype 落進正式程式碼"}
+{"id":"01M224QW4PYV7N03RBT324VTBC","t":2,"a":"83a1","op":"set","k":"description","v":".scratch/studio-write/write-model.prototype.html 裡的「可移植模組 A」已經驗證過，約 120 行純函式，不碰 DOM。四條規則各對應一個實際會壞的情況：\n\n- 飛行中的變更蓋過快照 —— 否則輪詢帶回舊快照時卡片彈回去再彈回來\n- 同張 issue 只認最後一筆 —— 否則遲到的舊回應把卡片翻回舊位置\n- 拖曳期間押後快照 —— 否則手指還按著，卡片被伺服器抽走\n- ACK 帶的是寫入當下的值，不是永恆真理 —— agent 後來居上時要能接受\n\n第四條是 append-only CRDT 特有的（ADR-0007）：沒有「被拒絕的寫入」，只有「op 寫進去了但 LWW 決勝輸了」。因此不可以引入 React Query / SWR 這類假設「失敗就回滾」的工具來取代它。\n\nprototype 已經用 node 跑過這四個情境，搬過來時要有對應的測試。"}
+{"id":"01M224QW4PBVEC1E3CZZDR6RDE","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M22BXAFANNQ58BMFAX6XA0WE","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M22EFCX8YZ2GBEX80H9P5BBD","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M22EFD0MX7D9D8E55557JQ1P","t":6,"a":"83a1","op":"comment","body":"完成（ce80e16）。四條規則各自有紅燈證據。順帶修掉 prototype 的一個 bug：DROP 原本只設 drag: null，deferred 留在 state 裡，下一次不相干的 RELEASE 會套用古老快照讓卡片憑空跳一下 —— 我那四個情境都沒走到那條路徑。"}
+{"id":"01M22QF89QWF6AYXT3VVN5M8WD","t":7,"a":"83a1","op":"set","k":"status","v":"done"}

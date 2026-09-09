@@ -1,0 +1,17 @@
+# studio 前端改用 React + Tailwind + shadcn，並把「零 runtime 相依」的宣稱收斂到 CLI
+
+studio 的前端從伺服器渲染的零 JS 頁面（`src/render/html.ts`）改成 `src/studio/` 底下獨立的 React 應用，用 Tailwind v4 排版、shadcn 的組件（Sheet、DropdownMenu、Button、Badge、Textarea），拖拉用 `@dnd-kit`。
+
+**狀態同步不是選這條路的理由。** 選型前先做了 prototype（`.scratch/studio-write/`），把樂觀更新與輪詢調和收斂成一個約 120 行的純 reducer。它在 SSR 與 React 底下是同一份程式碼 —— React 不會幫你少寫任何一行，`@dnd-kit` 解決的是拖曳當下的指標與鍵盤，不是調和。真正的理由只有一個：**鍵盤無障礙**。`@dnd-kit` 有完整的鍵盤拖曳與 screen reader 播報，SortableJS 只做指標與觸控。ADR-0007 把 studio 定為人的主要操作介面，而主要介面不能只能用滑鼠操作。Radix 順帶處理 focus trap、ARIA 與 scroll lock —— 這些手寫都會寫錯。
+
+體積不構成阻礙，這是實際打包量到的，不是估的：React 19 + react-dom 是 193KB（min，未 gzip），加 `@dnd-kit` 到 236KB，加上 shadcn 那層（Radix Dialog + DropdownMenu、lucide、cva/clsx/tailwind-merge）到 360KB，Tailwind 針對實際樣板產出的 CSS 是 27KB。package 從 117KB 變成約 525KB，**佔 3MB 閘門的 17%**。冷啟不受影響。同樣的組合換成 `preact/compat` 是 185KB，接近腰斬，但 17% 與 9% 的差距不值得為它承擔 Radix 在 compat 底下的相容風險 —— 用真的 React。shadcn 的 Drawer 建立在 `vaul` 上，而 `vaul` 是為手機 sheet 的手勢模型設計的；桌面看板用 Radix Dialog 為底的 Sheet 就夠，省 31KB 與一個相依。
+
+## Consequences
+
+**README 的招牌宣稱要改寫。** 目前是「`nook` has zero runtime dependencies」。`npm i -D gitnook` 仍然不會裝進任何一個傳遞套件 —— 這條使用者真正在意的承諾完好，因為 studio 的資產是預先打包好、隨 tarball 出貨的靜態檔，`dependencies` 依然是空的。但精神上鬆動了：React 與 Radix 的 CVE 面現在住在我們的 tarball 裡，更新責任是我們的。宣稱因此收斂為「**the CLI has zero runtime dependencies**」，並在同一段說明 studio 的資產是打包進去的。含糊其辭比改寫更糟。
+
+**studio bundle 絕對不能被 CLI 進入點 import。** `src/cli/run.ts` 目前靜態 import `serve`，所以 `nook --version` 會載入整條 server 鏈；今天無妨，因為那只有 700 行。但只要有人把 400KB 的 studio bundle 當模組或字串 import 進去，**每一次 `nook list` 都要多 parse 400KB**，52ms 的冷啟硬指標就沒了。bundle 必須是磁碟上的靜態檔，在 request 當下才讀。這條要寫進 AGENT.md。
+
+**`src/render/html.ts` 拆開，不整個丟。** 它的 markdown renderer 用「先逸出、再構造」建立安全模型：所有來源文字在任何標記產生之前就已經逸出，因此 raw HTML 天生無法通過，不需要危險標籤黑名單。這是這個 repo 裡最好的一段設計，在 React 裡重寫是降級。看板／卡片／頁面的渲染移除，**markdown → 安全 HTML 這一段留在 server**，client 收到的 description 與 comments 已經是安全的字串，用 `dangerouslySetInnerHTML` 注入 —— 安全性由 server 保證，不靠前端紀律。`test/render/html.test.ts` 的 22 個 describe 裡有 8 個是 markdown 專屬的，這樣拆它們原封不動存活。
+
+**多一條 build pipeline。** `src/studio/` 是自己的 Vite 應用，輸出到 `dist/studio/`；tsup 那條 node 的 build 不動。代價是 repo 裡從此有兩個前端／後端性質不同的建置目標，以及 shadcn 需要的 `components.json` 與路徑別名。這是這個專案至今單次最大的複雜度增加，值不值得取決於 studio 是否真的成為主要介面 —— 如果它退回成 viewer，這個決定應該一併退回。

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderTable } from '../../src/render/table.js';
 import { renderJson } from '../../src/render/json.js';
+import { displayWidth } from '../../src/render/width.js';
 import { resolvePrefix, SHORT_ID_MIN } from '../../src/core/ids.js';
 import type { Issue } from '../../src/core/types.js';
 
@@ -235,5 +236,70 @@ describe('renderTable — 詳情視圖的短 ID 長度', () => {
 
     expect(detail.split('  ')[0]).toBe('01JBX7');
     expect(detail.split('  ')[0]).toHaveLength(SHORT_ID_MIN);
+  });
+});
+
+describe('renderTable — CJK 的顯示欄寬', () => {
+  /** 一行之中，labels 欄開始之前的顯示欄寬。對齊與否就看這個值齊不齊。 */
+  const widthBeforeLabels = (line: string): number =>
+    displayWidth(line.slice(0, line.lastIndexOf('[')));
+
+  it('CJK 標題不會讓 labels 欄跑掉', () => {
+    // dogfood 第一天實際撞到的兩行：字元數相同，顯示欄寬差 13。
+    const issues = [
+      issue({
+        id: '01M21Z3RY7',
+        title: '用 nook 自己管 nook 的開發（dogfood）',
+        labels: ['dogfood'],
+      }),
+      issue({
+        id: '01M21Z436T',
+        title: 'nook init 沒有任何輸出，也分不出「剛建立」和「已存在」',
+        labels: ['dogfood', 'ux'],
+      }),
+      issue({ id: '01M21Z5B9R', title: 'Fix login redirect', labels: ['bug'] }),
+    ];
+
+    const lines = renderTable(issues).split('\n');
+    const starts = lines.map(widthBeforeLabels);
+    expect(new Set(starts).size).toBe(1);
+  });
+
+  it('CJK 清單的 golden —— __golden__ 其餘檔案全是 ASCII，對齊迴歸靠這一份守住', () => {
+    const issues = [
+      issue({
+        id: '01M21Z3RY7',
+        title: '用 nook 自己管 nook 的開發（dogfood）',
+        labels: ['dogfood'],
+      }),
+      issue({
+        id: '01M21Z436T',
+        title: 'nook init 沒有任何輸出，也分不出「剛建立」和「已存在」',
+        status: 'in_progress',
+        labels: ['dogfood', 'ux'],
+      }),
+      issue({ id: '01M21Z5B9R', title: 'Fix login redirect', status: 'queued', labels: ['bug'] }),
+    ];
+
+    expect(asFile(renderTable(issues))).toBe(golden('table-list-cjk.txt'));
+  });
+
+  it('title 的截斷以顯示欄寬計，不以字元數計', () => {
+    // 30 個全形字 = 60 欄，遠超過 TITLE_MAX 的 48 欄，但只有 30 個字元。
+    const issues = [issue({ id: '01JBX7A9Q3', title: '中'.repeat(30), labels: ['x'] })];
+    const titleCell = renderTable(issues).split('  ')[2]!;
+
+    expect(displayWidth(titleCell)).toBeLessThanOrEqual(48);
+    // 截斷後仍要留下省略號，讀者才知道被截了。
+    expect(titleCell.endsWith('…')).toBe(true);
+  });
+
+  it('全形字不會因為半個字元被切開而產生亂碼', () => {
+    // 奇數欄寬的邊界：截到第 47 欄時下一個全形字放不下，必須整個不放。
+    const issues = [issue({ id: '01JBX7A9Q3', title: 'a' + '中'.repeat(30), labels: ['x'] })];
+    const titleCell = renderTable(issues).split('  ')[2]!;
+
+    expect(displayWidth(titleCell)).toBeLessThanOrEqual(48);
+    expect([...titleCell].every((c) => c === 'a' || c === '中' || c === '…')).toBe(true);
   });
 });

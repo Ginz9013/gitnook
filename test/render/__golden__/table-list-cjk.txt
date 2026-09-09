@@ -1,0 +1,3 @@
+01M21Z3  backlog      用 nook 自己管 nook 的開發（dogfood）            [dogfood]
+01M21Z4  in_progress  nook init 沒有任何輸出，也分不出「剛建立」和「…  [dogfood,ux]
+01M21Z5  queued       Fix login redirect                               [bug]

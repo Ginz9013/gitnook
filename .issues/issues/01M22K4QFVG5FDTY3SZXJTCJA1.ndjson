@@ -1,0 +1,6 @@
+{"id":"01M22K4QFVC54SBG3E8GHG76K7","t":1,"a":"83a1","op":"create","title":"App.tsx 接線：把看板、drawer、輪詢與調和器接起來"}
+{"id":"01M22K4QG4Y337BVF9ZYWSRQVP","t":2,"a":"83a1","op":"set","k":"description","v":"board 的缺口。我按目錄把工作切成三張互斥的票，換到乾淨的平行度，代價是沒有任何一張票擁有 composition root。三張票的 worker 都撞到、都照指示回報而沒有偷改 App.tsx。\n\n目前 onMove/onGrab/onRelease 是 no-op stub，輪詢沒被啟動，App 用 useState 而非 useReducer —— 所以拖曳視覺正確但什麼都不會改。"}
+{"id":"01M22K4QG4YK793TH2GWY26DDA","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M22K4QNF837AYDPV4RK3XTWM","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M22NG4R431EPHCD4HXA9HBM2","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M22QF8KSK0CB9G9QYKD44R2W","t":6,"a":"83a1","op":"set","k":"status","v":"done"}

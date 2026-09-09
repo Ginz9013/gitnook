@@ -1,12 +1,23 @@
 import { createServer } from 'node:http';
+import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Board } from '../core/types.js';
 import { handleRequest } from './handler.js';
+import type { HandlerOptions, StudioResponse } from './handler.js';
 
 /**
- * 只綁 loopback，且刻意不提供 --host。studio 是唯讀的會議投影用檢視器，
- * 沒有任何驗證 —— 讓它出現在其他介面上就是把整個 board 送給同一個網段。
- * 要跨機器看，用 SSH port forward。
+ * 只綁 loopback。ADR-0007 之後 `--host` 不是「暫時沒做」而是**永遠不做** ——
+ * studio 開放寫入之後，綁 127.0.0.1 從保守的預設值升格為**唯一的安全機制**。
+ *
+ * 兩個理由，各自都足以否決 `--host`：
+ *
+ * 1. **studio 沒有任何驗證。** 讓它出現在其他介面上，就是把整塊 board 的
+ *    **寫入權**送給同一個網段 —— 唯讀時期漏的是內容，現在漏的是控制權。
+ * 2. **actor 是跑 `nook studio` 的那個人。** 經由 studio 產生的每一個 op 都
+ *    記在 `git config user.email` 推導出的同一個 actor 上。變成多人共用的
+ *    服務會讓所有人的 op 記在同一個名字底下，摺疊時的決勝依據就此失效。
+ *
+ * 要跨機器看，用 SSH port forward —— 那條路徑上驗證的是 SSH，不是 nook。
  */
 const HOST = '127.0.0.1';
 
@@ -20,6 +31,14 @@ export interface Studio {
 
 export interface ServeOptions {
   readonly port?: number;
+  /**
+   * 前端資產目錄，預設為套件自己的 `dist/studio/`。
+   *
+   * 存在的理由是測試：資產是磁碟上的檔案（ADR-0008），所以「服務得出來嗎」
+   * 只能對著一個真的目錄問。有了它，測試就不必先跑一次 vite build ——
+   * 也不會跟 packed-smoke 中途的 `tsup --clean` 撞在一起。
+   */
+  readonly assetsDir?: string;
 }
 
 export class PortInUse extends Error {
@@ -29,13 +48,73 @@ export class PortInUse extends Error {
   }
 }
 
+/** 一個請求的主體，讀成 utf8 字串。 */
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk: string) => (body += chunk));
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
+}
+
+/**
+ * 一則未預期失敗留在終端機上的紀錄。
+ *
+ * **管道就是 `console.error`，不是注入進來的接收器。** ADR-0004：只有單一
+ * adapter 的介面是掩體不是接縫，而這裡說不出第二個真實的使用者 —— 若在
+ * `ServeOptions` 上多開一個接收器，實際會傳它的只有測試（`cmdStudio` 是
+ * 唯一的生產呼叫端，它不會傳）。讀者本來就是跑 `nook studio` 的那個人，
+ * 那個終端機就開在他面前，stderr 直接送到得了。
+ *
+ * **只記未預期的那些**，判準是 `status >= 500`。404（ref 找不到）、
+ * 400（body 不合法）、405（方法不對）都是系統正常運作時的回應；把它們也
+ * 記下來，等於讓前端每 2 秒一次的輪詢與每一次 `nook list` 都在洗版，
+ * 而真正需要被看見的那一行就埋在裡面 —— 一個什麼都印的終端機沒有人讀。
+ *
+ * 訊息取自回應主體而不是 Error 物件：`handleRequest` 是純函數，例外在它
+ * 那一格變成值的時候就只剩下 message（見 handler.ts 的 `serverError`），
+ * serve.ts 拿不到原本擲出的東西。這也正好是對的 —— 終端機上讀到的，
+ * 與瀏覽器那邊收到的是同一句話。
+ */
+function logUnexpected(method: string, url: string, out: StudioResponse): void {
+  if (out.status < 500) return;
+  console.error(`nook studio: ${out.status} ${method} ${url} —— ${out.body.trim()}`);
+}
+
 export function serve(board: Board, opts: ServeOptions = {}): Promise<Studio> {
   const port = opts.port ?? DEFAULT_PORT;
+  // 只把有指定的欄位往下傳：exactOptionalPropertyTypes 之下，
+  // `{ assetsDir: undefined }` 與「沒給」不是同一件事。
+  const handlerOpts: HandlerOptions = opts.assetsDir === undefined ? {} : { assetsDir: opts.assetsDir };
 
   const server = createServer((req, res) => {
-    const out = handleRequest(board, { method: req.method ?? 'GET', url: req.url ?? '/' });
-    res.writeHead(out.status, out.headers);
-    res.end(out.body);
+    // 主體一律先讀完再交給 handler：handleRequest 是純函數（不接觸 node:http），
+    // 所以串流不能穿過那道接縫。非 POST 的請求沒有主體，'end' 下一個 tick 就到。
+    //
+    // **這裡刻意沒有 try/catch，而且不要加一個。** 下面那個成功續行跑在後來的
+    // 一個 tick 上，包在這個 callback 外圍的 try/catch 接不到它拋的任何東西 ——
+    // 那會變成 unhandled rejection，也就是整個 process 當場結束（例如 session
+    // 進行中 board 目錄被移走，下一個請求丟 BoardNotInitialized）。真正的保證
+    // 來自 handleRequest 是全函數：它對任何輸入都回傳一份 StudioResponse，
+    // 未預期的例外在它自己那一格就變成 500。要改那條保證，改 handler.ts。
+    void readBody(req).then(
+      (body) => {
+        const method = req.method ?? 'GET';
+        const url = req.url ?? '/';
+        const out = handleRequest(board, { method, url, body }, handlerOpts);
+        // 記錄在回應之前，而且在同一個續行裡：拿到 500 的那一方（瀏覽器上的
+        // 斷線橫幅）會叫讀者去看終端機，那則紀錄不能比它晚到。
+        logUnexpected(method, url, out);
+        res.writeHead(out.status, out.headers);
+        res.end(out.body);
+      },
+      () => {
+        // 請求還沒送完連線就斷了 —— 已經沒有人在等這個回應。
+        res.destroy();
+      },
+    );
   });
 
   return new Promise<Studio>((resolve, reject) => {

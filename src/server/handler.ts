@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
-import type { Board } from '../core/types.js';
-import { AmbiguousRef, RefNotFound } from '../core/types.js';
-import { renderBoardHtml, renderIssueHtml } from '../render/html.js';
-import type { HtmlOptions } from '../render/html.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { shortIdLength } from '../core/ids.js';
+import type { Board, Change, Issue, Status } from '../core/types.js';
+import { AmbiguousRef, InvalidStatus, RefNotFound } from '../core/types.js';
+import { escapeHtml, renderMarkdown } from '../render/html.js';
 
 /**
  * 純請求處理器。刻意不接觸 node:http —— 路由與回應在不綁 port 的情況下即可測試，
@@ -11,6 +14,8 @@ import type { HtmlOptions } from '../render/html.js';
 export interface StudioRequest {
   readonly method: string;
   readonly url: string;
+  /** 請求主體。只有 `POST /i/<ref>` 會看它，內容是一份 `Change` 的 JSON。 */
+  readonly body?: string;
 }
 
 export interface StudioResponse {
@@ -21,17 +26,39 @@ export interface StudioResponse {
 
 const HTML = 'text/html; charset=utf-8';
 const TEXT = 'text/plain; charset=utf-8';
-const ISSUE_PREFIX = '/i/';
-const ALLOWED_METHOD = 'GET';
+const JSON_TYPE = 'application/json; charset=utf-8';
 const HASH_PATH = '/hash';
-const POLL_INTERVAL_MS = 2000;
+const API_BOARD_PATH = '/api/board';
+const ASSETS_PREFIX = '/assets/';
+const ISSUE_PREFIX = '/i/';
 
 function html(body: string): StudioResponse {
   return { status: 200, headers: { 'content-type': HTML }, body };
 }
 
+function json(payload: unknown): StudioResponse {
+  return { status: 200, headers: { 'content-type': JSON_TYPE }, body: JSON.stringify(payload) };
+}
+
 function notFound(message = 'not found'): StudioResponse {
   return { status: 404, headers: { 'content-type': TEXT }, body: `${message}\n` };
+}
+
+function badRequest(message: string): StudioResponse {
+  return { status: 400, headers: { 'content-type': TEXT }, body: `${message}\n` };
+}
+
+/**
+ * 兜底的 500。**只送 message，不送 `err.stack`** —— 堆疊講的是 nook 的內部
+ * 結構，對讀者（就是跑 `nook studio` 的那個人）沒有一個字是可行動的，而
+ * 「board 目錄不見了，先執行 nook init」有。同 missingAssetsPage 的模型：
+ * 訊息裡的本機路徑沒有外洩對象，因為只綁 loopback（ADR-0007）。
+ *
+ * 非 Error 的擲出物不做猜測 —— 沒有 message 可信，就不要假裝有。
+ */
+function serverError(err: unknown): StudioResponse {
+  const message = err instanceof Error ? err.message : '伺服器內部錯誤';
+  return { status: 500, headers: { 'content-type': TEXT }, body: `${message}\n` };
 }
 
 /**
@@ -45,78 +72,365 @@ export function boardHash(board: Board): string {
 }
 
 /**
- * 輪詢重載。ADR-0002 的直接後果：沒有快取、沒有推播、也沒有 WebSocket ——
- * 每 2 秒問一次全量掃描出來的指紋，值變了就整頁重載。500 張 Issue 14ms，
- * 在這個資料規模下笨方法就是正確方法。
+ * SPA 的殼。**沒有任何 board 資料** —— 它是一個常數字串，`GET /` 因此不掃描
+ * 任何東西，資料一律走 `/api/board`。
  *
- * seed 只會是 sha256 的十六進位字串，故可直接寫進 JS 字面量。
+ * 資產檔名固定（不帶內容雜湊）：studio 只服務 loopback 上的一個人，快取破壞
+ * 買不到任何東西，而固定檔名讓這份殼是純函數 —— 不必先建置才測得動。
  */
-export function pollingScript(seed: string): string {
-  return [
-    "const seen = '" + seed.replace(/[^0-9a-f]/g, '') + "';",
-    'setInterval(async () => {',
-    '  try {',
-    "    const res = await fetch('/hash');",
-    '    if (!res.ok) return;',
-    '    if ((await res.text()) !== seen) location.reload();',
-    '  } catch {',
-    '    // server 收掉了或暫時不通：下一次再問，不要在畫面上留下任何東西。',
-    '  }',
-    `}, ${POLL_INTERVAL_MS});`,
-  ].join('\n');
+const SHELL =
+  `<!doctype html>\n<html lang="en">\n<head>\n` +
+  `<meta charset="utf-8">\n` +
+  `<meta name="viewport" content="width=device-width,initial-scale=1">\n` +
+  `<title>Nook</title>\n` +
+  `<link rel="stylesheet" href="/assets/studio.css">\n` +
+  `</head>\n<body>\n<div id="root"></div>\n` +
+  `<script type="module" src="/assets/studio.js"></script>\n` +
+  `</body>\n</html>\n`;
+
+/**
+ * 打包後的前端資產所在處：套件根目錄底下的 `dist/studio/`。
+ *
+ * 從本模組往上找最近的 package.json 而不是寫死相對路徑 —— 原始碼是
+ * `src/server/`、打包後是 `dist/cli/`，兩者到根目錄的深度不同，寫死的
+ * `../..` 只會有一邊對。
+ *
+ * 快取的是**路徑**，不是檔案內容：資產本身每次請求都重讀（ADR-0008）。
+ */
+let cachedAssetsDir: string | undefined;
+
+export function studioAssetsDir(): string {
+  if (cachedAssetsDir !== undefined) return cachedAssetsDir;
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    if (existsSync(join(dir, 'package.json'))) break;
+    const parent = dirname(dir);
+    // 找到檔案系統根都沒有 package.json：不猜，就用當下這一層。
+    // 目錄不在的話，`GET /` 會送出說得出下一步的訊息頁。
+    if (parent === dir) break;
+    dir = parent;
+  }
+  cachedAssetsDir = join(dir, 'dist', 'studio');
+  return cachedAssetsDir;
 }
 
 /**
- * 這一次渲染要內嵌的輪詢腳本。種子取自渲染當下的狀態，因此渲染與第一次輪詢
- * 之間發生的變更也會被看到。兩個檢視共用同一份 —— 兩邊各建一次，遲早會有
- * 一邊漏掉往後對輪詢的修改。
+ * 服務得出去的副檔名，以及它們的 content-type。
+ *
+ * 白名單而非黑名單：漏列一個副檔名只是少一個功能，多放行一個是一條讀檔路徑。
+ * 全部都是文字格式 —— StudioResponse.body 是 string，二進位資產（字型、圖片）
+ * 會被 utf8 解碼靜靜地毀掉，所以乾脆不讓它們存在：studio 用系統字型，
+ * icon 走 lucide 的 inline SVG。
  */
-function reloadScript(board: Board): HtmlOptions {
-  return { inlineScript: pollingScript(boardHash(board)) };
+const ASSET_TYPES: Readonly<Record<string, string>> = {
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.map': JSON_TYPE,
+  '.svg': 'image/svg+xml; charset=utf-8',
+};
+
+/**
+ * 一個資產請求。**在 request 當下才從磁碟讀**（ADR-0008）—— bundle 一旦被
+ * 當成模組或字串 import，每一次 `nook list` 都要多 parse 400KB。
+ *
+ * 檔名不得含任何路徑結構：`/assets/` 之後只能是一個平坦的檔名。`..`、`/`、
+ * 以及跳脫後才現形的分隔符都因此在拼路徑之前就被擋掉，而不是靠事後比對
+ * 正規化過的絕對路徑 —— 後者每加一個平台就多一種寫錯的方式。
+ */
+function asset(assetsDir: string, name: string): StudioResponse {
+  const decoded = safeDecode(name);
+  if (decoded === undefined || !/^[A-Za-z0-9._-]+$/.test(decoded) || decoded.startsWith('.')) {
+    return notFound();
+  }
+
+  const ext = decoded.slice(decoded.lastIndexOf('.'));
+  const type = ASSET_TYPES[ext];
+  if (type === undefined) return notFound();
+
+  try {
+    return { status: 200, headers: { 'content-type': type }, body: readFileSync(join(assetsDir, decoded), 'utf8') };
+  } catch {
+    // 不存在、是目錄、讀不到 —— 對呼叫端都是同一件事：這個 URL 沒有東西。
+    return notFound();
+  }
 }
 
-export function handleRequest(board: Board, req: StudioRequest): StudioResponse {
-  // Nook studio 是唯讀的。方法檢查放在路由之前 —— 「哪些路徑存在」不該
-  // 決定「能不能寫」，白名單一個方法就沒有漏列某條寫入路徑的可能。
-  if (req.method !== 'GET') {
+/** `%2e%2e%2f` 這類跳脫要先還原才看得見，但壞掉的跳脫不該變成例外。 */
+function safeDecode(name: string): string | undefined {
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 前端資產不在的時候送的那一頁。只有從原始碼跑而忘了建置的人會看到它 ——
+ * 出貨的 tarball 裡 `dist/studio/` 一定在。
+ *
+ * 目錄路徑照實印出來：「找不到資產」而不說是哪一個目錄，等於要對方自己
+ * 去猜我們往哪裡找。路徑是本機的，沒有外洩對象 —— 讀者就是跑它的那個人。
+ */
+function missingAssetsPage(assetsDir: string): string {
+  return (
+    `<!doctype html>\n<html lang="en">\n<head>\n` +
+    `<meta charset="utf-8">\n` +
+    `<title>Nook studio —— 前端資產尚未建置</title>\n` +
+    `</head>\n<body>\n` +
+    `<h1>studio 的前端資產不在</h1>\n` +
+    `<p>找不到：<code>${escapeHtml(assetsDir)}</code></p>\n` +
+    `<p>先執行 <code>npm run build</code>，再重新啟動 <code>nook studio</code>。</p>\n` +
+    `</body>\n</html>\n`
+  );
+}
+
+export interface CommentView {
+  readonly id: string;
+  readonly actor: string;
+  readonly t: number;
+  /** 原文，供編輯與比對用。 */
+  readonly body: string;
+  /** renderMarkdown 的產物，已安全。 */
+  readonly bodyHtml: string;
+}
+
+/**
+ * SPA 眼中的一張 Issue。`Issue` 本身**不因為有了前端而改變** —— 這是一個
+ * 檢視模型，加的是 client 自己算不出來（或算了會不安全）的東西。
+ */
+export interface IssueView {
+  readonly id: string;
+  /**
+   * 顯示用的短 Ref。長度對**整塊 board** 算，且**整份快照共用一個** ——
+   * 見 displayLength()。client 拿不到 board.refs()，所以它算不出這個值。
+   */
+  readonly shortId: string;
+  readonly title: string;
+  readonly status: Status;
+  readonly labels: readonly string[];
+  readonly archived: boolean;
+  /** 原文，供編輯用。 */
+  readonly description: string;
+  /** renderMarkdown 的產物，已安全。 */
+  readonly descriptionHtml: string;
+  readonly comments: readonly CommentView[];
+}
+
+/**
+ * 短 Ref 的顯示長度，對整塊 board 算一次（同 cli/run.ts 的 displayLength）。
+ *
+ * 不是對單張、也不是對正要送出的那個子集算：ULID 前綴編的是時間的高位，
+ * 前 6 碼每 17.5 分鐘才變一次（ADR-0006），`shortIdLength([issue.id])` 因此
+ * 一律回下限 6 —— 那個前綴在整塊 board 上可能對應到幾十張。而短 Ref 正是
+ * 使用者接著要拿去當 Ref 用的東西，解析是對整塊 board 做的，所以算短了
+ * 印出來的東西會被 `get` 判為有歧義。
+ *
+ * 來源是 `board.refs()`：它就是解析所看的那一串識別碼，而且只列目錄、不摺疊
+ * Op-log，所以一次寫入的回印也付得起。
+ */
+function displayLength(board: Board): number {
+  return shortIdLength(board.refs());
+}
+
+function toIssueView(issue: Issue, shortIdLen: number): IssueView {
+  return {
+    id: issue.id,
+    shortId: issue.id.slice(0, shortIdLen),
+    title: issue.title,
+    status: issue.status,
+    labels: issue.labels,
+    archived: issue.archived,
+    description: issue.description,
+    descriptionHtml: renderMarkdown(issue.description),
+    // 不重排：Issue.comments 已由 reduce() 以 (t, a, id) 全序產出。
+    comments: issue.comments.map((c) => ({
+      id: c.id,
+      actor: c.actor,
+      t: c.t,
+      body: c.body,
+      bodyHtml: renderMarkdown(c.body),
+    })),
+  };
+}
+
+/**
+ * SPA 的一次讀取。快照與它的指紋一起送 —— 兩次請求拿到的會是兩個不同時刻的
+ * board，client 就無從知道自己手上的快照對應哪一版。
+ */
+export interface BoardSnapshot {
+  readonly issues: readonly IssueView[];
+  readonly hash: string;
+}
+
+function boardSnapshot(board: Board): BoardSnapshot {
+  // all: true —— archived 是可見性欄位（ADR-0003），由 client 決定藏不藏；
+  // done 與 cancelled 是看板上實際存在的兩欄，被預設過濾掉就永遠是空的。
+  const len = displayLength(board);
+  return { issues: board.list({ all: true }).map((i) => toIssueView(i, len)), hash: boardHash(board) };
+}
+
+export interface HandlerOptions {
+  /**
+   * 前端資產的所在目錄。預設是套件自己的 `dist/studio/`；測試傳入自己造的
+   * 假目錄，因此不必先跑一次 vite build 才測得動。
+   */
+  readonly assetsDir?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  // 陣列也是 object，而 `["queued"]` 絕不是一份 Change。
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((v) => typeof v === 'string');
+}
+
+/** `Change.labels` 的形狀：只有 add 與 remove，兩者都是字串陣列。 */
+function isLabelEdit(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(([k, v]) => (k === 'add' || k === 'remove') && isStringArray(v))
+  );
+}
+
+/**
+ * `Change` 每個欄位的形狀。逐欄列出而不是信任 `as Change` —— JSON 來自網路，
+ * 型別斷言在執行期什麼都不檢查。
+ */
+const CHANGE_SHAPE: Readonly<Record<string, (value: unknown) => boolean>> = {
+  title: (v) => typeof v === 'string',
+  description: (v) => typeof v === 'string',
+  status: (v) => typeof v === 'string',
+  archived: (v) => typeof v === 'boolean',
+  labels: isLabelEdit,
+  comment: (v) => typeof v === 'string',
+};
+
+/**
+ * 把請求主體解讀成一份 Change，形狀不符時回傳 undefined。
+ *
+ * 不認得的欄位一律拒絕，而不是忽略：append-only 之下沒有「被拒絕的寫入」
+ * 可以事後翻查（ADR-0007），一個打錯的欄位名若被靜靜吃掉，呼叫端看到的是
+ * 200 加上一張沒有變化的 Issue —— 那是最難查的一種失敗。
+ */
+function parseChange(body: string): Change | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+
+  if (!isRecord(parsed)) return undefined;
+  for (const [key, value] of Object.entries(parsed)) {
+    const shaped = CHANGE_SHAPE[key];
+    if (shaped === undefined || !shaped(value)) return undefined;
+  }
+  return parsed as Change;
+}
+
+/**
+ * 一次寫入。端點直接鏡射 `board.apply(ref, change)` —— `Change` 已經是領域裡
+ * 「呼叫端表達的意圖」的型別（CONTEXT.md），studio 因此不發明任何新詞彙。
+ * 特別是 `blocked` **不在這裡強制配留言**：CLI 是提醒而非拒絕，server 多一條
+ * CLI 沒有的規則只會讓兩個介面分歧。
+ *
+ * ref 原樣交給 core：前綴解析、大小寫正規化與路徑穿越檢查只有一份實作，
+ * 就是 `board` 自己那一份。
+ */
+function applyChange(board: Board, ref: string, body: string): StudioResponse {
+  const change = parseChange(body);
+  if (change === undefined) return badRequest('body 必須是一份 Change 的 JSON 物件');
+
+  try {
+    return json(toIssueView(board.apply(ref, change), displayLength(board)));
+  } catch (err) {
+    // 解析不出來的 Ref 是「這個 URL 沒有對應的東西」，不是伺服器錯誤 ——
+    // 沿用讀取面既有的對應。有歧義時把候選原樣送出去：猜一張來寫是
+    // append-only 之下最貴的錯，事後只能再寫一筆蓋回去。
+    if (err instanceof RefNotFound || err instanceof AmbiguousRef) return notFound(err.message);
+    // 呼叫端送了一個不是 Status 的值 —— 這是請求的問題，不是找不到東西。
+    if (err instanceof InvalidStatus) return badRequest(err.message);
+    throw err;
+  }
+}
+
+/**
+ * 一個請求，一份回應。**這是一個全函數（total function）：任何輸入都回得出
+ * 一份 StudioResponse，一個例外都不往上拋。**
+ *
+ * 兜底放在這裡而不是 serve.ts 的 callback 外圍，是刻意的取捨：
+ *
+ * 1. **狀態碼的決定權集中在一處。** 404（RefNotFound / AmbiguousRef）、
+ *    400（InvalidStatus、非法 body）、405（方法白名單）全都在這個檔案裡；
+ *    把「其餘一律 500」搬到 serve.ts，會讓「這個請求會拿到什麼」這個問題
+ *    必須讀兩個檔案才答得出來，而下一個新的 core 例外要對應到哪一層也就
+ *    多了一個可以吵的地方。代價是 500 成為本模組新的回應詞彙 —— 划算。
+ * 2. **例外在它產生的那一格就變成值。** serve.ts 是
+ *    `readBody(req).then(onOk, onErr)`，onOk 跑在後來的一個 tick 上，所以
+ *    包在 `createServer` callback 外圍的 try/catch 一個字都接不到 ——
+ *    它會變成 unhandled rejection，也就是**整個 process 當場結束**。
+ *    在這裡接住，那條路徑就不存在，而不是靠再包一層 `.catch` 補救。
+ * 3. **純函數性質不變。** try/catch 不碰 node:http，這條兜底因此在不綁 port
+ *    的情況下測得動（見 handler.test.ts），也保護 serve.ts 以外的呼叫端。
+ */
+export function handleRequest(
+  board: Board,
+  req: StudioRequest,
+  opts: HandlerOptions = {},
+): StudioResponse {
+  try {
+    return route(board, req, opts);
+  } catch (err) {
+    // 認得的例外在 applyChange 裡就已經對應完畢（404 / 400）；走到這裡的
+    // 一律是「沒預期到」—— 例如 session 進行中 board 目錄被移走。
+    return serverError(err);
+  }
+}
+
+function route(board: Board, req: StudioRequest, opts: HandlerOptions): StudioResponse {
+  // 手動切掉 query string，不走 new URL() —— 後者會把 `..` 正規化掉，
+  // 使路徑穿越在到達 /assets/ 的守衛之前就消失，而那個守衛正是這一層要證明的。
+  const path = req.url.split('?')[0]!;
+
+  // ADR-0007 解除了「無任何寫入路徑」的契約，但白名單是**收窄而非移除**：
+  // 多出來的只有 `POST /i/<ref>`。方法檢查仍然放在路由之前 —— 「哪些路徑
+  // 存在」不該決定「能不能寫」，所以 POST 到一個不存在的路徑是 405 而不是
+  // 404：不存在的路徑不會因為不存在就變得可寫。
+  const writable = path.startsWith(ISSUE_PREFIX);
+  if (req.method !== 'GET' && !(req.method === 'POST' && writable)) {
+    // Allow 講的是這個資源支援什麼（RFC 9110），所以兩條路徑答案不同：
+    // `/i/<ref>` 只收 POST（伺服器渲染的詳情頁在票 01 就沒了），其餘只收 GET。
+    const allow = writable ? 'POST' : 'GET';
     return {
       status: 405,
-      headers: { 'content-type': TEXT, allow: ALLOWED_METHOD },
-      body: `studio 是唯讀的；只接受 ${ALLOWED_METHOD}\n`,
+      headers: { 'content-type': TEXT, allow },
+      body: `${path} 只接受 ${allow}\n`,
     };
   }
 
-  // 手動切掉 query string，不走 new URL() —— 後者會把 `..` 正規化掉，
-  // 使路徑穿越在到達 ref 檢查之前就消失，而那個檢查正是這一層要證明的。
-  const path = req.url.split('?')[0]!;
+  if (req.method === 'POST') {
+    return applyChange(board, path.slice(ISSUE_PREFIX.length), req.body ?? '');
+  }
 
   if (path === '/') {
-    // all: true 才拿得到 done 與 cancelled —— 看板上這兩欄是實際存在的欄位，
-    // 用 list() 的預設過濾會讓它們永遠是空的。archived 由 renderBoardHtml 負責
-    // 隱藏，過濾條件因此只有一份，不在這裡複製一遍。
-    return html(renderBoardHtml(board.list({ all: true }), reloadScript(board)));
+    // 殼不碰 board。看板的內容一律走 /api/board —— 兩條路徑各渲染一次同一份
+    // 資料，遲早會有一邊漏掉往後的修改，而且首頁會白付一次全量掃描。
+    const assetsDir = opts.assetsDir ?? studioAssetsDir();
+    return html(existsSync(assetsDir) ? SHELL : missingAssetsPage(assetsDir));
+  }
+
+  if (path.startsWith(ASSETS_PREFIX)) {
+    return asset(opts.assetsDir ?? studioAssetsDir(), path.slice(ASSETS_PREFIX.length));
+  }
+
+  if (path === API_BOARD_PATH) {
+    return json(boardSnapshot(board));
   }
 
   if (path === HASH_PATH) {
     return { status: 200, headers: { 'content-type': TEXT }, body: boardHash(board) };
-  }
-
-  if (path.startsWith(ISSUE_PREFIX)) {
-    // ref 原樣交給 core —— 前綴解析、大小寫、以及形狀檢查都只有一份實作。
-    // 解析不出來的 ref 是「這個 URL 沒有對應的東西」，不是伺服器錯誤。
-    try {
-      // 引數由左至右求值：解析不出來的 ref 在 board.get() 就丟出去了，
-      // 404 因此不會白付一次 boardHash 的全量掃描。
-      return html(
-        renderIssueHtml(board.get(path.slice(ISSUE_PREFIX.length)), reloadScript(board)),
-      );
-    } catch (err) {
-      if (err instanceof RefNotFound) return notFound();
-      // 撞號的前綴同樣沒有唯一答案。訊息已含足以區分的候選，原樣轉給讀者 ——
-      // 猜其中一張是最糟的選擇。
-      if (err instanceof AmbiguousRef) return notFound(err.message);
-      throw err;
-    }
   }
 
   return notFound();

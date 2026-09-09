@@ -1,0 +1,8 @@
+{"id":"01M224QVHSGRKZ9HNE9W68WJES","t":1,"a":"83a1","op":"create","title":"studio 開放寫入：POST 路由與方法白名單改寫"}
+{"id":"01M224QVJ50Z8RYB5YGK1HE3WP","t":2,"a":"83a1","op":"set","k":"description","v":"ADR-0007 解除了票 09「無任何寫入路徑」的契約。handleRequest 目前以白名單只放行 GET，其餘一律 405，且方法檢查刻意放在路由之前。\n\n要做的：\n- 新增寫入端點，涵蓋 status 搬移、欄位編輯、留言、label 增減\n- 方法白名單收窄而非移除。405 那條防線的價值在於「哪些路徑存在」不能決定「能不能寫」，改寫後要保留同樣的性質\n- serve.ts 的 --host 從「暫時沒做」升格為「永遠不做」，在程式碼與註解裡講明白（沒有驗證 + actor 是跑 studio 的那個人，兩個理由）\n\n不需要鎖。append-only + per-issue lamport，CLI 與 studio 同時寫同一張在構造上就安全。\n\n驗收要證明的：\n- 寫入端點以外的任何路徑仍然拒絕非 GET\n- server 確實只在 127.0.0.1 上監聽（沿用票 09 既有的那個測試）"}
+{"id":"01M224QVJ580T8257PSSHB6SW2","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M224QVJ5SZ6P105CJKAV1V6M","t":4,"a":"83a1","op":"label.add","v":"server"}
+{"id":"01M22BXAE4DP9HMVYWH0WK2D52","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M22EFCYFN96BVVZA68HDNYT2","t":6,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M22EFD1QQM3TX8XV1VPTBJPP","t":7,"a":"83a1","op":"comment","body":"完成（f5f26ff）。POST /i/<ref> 鏡射 board.apply。票 09 那條「方法檢查在路由之前」的性質保留，破壞它的變異會讓 PUT / 回 200 服務 SPA 殼 —— 測試抓得到。票 01 刪掉的 AmbiguousRef 覆蓋已補回，並額外斷言兩張 issue 都沒被寫入。"}
+{"id":"01M22QF88K5TMRAY4DVMGDJJVQ","t":8,"a":"83a1","op":"set","k":"status","v":"done"}

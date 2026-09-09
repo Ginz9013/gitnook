@@ -1,0 +1,7 @@
+{"id":"01M224SE74C4GSF44TXVTB6A2W","t":1,"a":"83a1","op":"create","title":"輪詢重載換成局部套用，拿掉 location.reload()"}
+{"id":"01M224SE7FPJJ70XR3FA7ABGT0","t":2,"a":"83a1","op":"set","k":"description","v":"現行做法是每 2 秒比對 /hash，值變了就 location.reload()（票 09）。整頁重載與任何互動都不相容：拖到一半被重載、drawer 開著被重載、捲動位置消失。ADR-0007 因此要求換掉。\n\n要做的：\n- 保留 /hash 的輪詢契約與 2 秒間隔。ADR-0002 的判斷沒變：沒有快取、沒有推播、沒有 WebSocket，500 張 Issue 全量掃描 14ms，每 2 秒問一次的成本趨近於零\n- 值改變時取新快照並局部套用，不重載\n- 套用時交給調和 reducer，不要在這裡自己判斷該不該覆蓋畫面\n\n注意 boardHash 涵蓋 all: true，archived 與 done 的變動同樣是「畫面要重畫」的變動，這個性質不要改掉。"}
+{"id":"01M224SE7F8GJ5GA86VN9D4VFQ","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M22BXAMTFQ779NVB7Z7JK0VA","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M22FM92GFNKVFZDJMYWW82M4","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M22FM93QF13J09SFQQ9JHV3P","t":6,"a":"83a1","op":"comment","body":"程式碼完成（4f36adc）。connectionReduce 有測試；接線無自動化測試但用 repo 外的一次性 driver 實測過。注意：poll.ts 尚未被 App.tsx 啟動，所以在實際 app 裡還看不見。"}
+{"id":"01M22QF8F9XB1DW32S8JGE7SRY","t":7,"a":"83a1","op":"set","k":"status","v":"done"}

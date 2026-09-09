@@ -1,0 +1,6 @@
+{"id":"01M22K4QDJ464M5GBQ2N9970JY","t":1,"a":"83a1","op":"create","title":"reconcile 擴成 Change 形狀，收斂成單一調和器"}
+{"id":"01M22K4QDXBA5Z2Z8Q025TYJVW","t":2,"a":"83a1","op":"set","k":"description","v":"board 的設計錯誤修正。reconcile.ts 是從拖拉 prototype 驗證出來的，模型只認 { id, status }；票 07 的 drawer 需要 label 增減、留言、標題編輯，裝不下，只能自建 drawer/pending.ts。後果是兩份樂觀狀態會分歧。\n\n決定（2026-09-09）：擴 reconcile.ts，只留一份調和器，drawer/pending.ts 刪掉。\n\n順帶吸收 01M22EFD3（亂序 ACK）—— 同一個檔案，同一批做完。"}
+{"id":"01M22K4QDXHPC7Z9TFT9QBC7FJ","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M22K4QK8AKEBWYGNFB8D6XV5","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M22M00WHPFSY73F9RRKA8WEX","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M22QF8HGG7NJ72HZ8ASMYSS9","t":6,"a":"83a1","op":"set","k":"status","v":"done"}

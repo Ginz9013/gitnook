@@ -1,0 +1,6 @@
+{"id":"01M21Z436T41GKQWEJ7NFS4AFT","t":1,"a":"83a1","op":"create","title":"nook init 沒有任何輸出，也分不出「剛建立」和「已存在」"}
+{"id":"01M21Z4374D7HHAP13SZAFH5RF","t":2,"a":"83a1","op":"set","k":"description","v":"dogfood 第一天就踩到。\n\n在 repo root 跑 `nook init`：\n- stdout / stderr 全空，exit 0\n- 對已經有 .issues/ 的 repo 再跑一次：一樣全空，exit 0\n\n使用者無從得知它做了什麼、做了沒有、還是本來就已經好了。實際上兩次的效果不同（第一次建立 .issues/ 與寫入 .gitattributes，第二次是 no-op），但外顯行為完全一樣。\n\n期望：至少印出建立了哪些路徑，並區分 no-op 的情形。\n\n注意這一條會撞到 ADR-0005（compact table 是預設輸出）與 token 預算的取捨——init 一輩子只跑一次，不在 40 票情境的量測範圍內，多印幾行不影響硬指標。"}
+{"id":"01M21Z43740SPJ89QHY7T3C72G","t":3,"a":"83a1","op":"label.add","v":"dogfood"}
+{"id":"01M21Z4374RJJE6PD36GQ6YFEV","t":4,"a":"83a1","op":"label.add","v":"ux"}
+{"id":"01M21Z5FHKPXFGP121F16J4XKA","t":5,"a":"83a1","op":"comment","body":"`nook doctor` 在健康的 board 上也是完全沉默 + exit 0，跟 init 同一個形狀。\n\n所以這張票其實是個政策問題，不只是 init 的 bug：**哪些指令成功時該說話？** 目前的隱含規則像是「沒有資料要輸出就什麼都不印」，但 init 和 doctor 都是使用者主動問「這件事做好了嗎」的指令，沉默等於沒回答。\n\n建議把範圍定成 init + doctor 兩個，一起決定，不要各修各的。"}
+{"id":"01M2224ZY5SCCDSNQQDKGVF920","t":6,"a":"83a1","op":"set","k":"archived","v":true}

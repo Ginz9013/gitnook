@@ -1,0 +1,6 @@
+{"id":"01M22W0PAXD77KEBB6VHBFKX0P","t":1,"a":"83a1","op":"create","title":"studio 註解裡的「方框」與「卡片」兩個詞混用"}
+{"id":"01M22W0PB6MXXRH7JS5SH00ABQ","t":2,"a":"83a1","op":"set","k":"description","v":"Standards 軸的判斷題。票 04 改名時，Card.tsx 與 dnd.ts 把「卡片」改成了新造的「方框」（「整個方框都是拖曳把手」），但 focus.ts 與 Board.tsx 對同一個東西仍寫「卡片」。\n\nCONTEXT.md 禁的是拿 card 當 Issue 的名字，不是禁止描述畫面上那個方框 —— 這批自己也承認了，因為 Card 這個組件名留著。結果是同一個版面概念有兩個詞。\n\n一致地用「卡片」比較好：組件名本來就叫 Card，而詞彙表沒有要求改掉版面用語。"}
+{"id":"01M22W0PB6K4SEEYDFZKQVQT5X","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M22Z6ZCGP1EZ6XXST6S6K26R","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M2307YEZDRWME61YJN4HYNJN","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M2315BF5HBVW20H3NTKG1WM9","t":6,"a":"83a1","op":"set","k":"status","v":"done"}

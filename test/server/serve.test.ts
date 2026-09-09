@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { connect } from 'node:net';
@@ -14,14 +14,24 @@ let dir: string;
 // 共用資源紀律：一律綁 port 0 由 OS 指派，不得硬編碼 port。
 const open: Studio[] = [];
 
+/**
+ * 每個用例自己的假 `dist/studio/`。不依賴真的建置產物 —— packed-smoke 會在
+ * 測試中途 `tsup --clean` 把 dist/ 清掉，靠它就是 flaky。
+ */
+let assets: string;
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nook-serve-'));
   mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
+  assets = mkdtempSync(join(tmpdir(), 'nook-serve-assets-'));
 });
 
 afterEach(async () => {
   await Promise.all(open.splice(0).map((s) => s.close()));
   rmSync(dir, { recursive: true, force: true });
+  rmSync(assets, { recursive: true, force: true });
+  // 穿越測試的誘餌落在 assets 的上一層，跟著一起收乾淨。
+  rmSync(join(assets, '..', 'SECRET.js'), { force: true });
 });
 
 const fullId = (prefix: string): string => prefix.padEnd(26, '0');
@@ -36,8 +46,8 @@ const board = (): Board => openBoard({ dir, actor: 'test' });
 const createWith = (issueId: string, input: CreateInput): Issue =>
   openBoard({ dir, actor: 'test', ids: seeded(issueId) }).create(input);
 
-async function start(opts: { port?: number } = {}): Promise<Studio> {
-  const studio = await serve(board(), { port: 0, ...opts });
+async function start(opts: { port?: number; assetsDir?: string } = {}): Promise<Studio> {
+  const studio = await serve(board(), { port: 0, assetsDir: assets, ...opts });
   open.push(studio);
   return studio;
 }
@@ -53,7 +63,11 @@ describe('serve', () => {
     const res = await fetch(`${studio.url}/`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/^text\/html/);
-    expect(await res.text()).toContain('Fix login redirect');
+    // 送出去的是 SPA 的殼 —— 看板的內容走 /api/board。
+    expect(await res.text()).toContain('<div id="root"></div>');
+
+    const snapshot = await (await fetch(`${studio.url}/api/board`)).json();
+    expect(snapshot.issues.map((i: { title: string }) => i.title)).toEqual(['Fix login redirect']);
 
     await studio.close();
     await expect(fetch(`${studio.url}/`)).rejects.toThrow();
@@ -201,10 +215,16 @@ describe('線上（wire）行為', () => {
     );
     const studio = await start();
 
+    // 資產目錄正上方的誘餌 .js —— `/assets/` 是這一版唯一真的讀檔的路徑。
+    writeFileSync(join(assets, '..', 'SECRET.js'), 'LEAKED FROM OUTSIDE\n', 'utf8');
+
     for (const target of [
       '/i/../../../etc/passwd',
       '/i/../../OUTSIDE',
       '/i/..%2f..%2fetc%2fpasswd',
+      '/assets/../../../etc/passwd',
+      '/assets/../SECRET.js',
+      '/assets/..%2fSECRET.js',
     ]) {
       const raw = await rawRequest(studio.url, `GET ${target} HTTP/1.1`);
       expect(raw, target).toMatch(/^HTTP\/1\.1 404 /);
@@ -214,7 +234,7 @@ describe('線上（wire）行為', () => {
     }
   });
 
-  it('寫入型方法在真實連線上被拒為 405', async () => {
+  it('寫入型方法在真實連線上被拒為 405 —— 唯一的例外是 POST /i/<ref>', async () => {
     const studio = await start();
 
     for (const method of ['POST', 'PUT', 'DELETE']) {
@@ -222,5 +242,153 @@ describe('線上（wire）行為', () => {
       expect(res.status, method).toBe(405);
       expect(res.headers.get('allow'), method).toBe('GET');
     }
+  });
+
+  it('POST /i/<ref> 在真實連線上把 op 寫進磁碟上的 .ndjson', async () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const studio = await start();
+    const hashBefore = await (await fetch(`${studio.url}/hash`)).text();
+
+    const res = await fetch(`${studio.url}/i/${id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'queued', comment: 'authorised' }),
+    });
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).status).toBe('queued');
+
+    // 回應說寫成功了不算數 —— 磁碟上那一份 op-log 才是事實。
+    const ops = readFileSync(join(dir, '.issues', 'issues', `${id}.ndjson`), 'utf8')
+      .split('\n')
+      .filter((l) => l !== '')
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(ops.filter((o) => o['op'] === 'set')).toMatchObject([{ k: 'status', v: 'queued' }]);
+    expect(ops.at(-1)).toMatchObject({ op: 'comment', body: 'authorised', a: 'test' });
+
+    // 輪詢看得見這次寫入（票 09 的性質）。
+    expect(await (await fetch(`${studio.url}/hash`)).text()).not.toBe(hashBefore);
+  });
+
+  it('非法的 body 在真實連線上是 400，且不讓 server 掛掉', async () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const studio = await start();
+
+    const bad = await fetch(`${studio.url}/i/${id}`, { method: 'POST', body: 'not json' });
+    expect(bad.status).toBe(400);
+
+    // server 還活著：下一個請求照樣被服務。
+    expect((await fetch(`${studio.url}/hash`)).status).toBe(200);
+  });
+});
+
+describe('前端資產', () => {
+  it('把 opts.assetsDir 底下的檔案服務在 /assets/ —— 在 request 當下才讀', async () => {
+    writeFileSync(join(assets, 'studio.js'), 'const version = 1\n', 'utf8');
+    const studio = await start();
+
+    const first = await fetch(`${studio.url}/assets/studio.js`);
+    expect(first.status).toBe(200);
+    expect(first.headers.get('content-type')).toMatch(/^text\/javascript/);
+    expect(await first.text()).toBe('const version = 1\n');
+
+    // server 沒有重啟，磁碟上的內容換了就該送新的：bundle 不是啟動時吸進
+    // 記憶體的常數（ADR-0008 的冷啟約束）。
+    writeFileSync(join(assets, 'studio.js'), 'const version = 2\n', 'utf8');
+    expect(await (await fetch(`${studio.url}/assets/studio.js`)).text()).toBe('const version = 2\n');
+  });
+});
+
+describe('未預期的例外不得帶掉整個 process', () => {
+  it('board 在 server 起來之後被移走：回 500，而且下一個請求仍然有人接', async () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+    const studio = await start();
+
+    // 先確認這條路徑本來是好的 —— 否則下面的 500 可能根本不是 board 造成的。
+    expect((await fetch(`${studio.url}/api/board`)).status).toBe(200);
+
+    // session 進行中 board 目錄被移走：下一次 board.list() 丟 BoardNotInitialized，
+    // 而那個 throw 發生在 createServer callback 的 promise 續行裡。
+    rmSync(join(dir, '.issues'), { recursive: true, force: true });
+
+    expect((await fetch(`${studio.url}/api/board`)).status).toBe(500);
+
+    // 這一行才是這張票的重點：狀態碼誰都答得出來，但 process 死了就沒有下一個回應。
+    expect((await fetch(`${studio.url}/api/board`)).status).toBe(500);
+
+    // 而且是「還在服務」而不是「還在但壞了」：board 回來就照常回答。
+    mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
+    expect((await fetch(`${studio.url}/hash`)).status).toBe(200);
+  });
+});
+
+/**
+ * 攔下全域的 `console.error`。serve.ts 的紀錄管道就是它本身（見該檔的註解），
+ * 所以這裡被替身取代的是**那個管道**，不是 serve 內部的任何協作者 ——
+ * 與 run.test.ts 攔 `process.stdout.write` 來測 processIo 的作法同一種。
+ */
+function captureConsoleError(): string[] {
+  const lines: string[] = [];
+  vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map((a) => String(a)).join(' '));
+  });
+  return lines;
+}
+
+describe('未預期的 500 在終端機上留下痕跡', () => {
+  let logged: string[];
+
+  beforeEach(() => {
+    logged = captureConsoleError();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('board 在 session 中途被移走：除了那份 500 回應，跑 studio 的終端機也看得到', async () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+    const studio = await start();
+
+    // 正常的那一次先跑：它不該留下任何東西，否則下面數到的 1 不知道是誰寫的。
+    expect((await fetch(`${studio.url}/api/board`)).status).toBe(200);
+    expect(logged).toEqual([]);
+
+    rmSync(join(dir, '.issues'), { recursive: true, force: true });
+    expect((await fetch(`${studio.url}/api/board`)).status).toBe(500);
+
+    expect(logged).toHaveLength(1);
+    // 一則看得懂的紀錄 = 讀者認得出「哪一個請求」與「出了什麼事」。
+    expect(logged[0]).toContain('500');
+    expect(logged[0]).toContain('GET');
+    expect(logged[0]).toContain('/api/board');
+    // 訊息本身要在，而不是只有一句「有錯誤發生」—— 「先執行 nook init」才是可行動的。
+    expect(logged[0]).toContain('nook init');
+  });
+
+  it('正常的 4xx 一則都不留 —— 一個每次輪詢都在噴東西的終端機等於沒有紀錄', async () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const studio = await start();
+
+    const post = (ref: string, body: string): Promise<Response> =>
+      fetch(`${studio.url}/i/${ref}`, { method: 'POST', body });
+
+    // 404：這個 ref 沒有對應的 Issue。
+    expect((await post(fullId('01JBXQ'), JSON.stringify({ status: 'queued' }))).status).toBe(404);
+    // 400：body 根本不是 JSON。
+    expect((await post(id, 'not json')).status).toBe(400);
+    // 400：status 不是一個合法的 Status。
+    expect((await post(id, JSON.stringify({ status: 'nope' }))).status).toBe(400);
+    // 405：方法不對。
+    expect((await fetch(`${studio.url}/`, { method: 'DELETE' })).status).toBe(405);
+    // 404：路徑不存在。
+    expect((await fetch(`${studio.url}/nope`)).status).toBe(404);
+
+    // 以上每一則都是系統正常運作的回應。它們若也被記下來，真正該被看見的
+    // 那一行就會被埋掉 —— 這是這張票最容易做錯的一半。
+    expect(logged).toEqual([]);
   });
 });

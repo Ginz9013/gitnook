@@ -1,7 +1,15 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { COLD_START_LIMIT_MS, measureColdStart } from './coldstart.ts';
-import { SIZE_LIMIT_BYTES, measurePackageSize, packPackage } from './size.ts';
+import {
+  CLI_BUNDLE_FORBIDDEN_MARKERS,
+  SIZE_LIMIT_BYTES,
+  STUDIO_ASSET_LIMIT_BYTES,
+  measureCliBundleMarkers,
+  measurePackageSize,
+  measureStudioAssets,
+  packPackage,
+} from './size.ts';
 
 /**
  * spec.md「四個硬指標」的單一入口。`npm run bench` 一次列出四個當前數值，
@@ -10,6 +18,13 @@ import { SIZE_LIMIT_BYTES, measurePackageSize, packPackage } from './size.ts';
  * 其中兩個（體積、冷啟）在這裡實測；另外兩個（並行 merge、agent token）的
  * 量測早就存在於票 05 與票 07 的測試裡，所以這裡**執行那些測試**而不是把
  * 情境再抄一份 —— 抄一份就會有第二個真相來源，而閘門守的會是抄過來的那個。
+ *
+ * 表格另有兩列不屬於那四個指標，而是為了讓它們說得出話：
+ * - `studio assets` —— studio 佔了整包的四分之三。混在 package size 裡，它漲
+ *   一半也還是綠的，成長因此看不見。單獨一列才看得見。
+ * - `cli bundle` —— ADR-0008 的硬約束（studio bundle 不得被 CLI 進入點 import）
+ *   原本只由冷啟的中位數間接守著。計時會漂，而且它只會說「有點慢」；直接數
+ *   `dist/cli/run.js` 裡的 React 痕跡，才會說出「React 進了 CLI bundle」。
  *
  * 這個檔案以 `.ts` specifier 匯入同目錄的模組，因為 `npm run bench` 是由
  * Node 直接執行（type stripping），Node 不會把 `./size.js` 解析到 `size.ts`。
@@ -50,6 +65,17 @@ function sizeRow(packedRoot: string): Row {
   };
 }
 
+function studioAssetRow(packedRoot: string): Row {
+  const { bytes, files } = measureStudioAssets(packedRoot);
+  return {
+    name: 'studio assets',
+    actual: `${bytes} B`,
+    limit: `${STUDIO_ASSET_LIMIT_BYTES} B`,
+    headroom: `${STUDIO_ASSET_LIMIT_BYTES - bytes} B (${files} files)`,
+    ok: bytes < STUDIO_ASSET_LIMIT_BYTES,
+  };
+}
+
 function coldStartRow(packedRoot: string): Row {
   const { median, samples } = measureColdStart(packedRoot);
   const spread = `${samples[0]?.toFixed(1) ?? '?'}–${samples[samples.length - 1]?.toFixed(1) ?? '?'}`;
@@ -59,6 +85,24 @@ function coldStartRow(packedRoot: string): Row {
     limit: `${COLD_START_LIMIT_MS} ms`,
     headroom: `${(COLD_START_LIMIT_MS - median).toFixed(1)} ms (${spread})`,
     ok: median < COLD_START_LIMIT_MS,
+  };
+}
+
+/**
+ * ADR-0008 的結構性守衛：`dist/cli/run.js` 裡不得有任何 React 痕跡。
+ *
+ * 這一列與冷啟那一列守同一件事，但它答的是不同的問題。冷啟答「慢了多少」，
+ * 這一列答「是誰進來的」—— 超標時 headroom 直接列出出現的痕跡。
+ */
+function cliBundleRow(packedRoot: string): Row {
+  const { counts, total } = measureCliBundleMarkers(packedRoot);
+  const found = CLI_BUNDLE_FORBIDDEN_MARKERS.filter((m) => (counts[m] ?? 0) > 0);
+  return {
+    name: 'cli bundle',
+    actual: `${total} markers`,
+    limit: '0 markers',
+    headroom: found.length === 0 ? '—' : found.map((m) => `${m}×${counts[m]}`).join(' '),
+    ok: total === 0,
   };
 }
 
@@ -94,7 +138,9 @@ function tokenRow(): Row {
 function format(rows: readonly Row[]): string {
   const line = (r: Row): string =>
     `${r.name.padEnd(18)}${r.actual.padStart(14)}${r.limit.padStart(14)}` +
-    `${r.headroom.padStart(22)}  ${r.ok ? 'ok' : 'OVER'}`;
+    // headroom 自帶一個前導空白：超標時它會被列成一串痕跡而撐破欄寬，
+    // 沒有這個空白就會與上一欄黏在一起 —— 偏偏那正是要讀它的時候。
+    `${` ${r.headroom}`.padStart(22)}  ${r.ok ? 'ok' : 'OVER'}`;
   return [
     `${'metric'.padEnd(18)}${'actual'.padStart(14)}${'limit'.padStart(14)}${'headroom'.padStart(22)}  status`,
     ...rows.map(line),
@@ -103,8 +149,16 @@ function format(rows: readonly Row[]): string {
 
 const packed = packPackage(REPO_ROOT);
 try {
-  // 順序與 spec.md「四個硬指標」的表格一致。
-  const rows: readonly Row[] = [sizeRow(packed.root), coldStartRow(packed.root), mergeRow(), tokenRow()];
+  // 順序與 spec.md「四個硬指標」的表格一致；兩列結構性守衛各自緊跟在它所
+  // 解釋的那個指標後面。
+  const rows: readonly Row[] = [
+    sizeRow(packed.root),
+    studioAssetRow(packed.root),
+    coldStartRow(packed.root),
+    cliBundleRow(packed.root),
+    mergeRow(),
+    tokenRow(),
+  ];
   console.log(`nook bench — node ${process.version} ${process.platform}-${process.arch}`);
   console.log(format(rows));
   const over = rows.filter((r) => !r.ok);

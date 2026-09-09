@@ -1,0 +1,7 @@
+{"id":"01M22PKRSTTCE5JQTXSG8N4EN5","t":1,"a":"83a1","op":"create","title":"拖進 blocked 不會真的要求留言，與 drawer 路徑不一致"}
+{"id":"01M22PKRT6KNNXYE2XBDWG5P35","t":2,"a":"83a1","op":"set","k":"description","v":"兩軸審查獨立發現同一件事，grep 也證實。\n\nCONTEXT.md：「設為 blocked 時必須同時留下一則 Comment 說明原因」。這條規則補上的是「卡住前在做什麼」這項在扁平 Status 中會遺失的資訊，是 ADR-0003 用來justify 把 blocked 留在 Status 裡的唯一理由。\n\n現況兩條路徑不一致：\n- drawer（changes.ts:94、StatusPicker）—— 有強制。沒有原因就不送出。\n- 拖曳（lanes.ts:88 → BlockedGate）—— 沒有。BlockedGate 的 onConfirm 是 () => void，對話框沒有輸入框；確認後送出 {status:'blocked'} 並開啟 drawer，但沒有任何東西逼使用者真的寫。關掉 drawer 就是「已經 blocked 但沒有人知道為什麼」—— 正是這條規則要防的狀態。\n\n票 06 的 worker 有說明它的取捨（收了原因再丟掉比不收更糟，因為 onMove(id, status) 帶不了 comment）。那個推理成立，但結果是把驗收條件放寬了，不是達成它。\n\n要決定的是形狀：閘門自己收原因並讓 App 送出一份含 comment 的 Change（需要放寬 BoardProps 的 slot），或是確認後開 drawer 並擋住直到寫完。前者比較直接，後者比較不打斷。"}
+{"id":"01M22PKRT6HJNCTJPX15ZTCSYD","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M22PKRT6QK429EK5B33QPB7Y","t":4,"a":"83a1","op":"label.add","v":"bug"}
+{"id":"01M22QF8VFG1ZRAYSCG0568YB3","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M22V1E7VQPC45JRH7XFK2EWW","t":6,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M231539M4R6DWBH6ADD65BYQ","t":7,"a":"83a1","op":"set","k":"status","v":"done"}

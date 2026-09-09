@@ -1,0 +1,145 @@
+import type { BoardSnapshot, CommentView, IssueView } from '../server/handler.js';
+import type { Change, Status } from '../core/types.js';
+
+/**
+ * SPA 與 server 之間的那一面 —— 讀取與寫入都在這裡，**只有這裡**。
+ *
+ * **這裡對 server 與 core 的 import 一律是 `import type`**，而且必須維持如此。
+ * 型別在打包時整條被抹掉，所以 `src/server/**` 不會出現在 studio 的 bundle 裡，
+ * 反向也一樣：`src/cli/run.ts` 的 import 鏈永遠碰不到 React（ADR-0008）。
+ * 只要有人把其中一條改成值的 import，這條保證就沒了。
+ */
+export type { BoardSnapshot, Change, CommentView, IssueView, Status };
+
+/**
+ * 伺服器**答了**，但答的是一個錯誤狀態碼。
+ *
+ * 這個型別存在的唯一理由是讓呼叫端分得出兩件事：「連不上」（`fetch` 自己丟的
+ * `TypeError`，沒有狀態碼可讀）與「連上了，但伺服器說不」。票 02 之前兩者在
+ * `poll.ts` 的 `catch` 裡是同一個事件，於是 board 目錄被移走時，橫幅會說
+ * 「伺服器沒有回應」——把讀的人送去查網路，而不是查 board。
+ *
+ * **`detail` 是伺服器在 body 裡實際說的那句話**，與 `message` 分開兩格。
+ * `handler.ts` 的 `serverError` 刻意送一則可行動的訊息（「不是一個 Nook board：
+ * /path…」），而中斷橫幅要引用的正是那一句 —— 它是使用者手上唯一精確的證據。
+ * 混進 `message` 就得從 `${url} 回了 ${status}：` 這個前綴裡把它切回來，而
+ * 切字串是猜；分成兩格則不必猜。空白 body = 沒有話可引用 = `null`，橫幅因此
+ * 分得出「伺服器說了什麼」與「它只回了一個狀態碼」。
+ *
+ * `message` 維持原本的字串形狀，因為 `postChange` 的失敗橫幅直接顯示
+ * `err.message`（`App.tsx`），那句話不變。
+ */
+export class HttpError extends Error {
+  constructor(
+    readonly url: string,
+    readonly status: number,
+    message: string,
+    /** 伺服器在 body 裡說的那句話；沒有可引用的內容時是 null。 */
+    readonly detail: string | null = null,
+  ) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
+/**
+ * 伺服器在 body 裡說的那句話 —— 空白的 body 沒有話可引用，回 null。
+ *
+ * 讀 body 自己失敗時同樣回 null，而不是讓那個例外逃出去：狀態碼已經證明伺服器
+ * 答了，讓讀 body 的失敗取代 `HttpError` 會使橫幅倒退回「連不上」，也就是這一層
+ * 存在的理由本身。
+ */
+async function said(res: Response): Promise<string | null> {
+  const body = await res.text().catch(() => '');
+  const text = body.trim();
+  return text === '' ? null : text;
+}
+
+/**
+ * 伺服器**答了 200**，但 body 不是承諾的那個形狀 —— `JSON.parse` 解不開。
+ *
+ * 具名，是因為 `poll.ts` 不准從例外的型別去猜這件事：`SyntaxError` 可能來自
+ * 任何一層，而猜錯的下場是橫幅說「連不上」，把讀的人送去查一個活得好好的
+ * 伺服器。知道「這是解析回應失敗」的地方只有這裡 —— 這一行 `catch` 兩側都是
+ * 我們自己的程式碼，中間只有一次 `JSON.parse`，沒有第二個嫌疑犯。
+ *
+ * **不帶 body 的內容。** 這種狀況下的 body 通常是別的服務的 HTML 錯誤頁，
+ * 貼進橫幅是噪音而不是線索；有可行動內容的那種 body 走的是 `HttpError.detail`。
+ */
+export class MalformedResponseError extends Error {
+  constructor(readonly url: string) {
+    super(`${url} 回了 200，但 body 不是 JSON`);
+    this.name = 'MalformedResponseError';
+  }
+}
+
+const BOARD_URL = '/api/board';
+const HASH_URL = '/hash';
+const ISSUE_PREFIX = '/i/';
+
+async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(url, signal === undefined ? {} : { signal });
+  if (!res.ok) throw new HttpError(url, res.status, `${url} 回了 ${res.status}`, await said(res));
+  // `res.json()` 丟的是一個裸的 `SyntaxError`，而裸的例外在 `poll.ts` 那裡跟
+  // 「連不上」長得一模一樣。自己解，才有辦法丟一個說得出「伺服器答了」的錯誤。
+  const body = await res.text();
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw new MalformedResponseError(url);
+  }
+}
+
+/** 一次全量快照。ADR-0002：沒有快取也沒有增量 —— 全量掃描加摺疊就是實作。 */
+export function fetchBoard(signal?: AbortSignal): Promise<BoardSnapshot> {
+  return getJson<BoardSnapshot>(BOARD_URL, signal);
+}
+
+/**
+ * 當前 board 的指紋。輪詢用它比對，值變了才去抓完整快照（票 05）——
+ * 指紋是 64 字元，快照是整塊 board。
+ */
+export async function fetchHash(signal?: AbortSignal): Promise<string> {
+  const res = await fetch(HASH_URL, signal === undefined ? {} : { signal });
+  if (!res.ok) {
+    throw new HttpError(HASH_URL, res.status, `${HASH_URL} 回了 ${res.status}`, await said(res));
+  }
+  return await res.text();
+}
+
+/**
+ * 一次寫入 —— `POST /i/<ref>`（票 03）。body 是一份 `Change`，回應是套用後的
+ * 整張 `IssueView`。端點直接鏡射 `board.apply(ref, change)`，所以這裡不發明
+ * 任何新詞彙，也不做任何包裝。
+ *
+ * **拖曳與 drawer 共用這一份。** 兩處各寫一次 fetch 慣例（header、錯誤訊息、
+ * 回應形狀）遲早會分歧，而分歧的那一半是靜默的：`POST` 送錯 content-type 只
+ * 會換來一個 400，看起來像是使用者的資料有問題。
+ *
+ * **只送 `Change` 定義的鍵。** 票 03 對不認得的欄位回 400 而不是忽略：
+ * append-only 之下沒有「被拒絕的寫入」可以事後翻查，一個打錯的欄位名若被
+ * 靜靜吃掉，呼叫端看到的是 200 加上一張沒有變化的 Issue。
+ */
+export async function postChange(ref: string, change: Change): Promise<IssueView> {
+  // ref 是 server 給的 ULID（只有 [0-9A-Z]），編碼對它是恆等變換；寫出來是
+  // 為了讓「路徑片段就是路徑片段」這件事不必靠 id 的字元集來成立。
+  const url = `${ISSUE_PREFIX}${encodeURIComponent(ref)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(change),
+  });
+  if (!res.ok) {
+    // body 只讀得到一次，所以先取出來 —— 這句話同時進 `message`（寫入失敗的
+    // 橫幅直接顯示它，一個字不變）與 `detail`。
+    const body = await res.text();
+    const detail = body.trim();
+    throw new HttpError(
+      url,
+      res.status,
+      `${url} 回了 ${res.status}：${body}`,
+      detail === '' ? null : detail,
+    );
+  }
+  return (await res.json()) as IssueView;
+}

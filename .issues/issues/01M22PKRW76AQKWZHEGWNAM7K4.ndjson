@@ -1,0 +1,7 @@
+{"id":"01M22PKRW7DW1X7ZAZ0W0CV2AG","t":1,"a":"83a1","op":"create","title":"studio 的死介面、過期註解與重複的 escapeHtml"}
+{"id":"01M22PKRWGCDKQBZCHJA6FXMZV","t":2,"a":"83a1","op":"set","k":"description","v":"兩軸審查的清理項，各自都不大，一起做比較划算。\n\n死掉的公開面：\n- reconcile.ts 的 LAND action 與 PendingWrite.landed —— src/ 底下沒有任何 dispatcher，只有測試在用\n- ProjectedIssue.serverKnown 與 .held —— 算出來但沒有組件讀（BoardProps 收的是 IssueView 不是 ProjectedIssue）\n- lanes.ts 的 laneOf() 與 ColumnDef.lane —— 未使用\n- @dnd-kit/sortable 是宣告了的 devDependency，但沒有任何檔案 import（dnd.ts 有註解說明為何不用它）\n\n過期註解（這個 repo 的註解水準是「解釋為什麼」，過期的比沒有更糟）：\n- board/Board.tsx 還寫著「這是票 06 要填的空殼」，票 06 已完成\n- onGrab 的註解說「目前的 App.tsx 還沒有 reducer 可派（票 05）」，已經有了；App.tsx 一律會傳，那兩個 prop 的 ? 是死的\n- src/cli/run.ts:486 的 cmdStudio 註解仍寫「唯讀的會議投影用檢視器」。票 08 把該檔案的範圍限縮在 218 行的 help 文字，所以這行掉在票與票之間\n\n重複：\n- escapeHtml 現在在 render/html.ts 與 server/handler.ts 各有一份（後者只給缺資產的訊息頁用）"}
+{"id":"01M22PKRWGFS456EDY0GWGRGEQ","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M22QF8XQHX8JPNMEMZEY3PE3","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M22VRQN3H126HBA9XHKAY0KV","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M22VRQP63QD0PWGNZ041ET6G","t":6,"a":"83a1","op":"comment","body":"完成（8ebd19a）＋ escapeHtml 去重由整合修正補上（下一個 commit）。票面有四項在執行時已失效，最重要的是 ProjectedIssue.held —— 票 05 之後看板樣式與播報都靠它，保留而非照票面盲刪。"}
+{"id":"01M23155M78PXBBKM5H54EQ066","t":7,"a":"83a1","op":"set","k":"status","v":"done"}

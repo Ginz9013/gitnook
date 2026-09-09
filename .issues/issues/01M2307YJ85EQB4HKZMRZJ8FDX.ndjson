@@ -1,0 +1,6 @@
+{"id":"01M2307YJ8H4C1P8NN0QQJW07T","t":1,"a":"83a1","op":"create","title":"studio 的 500 什麼都沒 log"}
+{"id":"01M2307YJH80WDW8VXPH1KM56G","t":2,"a":"83a1","op":"set","k":"description","v":"票 02 的 worker 回報。\n\nserve.ts 沒有任何 console 呼叫，所以一個未預期的 500 除了那份 HTTP 回應之外不留任何痕跡 —— 跑 studio 的那個終端機上什麼都看不到。\n\n它因此刻意把橫幅寫成不會叫使用者去終端機看一則從沒被印出的訊息。但正確的修法是讓它真的被印出來：把未預期的 500 記到 studio 的 stdout，那個終端機本來就開著。\n\n小改動，價值高。"}
+{"id":"01M2307YJHVR9VW6XC6Z1H81SR","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M2313JE1GYKQFGF8JQ5WAQ0J","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M231Y2YT491VC7F5W14RGG5E","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M232VCS0MVF9RVQMN0FTZS8P","t":6,"a":"83a1","op":"set","k":"status","v":"done"}

@@ -1,0 +1,9 @@
+{"id":"01M224SCVNVNXNP91W6VNNA7AV","t":1,"a":"83a1","op":"create","title":"看板拖拉：@dnd-kit，含 queued 授權邊界的視覺區別"}
+{"id":"01M224SCW1WAWVBZ2SY7DXEC3Z","t":2,"a":"83a1","op":"set","k":"description","v":"八欄看板，拖拉改 status。用 @dnd-kit —— 選 React 的唯一理由就是它的鍵盤拖曳與 screen reader 播報（ADR-0008）。所以鍵盤操作不是 nice-to-have，它是這個決定的全部依據，必須真的做出來。\n\n要做的：\n- 八欄固定順序即 STATUSES（ADR-0003），archived 預設隱藏\n- 指標拖曳與鍵盤拖曳都要能改 status\n- 拖曳期間指標按著的卡片不接受來自伺服器的移動（調和 reducer 的第三條規則）\n\nqueued 的授權邊界要看得見（ADR-0007）：\n把一張 Issue 拖進 queued 表示已授權 agent 不再詢問、直接動手，這是 board 上語意最重的一次拖曳，不能跟 todo → in_progress 長得一模一樣。人的車道（backlog、todo）與 agent 的車道之間那條線要在視覺上存在。\n\nblocked 必須同時留一則 comment 說明原因（CONTEXT.md）。拖進 blocked 時要能當場留言，不能讓人拖完才發現規則。"}
+{"id":"01M224SCW1F6J01ATWX3D196QD","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M22BXAJMKAEWMZWJ5NV2RF49","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M22FM971A93K45J14C7X83Y3","t":5,"a":"83a1","op":"comment","body":"程式碼完成（f78315e）但**三條驗收條件尚未達成**，都不是 worker 的問題，是我切票時把 composition root 漏掉了：\n\n1. 卡片顯示短 ID —— IssueView 沒有這個欄位。修法已給出：在 boardSnapshot() 裡算一次 shortIdLength(board.refs())，傳進 toIssueView。必須 per-snapshot 不能 per-issue，後者回的是單張的下限會撞號。\n2. 放手即樂觀更新再 POST，以及 GRAB/RELEASE 派給 reducer —— App.tsx 的 onMove 還是票 01 的 no-op stub。目前拖曳視覺正確但什麼都不會改。\n3. blocked 留言的保證 —— 閘門擋得住、也帶到 drawer，但無法保證留言真的被寫下。\n\n因此維持 in_progress，不進 review。"}
+{"id":"01M22FM9847EN0VWBCZTSVHR0T","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M22NG4SPDBR55ADAVBQFZ2NC","t":7,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M22NG4V0M88JQK20AGBYXWXT","t":8,"a":"83a1","op":"comment","body":"三條卡住的驗收條件已由票 11（shortId）與票 12（App 接線）補齊。票 12 的 worker 用 headless Chrome 走 CDP 真實驗證過滑鼠拖曳與鍵盤拖曳，op-log 留下十筆真實的 op。"}
+{"id":"01M22QF8D274KGXWYAAJK3KHY4","t":9,"a":"83a1","op":"set","k":"status","v":"done"}

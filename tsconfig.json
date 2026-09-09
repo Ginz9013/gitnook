@@ -1,10 +1,16 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "lib": ["ES2023"],
+    // studio 是瀏覽器裡跑的 React 應用，DOM 因此進到同一份設定 ——
+    // 拆成兩份 tsconfig 就得改掉 `npx tsc --noEmit` 這條驗證指令。
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["node"],
+    "types": ["node", "vite/client"],
+    "jsx": "react-jsx",
+    // shadcn 產生的程式碼一律以 `@/` 指自己的根 —— 這是它的硬性慣例
+    // （components.json 的 aliases），改掉等於每貼一個組件就要手改 import。
+    "paths": { "@/*": ["./src/studio/*"] },
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,

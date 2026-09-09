@@ -1,0 +1,8 @@
+{"id":"01M22EFD503T0VK4S0JWRR7DGP","t":1,"a":"83a1","op":"create","title":"studio 未預期的例外會讓整個 process 掛掉"}
+{"id":"01M22EFD5993J77J9835S03X6S","t":2,"a":"83a1","op":"set","k":"description","v":"票 03 的 worker 回報，超出那張票的驗收範圍所以沒做。\n\nhandler 目前只把三種例外對應成 HTTP 狀態（RefNotFound / AmbiguousRef / InvalidStatus），其餘一律往上拋。但 serve.ts 是在 createServer 的 callback 裡呼叫 handleRequest 的 —— 那裡的未捕捉例外會直接帶掉整個 process。\n\n例如 session 進行中 board 目錄被移走，下一個請求丟 BoardNotInitialized，studio 就死了。\n\n這在 studio 還是唯讀投影用檢視器時無關痛癢；ADR-0007 把它變成人的主要操作介面之後，代價變成「使用者正在用的看板整個消失」。\n\n要決定的是形狀：是在 handler 加一層 500 的兜底（會引入新的回應詞彙），還是在 serve.ts 的 callback 外圍接住並回 500。後者不動 handler 的純函數性質，我傾向後者，但這是設計決定不是實作細節。"}
+{"id":"01M22EFD59K7PR9CF9V1YE941V","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M22QA285VFMZC1342K3K1YFS","t":4,"a":"83a1","op":"set","k":"status","v":"todo"}
+{"id":"01M22QAQ3ZPS040TF73HCXD2DX","t":5,"a":"83a1","op":"set","k":"status","v":"backlog"}
+{"id":"01M22QF8NTK8B42Y7RVEAGC3KK","t":6,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M22RFAP9K9V0ZJ5FWS131ZX5","t":7,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M2314RGG0W75DDXME9CTJ2YW","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
