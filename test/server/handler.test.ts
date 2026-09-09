@@ -1320,8 +1320,10 @@ describe('GET /api/history/<ref>', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/^application\/json/);
     // 順序沿用 opLog 的全序（board.ts:113），這裡不另寫一份比較器。
-    // 被蓋掉的 `first draft` 在，而 create op 的標題不在 —— 它不是一次 set。
+    // 被蓋掉的 `first draft` 在，而 create op 寫下的標題也在 —— 它就是 title
+    // 的第一次寫入（票 B9），所以落在 t 最小的位置。
     expect(writes('01JBXA')).toEqual([
+      { field: 'title', value: 'Fix login redirect', actor: 'test', t: 1 },
       { field: 'status', value: 'todo', actor: 'test', t: 2 },
       { field: 'description', value: 'first draft', actor: 'test', t: 3 },
       { field: 'description', value: 'second draft', actor: 'test', t: 4 },
@@ -1334,7 +1336,43 @@ describe('GET /api/history/<ref>', () => {
     createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
     post('/i/01JBXA', { comment: 'looks wrong', labels: { add: ['bug'] } });
 
-    expect(writes('01JBXA')).toEqual([]);
+    // 只剩 create 折出來的那一筆 title：comment 與 label.add 都不在。
+    expect(writes('01JBXA')).toEqual([
+      { field: 'title', value: 'Fix login redirect', actor: 'test', t: 1 },
+    ]);
+  });
+});
+
+/**
+ * 票 B9：`create` op **就是** `title` 的第一次寫入。CLI 在 A12（`df7c80e`）就這樣
+ * 折了，這條端點沒跟上，於是 studio 的變更歷史面板對一張沒改過的 Issue 說
+ * 「欄位還沒有被改過」，而且每一張 Issue 的原始標題都不在面板裡 —— 那正是誤刪
+ * 之後最先要找的那一列。
+ */
+describe('GET /api/history/<ref> 與 create op 寫下的標題', () => {
+  it('一張只被 create 過的 Issue —— writes 含那筆 title，不是空陣列', () => {
+    createWith(fullId('01JBXA'), { title: '從沒改過的那一張' });
+
+    const res = history('01JBXA');
+
+    expect(res.status).toBe(200);
+    expect(writes('01JBXA')).toEqual([
+      { field: 'title', value: '從沒改過的那一張', actor: 'test', t: 1 },
+    ]);
+  });
+
+  it('create 之後改過標題 —— 第一筆是 create 那次（t 較小），第二筆才是改寫', () => {
+    createWith(fullId('01JBXA'), { title: '原本的標題' });
+    post('/i/01JBXA', { title: '改過的標題' });
+
+    const titles = writes('01JBXA');
+
+    // 折出來的那一筆不是附在後面，而是照 opLog 的全序落在它自己的位置上。
+    expect(titles).toEqual([
+      { field: 'title', value: '原本的標題', actor: 'test', t: 1 },
+      { field: 'title', value: '改過的標題', actor: 'test', t: 2 },
+    ]);
+    expect(titles[0]!.t).toBeLessThan(titles[1]!.t);
   });
 });
 
@@ -1381,10 +1419,15 @@ describe('GET /api/history/<已刪的 ref>', () => {
 
     expect(res.status).toBe(200);
     expect(writes('01JBXA')).toEqual([
+      { field: 'title', value: 'Fix login redirect', actor: 'test', t: 1 },
       { field: 'status', value: 'todo', actor: 'test', t: 2 },
       { field: 'description', value: 'the losing draft', actor: 'test', t: 3 },
       { field: 'deleted', value: true, actor: 'test', t: 4 },
     ]);
+    // 救生索要撈得回來的是「它叫什麼」與「它是什麼時候被刪的」—— 兩者都要在。
+    // 少了 title 那一列，刪除確認框指著這條端點時說的那句話就是假的。
+    expect(writes('01JBXA').map((w) => w.field)).toContain('title');
+    expect(writes('01JBXA').map((w) => w.field)).toContain('deleted');
   });
 });
 

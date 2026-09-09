@@ -5,7 +5,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deriveActor } from '../core/actor.js';
 import { shortIdLength } from '../core/ids.js';
-import type { SetKey, SetOp } from '../core/ops.js';
+import type { SetKey } from '../core/ops.js';
+import { fieldWrites } from '../core/reduce.js';
 import type { Board, Change, Diagnostic, Issue, Status } from '../core/types.js';
 import { AmbiguousRef, InvalidStatus, IssueDeleted, RefNotFound } from '../core/types.js';
 import { escapeHtml, renderMarkdown } from '../render/html.js';
@@ -381,21 +382,27 @@ export interface IssueHistory {
 
 /**
  * 一張 Issue 的變更歷史。`description` 是 LWW，兩個 Actor 並行編輯時摺疊只留
- * 一份，敗方的文字仍然完整躺在 op-log 裡 —— 這條端點就是把它撈回來的路，
- * 同 `nook history` 的那一份篩選（只留 `set`）。
+ * 一份，敗方的文字仍然完整躺在 op-log 裡 —— 這條端點就是把它撈回來的路。
+ *
+ * 篩選走 core 的 `fieldWrites`，**與 `nook history` 是同一份**：`create` op 就是
+ * title 的第一次寫入，這裡自己濾 `op === 'set'` 的那份寫法會讓每一張 Issue 的
+ * 原始標題不在面板裡（票 B9）。抄一份過來就是第三份會漂開的實作。
  *
  * **不另寫一份排序**：`board.opLog()` 交出來的已經是 `orderOps` 的全序
- * （board.ts:113），所以畫面上的順序必然與 Issue 被摺出來的順序一致。
+ * （board.ts:113），而 `fieldWrites` 沿用傳進去的順序，所以畫面上的順序必然
+ * 與 Issue 被摺出來的順序一致。
  *
  * **已刪的 Issue 照樣讀得到**，而且是 200：`opLog` 對它照常（ADR-0009），
  * 那正是誤刪的救生索 —— drawer 的刪除確認框就是這樣答應使用者的。
  */
 function issueHistory(board: Board, ref: string): StudioResponse {
   try {
-    const writes: WriteView[] = board
-      .opLog(ref)
-      .filter((op): op is SetOp => op.op === 'set')
-      .map((op) => ({ field: op.k, value: op.v, actor: op.a, t: op.t }));
+    const writes: WriteView[] = fieldWrites(board.opLog(ref)).map((op) => ({
+      field: op.k,
+      value: op.v,
+      actor: op.a,
+      t: op.t,
+    }));
     const payload: IssueHistory = { writes };
     return json(payload);
   } catch (err) {

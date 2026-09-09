@@ -1,6 +1,6 @@
 import type { Comment, Issue, Status } from './types.js';
 import { STATUSES } from './types.js';
-import type { Op } from './ops.js';
+import type { Op, SetKey, SetOp } from './ops.js';
 
 /**
  * 以 (t, a, id) 全序排序 → dedupe by id。**這是全序在整個 repo 的唯一一份**：
@@ -14,6 +14,31 @@ export function orderOps(ops: readonly Op[]): readonly Op[] {
   return [...ops]
     .sort((x, y) => x.t - y.t || cmp(x.a, y.a) || cmp(x.id, y.id))
     .filter((o) => (seen.has(o.id) ? false : (seen.add(o.id), true)));
+}
+
+/**
+ * 一個 Issue 的 Op-log 裡，對 LWW 欄位的每一次寫入。
+ *
+ * `create` op 帶的 title 就是 title 的第一次寫入，所以它折成一筆 SetOp ——
+ * 不折的話「這個欄位從沒被寫過」會是一句假話，而問的人正在找一份被蓋掉的舊值。
+ *
+ * **這是那個摺疊在整個 repo 的唯一一份**：`nook history` 與 `GET /api/history/<ref>`
+ * 都走這裡。兩邊各抄一份正是票 B9 的成因 —— CLI 在 A12 折了，端點沒跟上，於是
+ * studio 對一張沒改過的 Issue 說「欄位還沒有被改過」。
+ */
+export function fieldWrites(ops: readonly Op[], field?: SetKey): readonly SetOp[] {
+  const writes: SetOp[] = [];
+  for (const o of ops) {
+    if (o.op === 'create') {
+      // create 只寫 title —— 問 status 的人不該被多發一列。
+      if (field === undefined || field === 'title') {
+        writes.push({ id: o.id, t: o.t, a: o.a, op: 'set', k: 'title', v: o.title });
+      }
+    } else if (o.op === 'set') {
+      if (field === undefined || o.k === field) writes.push(o);
+    }
+  }
+  return writes;
 }
 
 /** 全序 → fold。順序無關性的來源 —— docs/adr/0001。 */
