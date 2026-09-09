@@ -28,6 +28,12 @@ nook ref：`01M22PKRW76AQKWZHEGWNAM7K4`
       **僅限這個註解，不得改該檔案的任何邏輯**
 - [ ] 掃一遍前四輪新產生的過期註解（提到票號、或說「還沒有」而現在已經有的）
 
+**放錯目錄**
+
+- [ ] 票 04 新建的 `src/studio/board/statuses.ts` 被 `drawer/changes.ts` import，
+      所以它不是看板的財產，該搬到 `src/studio/statuses.ts`。票 04 的寫入範圍
+      進不了那個路徑，所以留給這張票
+
 **重複**
 
 - [ ] `escapeHtml` 現在在 `render/html.ts` 與 `server/handler.ts` 各一份
