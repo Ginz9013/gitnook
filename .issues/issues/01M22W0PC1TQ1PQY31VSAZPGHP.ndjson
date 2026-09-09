@@ -1,0 +1,3 @@
+{"id":"01M22W0PC1YPA9EFA4DMVJCMEQ","t":1,"a":"83a1","op":"create","title":"drawer/changes.ts 的 STATUSES 是純轉手別名"}
+{"id":"01M22W0PCARY1KQ197ZXYN9Z0Q","t":2,"a":"83a1","op":"set","k":"description","v":"Standards 軸的判斷題（Middle Man）。\n\n    export const STATUSES: readonly Status[] = STATUS_ORDER;\n\n純粹轉手，而且把 tuple 放寬成 readonly Status[]。理由是 StatusPicker 從這個模組 import，但 StatusPicker 大可直接從 @/statuses import STATUS_ORDER，一行的事。\n\n留著等於那份「只該有一份」的清單又多了一個名字 —— 而統一那份清單正是票 04 存在的理由。\n\n另外 dnd.ts 有一句「欄位在畫面上的順序就是 STATUS_LANES 的順序」只是複述它下面那行 .map，不符合這個 repo「註解解釋為什麼」的標準。"}
+{"id":"01M22W0PCAVR53W2XGVV89CYPQ","t":3,"a":"83a1","op":"label.add","v":"studio"}
