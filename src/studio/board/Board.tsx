@@ -174,6 +174,11 @@ export function Board({
       // （被 archived 篩掉、從快照消失）就 focus 到這裡。`-1` 是「程式可以給它
       // 焦點，但 Tab 不會停在這」。
       tabIndex={-1}
+      // 這個 landmark 一定要有可及名稱，因為焦點**會**退回它，而且正是在最需要
+      // 交代狀況的時候：那張 Issue 剛從看板上消失了。沒有名稱時 screen reader
+      // 唸到的只有「main」，使用者不知道自己被丟到哪裡。`data-slot` 是給 CSS
+      // 與測試看的，輔助技術讀不到它。
+      aria-label="Nook 看板"
     >
       <header className="flex shrink-0 items-center gap-3">
         <span className="text-muted-foreground text-xs">{visible.length} 張 Issue</span>

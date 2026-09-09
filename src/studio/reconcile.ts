@@ -57,7 +57,6 @@ export interface PendingWrite {
   readonly seq: number;
   readonly issueId: string;
   readonly change: ReconcileChange;
-  readonly landed: boolean;
 }
 
 /**
@@ -92,7 +91,6 @@ export type ClientAction<I extends ReconcileIssue = ReconcileIssue> =
   | { readonly type: 'RELEASE' }
   | { readonly type: 'DROP'; readonly issueId: string; readonly to: string }
   | { readonly type: 'EDIT'; readonly issueId: string; readonly change: ReconcileChange }
-  | { readonly type: 'LAND'; readonly seq: number }
   | { readonly type: 'ACK'; readonly seq: number; readonly issue: I }
   | { readonly type: 'FAIL'; readonly seq: number }
   | { readonly type: 'POLL'; readonly issues: readonly I[] };
@@ -117,9 +115,13 @@ export interface ProjectedIssue<I extends ReconcileIssue = ReconcileIssue> {
    * 而 `descriptionHtml` 還是舊的 —— 呼叫端用 `optimistic` 判斷該顯示哪一個。
    */
   readonly shown: I;
-  /** 伺服器上次告訴我們的整張 issue。 */
-  readonly serverKnown: I;
-  /** 上面哪些欄位是樂觀值。空集合表示畫面上這張就是伺服器上那張。 */
+  /**
+   * 上面哪些欄位是樂觀值。空集合表示畫面上這張就是伺服器上那張。
+   *
+   * **投影不另外交出伺服器那一份。** 它就在 `ClientState.snapshot` 裡，而且是
+   * 同一個物件 —— 投影再擺一份，就是同一個事實的第二個入口，而兩個入口遲早
+   * 會有人拿去比對「哪一個才是現在的」。要伺服器的值就去讀快照。
+   */
   readonly optimistic: ReadonlySet<OptimisticField>;
   /**
    * 飛行中的留言。**接在 `shown.comments` 尾端顯示，不併進去、不排序** ——
@@ -169,14 +171,6 @@ export function clientReduce<I extends ReconcileIssue>(
         pending: [...state.pending, write(seq, action.issueId, action.change)],
       };
     }
-
-    case 'LAND':
-      // op 已 append 進 .ndjson。append-only：這一步不可能失敗，也沒有「被拒絕」
-      // 這回事。畫面還沒得到任何新資訊，所以什麼都不動。
-      return {
-        ...state,
-        pending: state.pending.map((x) => (x.seq === action.seq ? { ...x, landed: true } : x)),
-      };
 
     case 'ACK': {
       // 伺服器回應，帶著寫入當下摺疊出來的**整張** issue。那不是永恆真理：在這
@@ -246,7 +240,7 @@ function applyLabels(
 }
 
 function write(seq: number, issueId: string, change: ReconcileChange): PendingWrite {
-  return { seq, issueId, change, landed: false };
+  return { seq, issueId, change };
 }
 
 /** 放開指標：拖曳鎖解除，押後的快照補上。 */
@@ -313,7 +307,6 @@ export function project<I extends ReconcileIssue>(
     return {
       id: issue.id,
       shown,
-      serverKnown: issue,
       optimistic,
       unconfirmed,
       held: state.drag?.issueId === issue.id,

@@ -18,6 +18,10 @@ const reduceAll = (state: ClientState, ...actions: ClientAction[]): ClientState 
 /**
  * 只看 status 的那一面。票 10 把 `shown` 從一個 status 字串擴成整張 issue，
  * 下面四條規則釘的是「卡片在哪一欄」——維持原本的斷言，只換取值的方式。
+ *
+ * `serverKnown` 直接從 `state.snapshot` 取：投影不再重複帶一份伺服器的值。
+ * 這一欄釘的是本模組最中心的不變式 —— **樂觀寫入絕不動到快照** —— 所以它
+ * 讀的是真正那一格，而不是投影對它的回音。
  */
 const statusView = (
   state: ClientState,
@@ -25,7 +29,7 @@ const statusView = (
   project(state).map((p) => ({
     id: p.id,
     shown: p.shown.status,
-    serverKnown: p.serverKnown.status,
+    serverKnown: state.snapshot.find((i) => i.id === p.id)!.status,
     optimistic: p.optimistic.has('status'),
     held: p.held,
   }));
@@ -182,21 +186,6 @@ describe('FAIL —— 唯一會回滾的動作', () => {
   });
 });
 
-describe('LAND —— op 已寫進 op-log', () => {
-  it('標記那筆變更已落地，畫面不動也不回滾', () => {
-    const state = reduceAll(
-      initialClient(snap(['a1', 'todo'])),
-      { type: 'DROP', issueId: 'a1', to: 'queued' },
-      { type: 'LAND', seq: 1 },
-    );
-
-    expect(state.pending).toEqual([
-      { seq: 1, issueId: 'a1', change: { status: 'queued' }, landed: true },
-    ]);
-    expect(shown(state, 'a1')).toBe('queued');
-  });
-});
-
 describe('已經不在飛行中的變更', () => {
   it('回應對應到已被回滾（或已處理過）的變更時，什麼都不做', () => {
     const rolledBack = reduceAll(
@@ -234,10 +223,11 @@ const full = (id: string, over: Partial<ReconcileIssue> = {}): ReconcileIssue =>
 describe('project —— 交出整張 issue', () => {
   it('沒有飛行中的變更時，shown 是整張快照 issue，不是一個 status 字串', () => {
     const a1 = full('a1');
-    const p = project(initialClient([a1]))[0]!;
+    const state = initialClient([a1]);
+    const p = project(state)[0]!;
 
     expect(p.shown).toEqual(a1);
-    expect(p.serverKnown).toEqual(a1);
+    expect(state.snapshot).toEqual([a1]);
     expect(p.optimistic).toEqual(new Set());
     expect(p.unconfirmed).toEqual([]);
   });
@@ -255,7 +245,7 @@ describe('EDIT —— 飛行中的變更是一份 Change', () => {
     const p = project(state)[0]!;
 
     expect(p.shown.title).toBe('再改一次');
-    expect(p.serverKnown.title).toBe('舊標題');
+    expect(state.snapshot[0]!.title).toBe('舊標題');
     expect(p.optimistic).toEqual(new Set(['title']));
   });
 });
@@ -295,7 +285,7 @@ describe('labels —— 集合運算', () => {
     // 接在尾端與 core 的 reduce() 一致：呈現順序是各值第一個存活 add tag 在全序
     // 中的位置，新增的那筆 t 最大，因此落在最後。
     expect(p.shown.labels).toEqual(['p1', 'ux']);
-    expect(p.serverKnown.labels).toEqual(['bug', 'p1']);
+    expect(state.snapshot[0]!.labels).toEqual(['bug', 'p1']);
     expect(p.optimistic).toEqual(new Set(['labels']));
   });
 });
@@ -350,7 +340,7 @@ describe('ACK —— 收伺服器回的整張 issue 當新快照', () => {
     const p = project(state)[0]!;
 
     expect(p.shown).toEqual(answered);
-    expect(p.serverKnown).toEqual(answered);
+    expect(state.snapshot).toEqual([answered]);
     expect(p.optimistic).toEqual(new Set());
     expect(state.pending).toEqual([]);
   });

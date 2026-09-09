@@ -1,7 +1,6 @@
 import type { Status } from '@/api';
 import { needsReason } from '@/drawer/changes';
-
-import { STATUS_ORDER } from './statuses';
+import { STATUS_ORDER } from '@/statuses';
 
 /**
  * 看板上可判定的規則全部在這裡 —— 純函式、不 import React、不碰 DOM。
@@ -10,15 +9,19 @@ import { STATUS_ORDER } from './statuses';
  * 這一片段沒有自動化測試（spec.md 的測試策略），所以「值得測試的判斷」不能
  * 散在 JSX 裡 —— 集中在一個純模組至少讓它讀得完、看得出來對不對。
  *
- * 八個 Status 的清單不在這裡，在 `statuses.ts`：drawer 的選單也要同一份，
+ * 八個 Status 的清單不在這裡，在 `@/statuses`：drawer 的選單也要同一份，
  * 而它不該為了那八個字串去 import 看板的規則。
  */
 
 /**
  * Status 序列被切成兩段（CONTEXT.md）：`backlog` 與 `todo` 是人的車道，
  * `queued` 之後是 agent 的車道。這條線是 Board 上最重要的分界。
+ *
+ * **不轉出去。** 這個模組交出去的是 `opensLane`（分界畫在哪），不是「這格
+ * 屬於誰」—— 沒有呼叫端需要後者，而轉出一個沒人要的判斷只會讓下一個人以為
+ * 該拿它再判一次。
  */
-export type Lane = 'human' | 'agent';
+type Lane = 'human' | 'agent';
 
 const LANE_OF: Record<Status, Lane> = {
   backlog: 'human',
@@ -31,24 +34,24 @@ const LANE_OF: Record<Status, Lane> = {
   cancelled: 'agent',
 };
 
-/** 一個 Status 加上它在車道上的位置。 */
+/**
+ * 一個 Status 加上「它前面要不要畫那條交接線」。
+ *
+ * **刻意不帶 `lane` 本身。** 車道是 `LANE_OF` 的私事：看板要畫的是**分界**，
+ * 而分界只出現在車道換手的那一格。把 `lane` 也放進來，等於邀請呼叫端各自
+ * 再判一次「這格屬於誰」，而那個判斷已經在 `opensLane` 裡算完了。
+ */
 export interface StatusLane {
   readonly status: Status;
-  readonly lane: Lane;
   /** 這是不是 agent 車道的第一個 Status —— 車道之間那條線畫在它左邊。 */
   readonly opensLane: boolean;
 }
 
-/** 八個 Status 依固定順序，各自帶著車道。看板照這個順序由左到右畫。 */
+/** 八個 Status 依固定順序。看板照這個順序由左到右畫。 */
 export const STATUS_LANES: readonly StatusLane[] = STATUS_ORDER.map((status, i) => ({
   status,
-  lane: LANE_OF[status],
   opensLane: i > 0 && LANE_OF[status] !== LANE_OF[STATUS_ORDER[i - 1] as Status],
 }));
-
-export function laneOf(status: Status): Lane {
-  return LANE_OF[status];
-}
 
 export function isStatus(value: unknown): value is Status {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(LANE_OF, value);

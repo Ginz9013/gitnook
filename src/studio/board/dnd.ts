@@ -52,6 +52,10 @@ export const boardCollision: CollisionDetection = (args) => {
  * Status 裡沒有順序（ADR-0003 只定義八個 Status）。所以這裡自己走欄位：把被拖的
  * 矩形水平對齊到下一欄的中央，垂直位置不動。
  *
+ * **`@dnd-kit/sortable` 因此不是相依套件。** 它曾經被宣告過但從來沒有任何一行
+ * import 它 —— 留著一個沒人用的套件，會讓下一個人以為欄內排序是既有設計的一
+ * 部分。要恢復它得先有「同一個 Status 裡有順序」這件事，而那是 ADR-0003 的改動。
+ *
  * 回傳值的座標系與 `sortableKeyboardCoordinates` 相同：被拖矩形的新左上角
  * （viewport 座標），sensor 自己算差值。
  */

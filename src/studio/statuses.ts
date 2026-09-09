@@ -4,7 +4,7 @@ import type { Status } from '@/api';
 // 因為它進到 studio 的 bundle（ADR-0008），Vite 也不必去解析這個 `.js`。
 // 不從 `@/api` 拿：那裡只轉出 `Status` 這個聯集，而聯集沒有順序，下面的
 // `_ordered` 需要的是 `STATUSES` 那個 tuple 本身的型別。
-import type { STATUSES as CoreStatuses } from '../../core/types.js';
+import type { STATUSES as CoreStatuses } from '../core/types.js';
 
 /**
  * 八個 Status 的固定順序（ADR-0003）。**`src/studio/` 底下只有這一份。**
@@ -14,7 +14,11 @@ import type { STATUSES as CoreStatuses } from '../../core/types.js';
  * 「順序」沒有任何東西守著 —— 兩邊排出不同的順序仍然編得過，而看板與 drawer
  * 的選單從此以不同的順序列出同八個 Status。
  *
- * 這裡刻意抄一份而不是 `import { STATUSES } from '../../core/types.js'`：
+ * 檔案放在 `src/studio/` 而不是 `board/`：看板與 drawer 都 import 它，而
+ * `board/` 底下的東西是看板的財產。八個 Status 是 studio 共有的詞彙，
+ * drawer 不該為了那八個字串去 import 看板的目錄。
+ *
+ * 這裡刻意抄一份而不是 `import { STATUSES } from '../core/types.js'`：
  * 那會是第一個從 core 進 studio bundle 的**值** import，而且 Vite 不會把這個
  * repo 的 `.js` specifier 重新對應到 `.ts`，build 當場就壞（ADR-0008）。
  * 抄寫的代價由下面兩道編譯期守衛補起來。

@@ -483,7 +483,14 @@ function untilAborted(signal: AbortSignal | undefined): Promise<void> {
   });
 }
 
-/** 唯讀的會議投影用檢視器。只綁 loopback，且刻意不提供 --host。 */
+/**
+ * 瀏覽器裡的看板，讀寫都能做（ADR-0007）—— 拖曳搬 Status、drawer 改標題與
+ * label、留言，全都走 `POST /i/<ref>`。
+ *
+ * 只綁 loopback，且**刻意不提供 `--host`**：寫入面沒有任何驗證，能連到這個
+ * port 的人就能改這塊 board。那條界線由「只有本機連得上」守著，不是由設定
+ * 守著 —— 一個 `--host` 旗標會讓它變成一次手滑就能跨過的東西（ADR-0007）。
+ */
 async function cmdStudio(args: Args, io: Io): Promise<number> {
   const given = args.one('--port');
   const port = given === undefined ? undefined : Number(given);

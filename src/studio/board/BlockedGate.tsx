@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
+import * as AlertDialog from '@radix-ui/react-alert-dialog';
 
 import type { Status } from '@/api';
 import { Button } from '@/components/ui/button';
@@ -43,6 +43,19 @@ export interface BlockedGateProps {
  *
  * focus trap、Esc、scroll lock 交給 Radix（ADR-0008：這些手寫都會寫錯）；
  * 只有「關閉後焦點去哪」必須接手，見 `onCloseAutoFocus`。
+ *
+ * **primitive 是 `AlertDialog` 而不是掛著 `role="alertdialog"` 的 `Dialog`。**
+ * 那個 role 不只是一個字串：它宣告「這個對話框問的問題必須有一個明確的答案」，
+ * 而點外面就關掉會直接違反它。手寫的版本靠一個 `onInteractOutside` 的
+ * `preventDefault()` 補上那條保證 —— 一次改寫就會被拿掉，而拿掉之後畫面看起來
+ * 完全正常，只有正在打字的原因會靜靜消失。`AlertDialog.Content` 的型別直接
+ * **拿掉** `onInteractOutside` 與 `onPointerDownOutside` 兩個 prop，並在內部
+ * 各 `preventDefault()` 一次 —— 那條保證因此不再是我們要記得維護的紀律。
+ *
+ * `open` 仍然是受控的，按鈕也刻意**不**用 `AlertDialog.Action` / `.Cancel`：
+ * 那兩個會自己觸發關閉，於是確認一次就會連帶送出 `onOpenChange(false)`，也就是
+ * 多一次 `onCancel` → 多一次 `RELEASE`。閘門的生死由呼叫端的 `gate` state 決定，
+ * 這裡只回報使用者按了什麼。
  */
 export function BlockedGate({
   title,
@@ -57,30 +70,26 @@ export function BlockedGate({
   const change = statusChange('blocked', from, reason);
 
   return (
-    <Dialog.Root
+    <AlertDialog.Root
       open
       onOpenChange={(open) => {
         if (!open) onCancel();
       }}
     >
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-        <Dialog.Content
-          role="alertdialog"
+      <AlertDialog.Portal>
+        <AlertDialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+        <AlertDialog.Content
           onOpenAutoFocus={(event) => {
             // 焦點落在輸入框：這一步是使用者剛才親手拖出來的，他要做的下一件事
             // 是寫原因，不是找按鈕。反悔的路徑仍然有 Esc 與取消鍵。
+            //
+            // `preventDefault()` 同時擋掉 AlertDialog 內建的「焦點給取消鍵」——
+            // Radix 用 composeEventHandlers 串接，我們先擋下它就不再往下跑。
             event.preventDefault();
             reasonRef.current?.focus();
           }}
-          onInteractOutside={(event) => {
-            // 點外面不關。Radix 的 Dialog 預設關掉，但這是 alertdialog：它問的
-            // 問題必須有一個明確的答案，而現在框裡還有使用者打到一半的原因 ——
-            // 一次落在看板上的誤點不該把那段字丟掉。Esc 仍然是取消。
-            event.preventDefault();
-          }}
           onCloseAutoFocus={(event) => {
-            // 一律接手。Radix 內建的動作是 `focus()` 到 `<Dialog.Trigger>`，
+            // 一律接手。Radix 內建的動作是 `focus()` 到 `<AlertDialog.Trigger>`，
             // 而這個對話框沒有 Trigger —— 交給它就是把焦點交給 null。
             event.preventDefault();
             onCloseFocus();
@@ -88,16 +97,16 @@ export function BlockedGate({
           aria-describedby="blocked-gate-why"
           className="bg-background fixed top-1/2 left-1/2 z-50 w-[min(28rem,90vw)] -translate-x-1/2 -translate-y-1/2 rounded-lg border p-5 shadow-lg"
         >
-          <Dialog.Title className="text-sm font-medium">
+          <AlertDialog.Title className="text-sm font-medium">
             「{title}」要移到 blocked
-          </Dialog.Title>
-          <Dialog.Description
+          </AlertDialog.Title>
+          <AlertDialog.Description
             id="blocked-gate-why"
             className="text-muted-foreground mt-2 text-sm leading-relaxed"
           >
             設為 blocked 必須同時留下一則 Comment 說明卡住的原因，否則「卡住前在做什麼」
             這件事會從 Board 上消失。原因與這次移動會一起送出，成為這張 Issue 的一則 comment。
-          </Dialog.Description>
+          </AlertDialog.Description>
 
           <label className="mt-4 block text-xs" htmlFor="blocked-gate-reason">
             卡在哪裡？
@@ -126,8 +135,8 @@ export function BlockedGate({
               移到 blocked
             </Button>
           </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+        </AlertDialog.Content>
+      </AlertDialog.Portal>
+    </AlertDialog.Root>
   );
 }
