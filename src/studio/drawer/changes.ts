@@ -23,8 +23,6 @@
 // 同 `api.ts` 對 server 的規則，這裡對 core 也只能是 `import type`。
 import type { Change, Status } from '@/api';
 
-import { STATUS_ORDER } from '@/statuses';
-
 /**
  * Drawer 送得出去的 Change。`status` 收窄成完整的 `Status`：core 也收無歧義
  * 前綴，但選單裡挑出來的永遠是完整值，收窄讓呼叫端不必再斷言一次。
@@ -33,19 +31,6 @@ import { STATUS_ORDER } from '@/statuses';
  * 形狀 —— 票 03 對不認得的欄位回 400 而不是忽略，多送一個鍵就是一次 400。
  */
 export type DrawerChange = Omit<Change, 'status'> & { readonly status?: Status };
-
-/**
- * 選單列出來的八個 Status（ADR-0003：固定，不可自訂）。
- *
- * **這裡不再自己抄一份。** 原本的 `STATUS_INDEX` 與那份清單是同一份清單的兩次
- * 手抄：兩邊各有自己的完整性守衛，所以數量不會漂，但**順序沒有任何東西守著**
- * —— 兩邊排出不同的順序仍然編得過，而 drawer 的選單就會跟看板由左到右的順序
- * 不一樣。唯一擁有者是 `@/statuses`，那裡連順序都有守衛。
- *
- * 名字留在這裡是因為 `StatusPicker` 從這個模組拿它 —— 它要的是「drawer 送得出去
- * 的東西」，而不是那份清單本身。
- */
-export const STATUSES: readonly Status[] = STATUS_ORDER;
 
 export function titleChange(next: string, current: string): DrawerChange | undefined {
   const title = next.trim();

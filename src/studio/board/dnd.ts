@@ -36,7 +36,7 @@ export function statusOf(over: Over | null): Status | null {
  * 指標時用 `pointerWithin`（游標在哪一欄裡是精確的），鍵盤時沒有游標座標，
  * 退回 `closestCenter`。
  *
- * `closestCenter` 在這個版面上是安全的：欄位很高，被拖的方框停在自己這一欄時
+ * `closestCenter` 在這個版面上是安全的：欄位很高，被拖的卡片停在自己這一欄時
  * 中心只差垂直距離，鄰欄還要再加上水平距離，必然更遠。
  */
 export const boardCollision: CollisionDetection = (args) => {
@@ -71,7 +71,13 @@ export const columnKeyboardCoordinates: KeyboardCoordinateGetter = (
   const { collisionRect, droppableRects } = context;
   if (collisionRect === null) return;
 
-  // 欄位在畫面上的順序就是 STATUS_LANES 的順序 —— 左右鍵沿著它走。
+  // 欄位由左到右的順序只有一份定義 —— `STATUS_LANES`，`Board.tsx` 就是照它畫的。
+  // 這裡照同一份取 rect，左右鍵走過的順序因此不可能與畫面上的不一致。
+  //
+  // 不改走 `droppableRects` 自己的順序（那是 droppable 的註冊順序，跟著掛載走，
+  // 與版面無關），也不改成照 `rect.left` 排（那是拿量出來的座標反推版面，等於
+  // 替「哪一欄在隔壁」多立一份會漂的定義）。兩者壞掉的樣子一樣：按右鍵卡片往
+  // 左邊跑，而鍵盤使用者手上沒有第二種挑欄位的方法。
   const rects = STATUS_LANES.map(({ status }) => droppableRects.get(status));
   const dragCenter = collisionRect.left + collisionRect.width / 2;
 

@@ -75,14 +75,14 @@ export interface CardProps {
 /**
  * 一張可拖曳的 Issue，一個 tab stop：**Space 抓起、Enter 開細節**。
  *
- * 名字講的是版面（畫在螢幕上的那個方框），裝的是 Issue —— 所以 props 與播報
+ * 名字講的是版面（畫在螢幕上的那張卡片），裝的是 Issue —— 所以 props 與播報
  * 一律說 Issue。
  *
  * `@dnd-kit` 預設 Space 與 Enter 都是「開始拖曳」，這裡把 Enter 讓出來給
- * 開啟細節（見 `Board.tsx` 的 sensor 設定）—— 否則每個方框上就得多長一顆按鈕，
+ * 開啟細節（見 `Board.tsx` 的 sensor 設定）—— 否則每張卡片上就得多長一顆按鈕，
  * 四十張 Issue 就是八十個 tab stop。
  *
- * 整個方框都是拖曳把手，所以指標可以從任何地方拖起。拖完那一下的 click 由
+ * 整張卡片都是拖曳把手，所以指標可以從任何地方拖起。拖完那一下的 click 由
  * `@dnd-kit` 自己在 document 上攔掉，不會誤開 drawer。
  */
 export function Card({ projected, selected, onSelect }: CardProps): React.JSX.Element {

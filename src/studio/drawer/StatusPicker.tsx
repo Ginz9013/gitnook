@@ -11,7 +11,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { Status } from '@/api';
-import { STATUSES, needsReason, statusChange } from './changes';
+import { STATUS_ORDER } from '@/statuses';
+import { needsReason, statusChange } from './changes';
 import type { DrawerChange } from './changes';
 
 export interface StatusPickerProps {
@@ -34,7 +35,7 @@ export function StatusPicker({ status, pending, onSubmit }: StatusPickerProps): 
   const [reason, setReason] = useState('');
 
   function pick(value: string): void {
-    // value 來自下面那份 STATUSES，不可能是別的東西。
+    // value 來自下面那份 STATUS_ORDER，不可能是別的東西。
     const next = value as Status;
     if (needsReason(next, status)) {
       setAsking(next);
@@ -60,7 +61,7 @@ export function StatusPicker({ status, pending, onSubmit }: StatusPickerProps): 
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
             <DropdownMenuRadioGroup value={status} onValueChange={pick}>
-              {STATUSES.map((s) => (
+              {STATUS_ORDER.map((s) => (
                 <DropdownMenuRadioItem key={s} value={s} className="font-mono">
                   {s}
                 </DropdownMenuRadioItem>
