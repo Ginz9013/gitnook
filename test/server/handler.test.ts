@@ -386,7 +386,7 @@ describe('POST /i/<ref> 涵蓋 Change 的全部意圖', () => {
     expect((opsOnDisk(id).at(-1)!['seen'] as string[]).length).toBe(1);
   });
 
-  it('blocked 不強制配留言 —— CLI 是提醒而非拒絕，server 保持一致', () => {
+  it('blocked 與其他 Status 一視同仁 —— 端點不附加任何額外條件（ADR-0003）', () => {
     const id = fullId('01JBXA');
     createWith(id, { title: 'Fix login redirect' });
 

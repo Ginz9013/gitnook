@@ -206,7 +206,6 @@ nook set <ref> archived true
 
 <ref> is any unambiguous ID prefix. Status takes prefixes too (que -> queued).
 queued means requirements are settled: act without asking.
-blocked requires a comment saying why.
 list hides archived, done and cancelled unless --all.
 --json exists for scripts; the default table is cheaper to read.
 ```

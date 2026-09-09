@@ -333,8 +333,10 @@ function parseChange(body: string): Change | undefined {
 /**
  * 一次寫入。端點直接鏡射 `board.apply(ref, change)` —— `Change` 已經是領域裡
  * 「呼叫端表達的意圖」的型別（CONTEXT.md），studio 因此不發明任何新詞彙。
- * 特別是 `blocked` **不在這裡強制配留言**：CLI 是提醒而非拒絕，server 多一條
- * CLI 沒有的規則只會讓兩個介面分歧。
+ * 端點不對任何 Status 附加額外條件。`blocked` 曾經有一條「必須同時留下說明
+ * 原因的 Comment」的規則，而它在三個介面上實作成三種行為（studio 擋下、
+ * CLI 只提醒、這裡完全不管）—— 那條規則已經整條移除（ADR-0003）：狀態不該
+ * 帶有額外效果。這裡因此沒有什麼要「保持一致」的，八個 Status 一視同仁。
  *
  * ref 原樣交給 core：前綴解析、大小寫正規化與路徑穿越檢查只有一份實作，
  * 就是 `board` 自己那一份。
