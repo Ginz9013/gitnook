@@ -100,7 +100,9 @@ assignee、priority、milestone、due date、estimate、可設定的 status、�
 backlog  todo  queued  in_progress  review  blocked  done  cancelled
 ```
 
-`backlog` / `todo` 是**人的車道**；`queued` 之後是 **agent 的車道**。`queued` 是交接閘門 —— **票進入 `queued` 等於授權 agent 不再詢問、直接動手**，這是授權邊界而非分類。設 `blocked` 時必須同時留一則 comment 說明原因。
+`backlog` / `todo` 是**人的車道**；`queued` 之後是 **agent 的車道**。`queued` 是交接閘門 —— **票進入 `queued` 等於授權 agent 不再詢問、直接動手**，這是授權邊界而非分類。
+
+> **已推翻（2026-09-09）**：原文此處還有一句「設 `blocked` 時必須同時留一則 comment 說明原因」。那條規則已整條移除 —— 狀態不該帶有額外效果，見改寫後的 ADR-0003。
 
 `archived` 是獨立的 boolean 欄位而非 status：歸檔是**可見性**，`done`/`cancelled` 是**工作結果**，兩者正交。若 archived 是 status，一張 done 的票歸檔後將永久遺失「它是完成還是取消」。
 
@@ -233,6 +235,8 @@ Measured 2026-09-08。目錄為空且**不是 git repo**（`git rev-parse` 回�
 - **protocol-relative URL（`//evil.com`）不被 scheme 白名單擋下**，因為它不帶 scheme。在唯讀的 localhost 檢視器上這是導覽困擾而非 XSS 路徑，票 08 選擇如實回報而不擅自放寬規則。
 - **`serve.test.ts` 的 LAN 綁定測試需要一個非 loopback 的 IPv4 介面。** 票 09 刻意讓它在找不到時**拋錯而非靜默跳過** —— 靜默跳過會讓 `0.0.0.0` 的迴歸在 CI 裡無聲通過。若 CI 環境沒有對外介面，這需要一個明確決定（標記為 known-skip 並在別處補償），不能默默略過。
 - **詳情頁沒有輪詢重載。** 票 09 的寫入範圍只授權放寬 `renderBoardHtml`，給 `renderIssueHtml` 同樣的選項是第二次簽章變更，worker 選擇回報而非越界。看板（開會的投影面）會自動更新，`/i/<ref>` 不會。約兩行的後續工作。
+
+  > **已消失（2026-09-09）**：伺服器渲染的詳情頁在 studio 改版時整個移除，`renderBoardHtml` 與 `renderIssueHtml` 都不存在了（ADR-0008）。studio 現在是 React SPA，輪詢在 `src/studio/poll.ts`，看板與 drawer 走同一份局部套用。這條 risk 隨那個頁面一起消失。
 - **~~渲染層的短 ID 無歧義只在「它拿到的那一批」之內成立。~~（已解決 —— 票 15 ＋ 票 16）** `renderTable` 通常收到 `list()` 的結果，而 `list()` 預設隱藏 archived / done / cancelled —— 一個對 `list` 輸出無歧義的短 ID，仍可能與被隱藏的 Issue 在 `board.get()` 端撞號。失敗是安全的（`AmbiguousRef` 會列出候選），但仍是壞 Ref。要修得把解析用的候選集合傳進渲染層，會改變 `renderTable` 的簽章。（票 12 回報）
   **修法與這裡的預測不同，簽章沒有動。** 票 15 讓 `Board` 公開 `refs()`（只列目錄、不摺疊任何 Op-log），票 16 讓 `src/cli/run.ts` 以 `displayLength(board) = shortIdLength(board.refs())` 對整塊 Board 算長度，再傳進 `renderTable` **原本就存在**的第二個參數（`shortIdLen?`，票 12 自己加的）。渲染層要的是一個算好的長度，不是候選集合；錯的是 CLI 餵進去的那一批。`list` / `show` 與四個回印路徑共六個呼叫點現在全走這條路。見 ADR-0006。
 - **`new` 印出的短 ID 可能日後變成有歧義。** ULID 前綴是時間高位，之後建立的 Issue 可能延長共用前綴。契約是「印出的當下無歧義」，git 有同樣的性質。要永久穩定只能印完整 26 碼。（票 10 回報）

@@ -10,7 +10,7 @@
 
 ## Consequences
 
-實測（git 2.50.1，記錄於 board 的 `spike-findings.md`）逼出三條不可協商的規則：
+實測（git 2.50.1，記錄於 board 的 `spike-findings.md`）逼出四條不可協商的規則：
 
 1. **每次寫入必須以 `\n` 結尾。** 缺少時 union merge 會把兩行黏成非法 JSON 並複製前一行。reducer 必須偵測黏合行，`doctor` 必須能修復。
 2. **未知的 Op 型別必須忽略而非崩潰。** 資料活在 git 裡，隊友的版本不同步是常態；向前相容在這裡是資料安全問題。
