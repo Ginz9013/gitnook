@@ -1,25 +1,40 @@
 import { describe, it, expect } from 'vitest';
 import { initialClient, clientReduce, project } from '../../src/studio/reconcile.js';
-import type { ClientState, ReconcileIssue } from '../../src/studio/reconcile.js';
+import type { ClientAction, ClientState, ReconcileIssue } from '../../src/studio/reconcile.js';
 
 // 純 reducer，environment: 'node'。不碰 DOM、不 import React。
 // 四條規則搬自 .scratch/studio-write/write-model.prototype.html 的「可移植模組 A」，
 // 每一條都對應一個實際會壞的畫面。
 
 const snap = (...pairs: [string, string][]): readonly ReconcileIssue[] =>
-  pairs.map(([id, status]) => ({ id, status }));
+  pairs.map(([id, status]) => full(id, { status }));
 
 const shown = (state: ClientState, id: string): string | undefined =>
-  project(state).find((p) => p.id === id)?.shown;
+  project(state).find((p) => p.id === id)?.shown.status;
 
-const reduceAll = (state: ClientState, ...actions: Parameters<typeof clientReduce>[1][]): ClientState =>
+const reduceAll = (state: ClientState, ...actions: ClientAction[]): ClientState =>
   actions.reduce(clientReduce, state);
+
+/**
+ * 只看 status 的那一面。票 10 把 `shown` 從一個 status 字串擴成整張 issue，
+ * 下面四條規則釘的是「卡片在哪一欄」——維持原本的斷言，只換取值的方式。
+ */
+const statusView = (
+  state: ClientState,
+): readonly { id: string; shown: string; serverKnown: string; optimistic: boolean; held: boolean }[] =>
+  project(state).map((p) => ({
+    id: p.id,
+    shown: p.shown.status,
+    serverKnown: p.serverKnown.status,
+    optimistic: p.optimistic.has('status'),
+    held: p.held,
+  }));
 
 describe('project — 使用者看到的東西', () => {
   it('沒有飛行中的變更時，顯示伺服器快照的值', () => {
     const state = initialClient(snap(['a1', 'todo'], ['b2', 'review']));
 
-    expect(project(state)).toEqual([
+    expect(statusView(state)).toEqual([
       { id: 'a1', shown: 'todo', serverKnown: 'todo', optimistic: false, held: false },
       { id: 'b2', shown: 'review', serverKnown: 'review', optimistic: false, held: false },
     ]);
@@ -34,7 +49,7 @@ describe('DROP — 樂觀更新', () => {
       to: 'queued',
     });
 
-    expect(project(state)).toEqual([
+    expect(statusView(state)).toEqual([
       { id: 'a1', shown: 'queued', serverKnown: 'todo', optimistic: true, held: false },
     ]);
   });
@@ -51,7 +66,7 @@ describe('規則 1 —— 飛行中的變更蓋過快照', () => {
       { type: 'POLL', issues: snap(['a1', 'todo'], ['b2', 'todo']) },
     );
 
-    expect(project(state)).toEqual([
+    expect(statusView(state)).toEqual([
       { id: 'a1', shown: 'queued', serverKnown: 'todo', optimistic: true, held: false },
       { id: 'b2', shown: 'todo', serverKnown: 'todo', optimistic: false, held: false },
     ]);
@@ -66,10 +81,10 @@ describe('規則 4 —— ACK 帶的是寫入當下的值，不是永恆真理',
       initialClient(snap(['a1', 'todo'])),
       { type: 'DROP', issueId: 'a1', to: 'blocked' },
       // op 有寫進 op-log，但摺疊出來是 review —— agent 那筆在 LWW 決勝時贏了。
-      { type: 'ACK', seq: 1, status: 'review' },
+      { type: 'ACK', seq: 1, issue: full('a1', { status: 'review' }) },
     );
 
-    expect(project(state)).toEqual([
+    expect(statusView(state)).toEqual([
       { id: 'a1', shown: 'review', serverKnown: 'review', optimistic: false, held: false },
     ]);
     expect(state.pending).toEqual([]);
@@ -88,9 +103,13 @@ describe('規則 2 —— 同一張 issue 只認最後一筆', () => {
     expect(shown(dropped, 'a1')).toBe('review');
 
     // 第 1 筆的回應現在才回來，帶著它寫入當下的值 queued。它已經被第 2 筆取代了。
-    const late = clientReduce(dropped, { type: 'ACK', seq: 1, status: 'queued' });
+    const late = clientReduce(dropped, {
+      type: 'ACK',
+      seq: 1,
+      issue: full('a1', { status: 'queued' }),
+    });
 
-    expect(project(late)).toEqual([
+    expect(statusView(late)).toEqual([
       { id: 'a1', shown: 'review', serverKnown: 'queued', optimistic: true, held: false },
     ]);
   });
@@ -105,7 +124,7 @@ describe('規則 3 —— 拖曳期間押後快照', () => {
       issueId: 'a1',
     });
 
-    expect(project(held)).toEqual([
+    expect(statusView(held)).toEqual([
       { id: 'a1', shown: 'todo', serverKnown: 'todo', optimistic: false, held: true },
       { id: 'b2', shown: 'backlog', serverKnown: 'backlog', optimistic: false, held: false },
     ]);
@@ -118,7 +137,7 @@ describe('規則 3 —— 拖曳期間押後快照', () => {
 
     const released = clientReduce(polled, { type: 'RELEASE' });
 
-    expect(project(released)).toEqual([
+    expect(statusView(released)).toEqual([
       { id: 'a1', shown: 'done', serverKnown: 'done', optimistic: false, held: false },
       { id: 'b2', shown: 'todo', serverKnown: 'todo', optimistic: false, held: false },
     ]);
@@ -137,7 +156,7 @@ describe('DROP 也結束拖曳', () => {
       { type: 'DROP', issueId: 'a1', to: 'queued' },
     );
 
-    expect(project(state)).toEqual([
+    expect(statusView(state)).toEqual([
       { id: 'a1', shown: 'queued', serverKnown: 'done', optimistic: true, held: false },
       { id: 'b2', shown: 'todo', serverKnown: 'todo', optimistic: false, held: false },
     ]);
@@ -156,7 +175,7 @@ describe('FAIL —— 唯一會回滾的動作', () => {
       { type: 'FAIL', seq: 1 },
     );
 
-    expect(project(state)).toEqual([
+    expect(statusView(state)).toEqual([
       { id: 'a1', shown: 'todo', serverKnown: 'todo', optimistic: false, held: false },
     ]);
     expect(state.pending).toEqual([]);
@@ -171,7 +190,9 @@ describe('LAND —— op 已寫進 op-log', () => {
       { type: 'LAND', seq: 1 },
     );
 
-    expect(state.pending).toEqual([{ seq: 1, issueId: 'a1', value: 'queued', landed: true }]);
+    expect(state.pending).toEqual([
+      { seq: 1, issueId: 'a1', change: { status: 'queued' }, landed: true },
+    ]);
     expect(shown(state, 'a1')).toBe('queued');
   });
 });
@@ -185,9 +206,226 @@ describe('已經不在飛行中的變更', () => {
     );
 
     // 傳輸失敗與伺服器回應在網路上交錯，這一筆的回應還是可能之後才到。
-    const late = clientReduce(rolledBack, { type: 'ACK', seq: 1, status: 'done' });
+    const late = clientReduce(rolledBack, {
+      type: 'ACK',
+      seq: 1,
+      issue: full('a1', { status: 'done' }),
+    });
 
     expect(project(late)).toEqual(project(rolledBack));
     expect(late.pending).toEqual([]);
+  });
+});
+
+// ---- 票 10：PendingWrite 從單一 status 字串擴成一份 Change ----
+
+/** 一張完整的 issue —— server 的 `IssueView` 就是這個形狀（外加預渲染的 HTML）。 */
+const full = (id: string, over: Partial<ReconcileIssue> = {}): ReconcileIssue => ({
+  id,
+  title: `${id} 的標題`,
+  status: 'todo',
+  description: '內文',
+  labels: ['bug'],
+  archived: false,
+  comments: [{ id: 'c1', actor: 'ann@example.com', t: 1, body: '第一則' }],
+  ...over,
+});
+
+describe('project —— 交出整張 issue', () => {
+  it('沒有飛行中的變更時，shown 是整張快照 issue，不是一個 status 字串', () => {
+    const a1 = full('a1');
+    const p = project(initialClient([a1]))[0]!;
+
+    expect(p.shown).toEqual(a1);
+    expect(p.serverKnown).toEqual(a1);
+    expect(p.optimistic).toEqual(new Set());
+    expect(p.unconfirmed).toEqual([]);
+  });
+});
+
+// LWW 欄位：title / description / status / archived —— 同一欄位取最後一筆。
+describe('EDIT —— 飛行中的變更是一份 Change', () => {
+  it('標題的樂觀值蓋過快照，同一欄位只認最後一筆', () => {
+    const state = reduceAll(
+      initialClient([full('a1', { title: '舊標題' })]),
+      { type: 'EDIT', issueId: 'a1', change: { title: '改了一次' } },
+      { type: 'EDIT', issueId: 'a1', change: { title: '再改一次' } },
+    );
+
+    const p = project(state)[0]!;
+
+    expect(p.shown.title).toBe('再改一次');
+    expect(p.serverKnown.title).toBe('舊標題');
+    expect(p.optimistic).toEqual(new Set(['title']));
+  });
+});
+
+// 票 02 的規則 2 在這裡擴張：本來只有一個欄位，所以「只認最後一筆」講的是
+// 整筆 pending；現在一次搬欄位與一次改內文可以同時在飛，彼此不得互相擦掉。
+describe('規則 2 —— 每張 issue 的每個欄位各認最後一筆', () => {
+  it('同時在飛的搬欄位與改內文互不覆蓋，各自取自己欄位的最後一筆', () => {
+    const state = reduceAll(
+      initialClient([full('a1', { status: 'todo', description: '舊內文', archived: false })]),
+      { type: 'DROP', issueId: 'a1', to: 'queued' },
+      { type: 'EDIT', issueId: 'a1', change: { description: '新內文', archived: true } },
+      { type: 'DROP', issueId: 'a1', to: 'review' },
+    );
+
+    const p = project(state)[0]!;
+
+    expect(p.shown.description).toBe('新內文');
+    expect(p.shown.archived).toBe(true);
+    expect(p.shown.status).toBe('review');
+    expect(p.optimistic).toEqual(new Set(['status', 'description', 'archived']));
+  });
+});
+
+// label 是 add-wins OR-Set（CONTEXT.md），不是 LWW 的一格值：兩筆在飛的 EDIT
+// 要累加，後一筆只帶 add 不代表前一筆的 remove 被撤銷。
+describe('labels —— 集合運算', () => {
+  it('被移除的不見了、新增的接在尾端，兩筆 EDIT 累加而不是後蓋前', () => {
+    const state = reduceAll(
+      initialClient([full('a1', { labels: ['bug', 'p1'] })]),
+      { type: 'EDIT', issueId: 'a1', change: { labels: { remove: ['bug'] } } },
+      { type: 'EDIT', issueId: 'a1', change: { labels: { add: ['ux'] } } },
+    );
+
+    const p = project(state)[0]!;
+
+    // 接在尾端與 core 的 reduce() 一致：呈現順序是各值第一個存活 add tag 在全序
+    // 中的位置，新增的那筆 t 最大，因此落在最後。
+    expect(p.shown.labels).toEqual(['p1', 'ux']);
+    expect(p.serverKnown.labels).toEqual(['bug', 'p1']);
+    expect(p.optimistic).toEqual(new Set(['labels']));
+  });
+});
+
+// 留言是附加，不是覆蓋。core 的 reduce() 已用 (t, actor, id) 全序排好 server
+// 那份陣列，未確認的留言還沒有 t —— 在前端放第二個比較器把它插進去，正是
+// commit 463343d 那個 bug 的成因。它接在後面，不併進去。
+describe('comment —— 附加', () => {
+  it('未確認的留言留在 unconfirmed，server 給的 comments 一個字都不動', () => {
+    const served = [
+      { id: 'c1', actor: 'ann@example.com', t: 1, body: '第一則' },
+      { id: 'c2', actor: 'bob@example.com', t: 9, body: '第二則' },
+    ];
+    const state = reduceAll(
+      initialClient([full('a1', { comments: served })]),
+      { type: 'EDIT', issueId: 'a1', change: { comment: '還沒確認的' } },
+      { type: 'EDIT', issueId: 'a1', change: { comment: '再一則' } },
+    );
+
+    const p = project(state)[0]!;
+
+    expect(p.shown.comments).toEqual(served);
+    expect(p.unconfirmed).toEqual([
+      { seq: 1, body: '還沒確認的' },
+      { seq: 2, body: '再一則' },
+    ]);
+    // 留言不是「有樂觀值覆蓋著的欄位」——沒有東西被蓋掉，只是多了兩則在飛的。
+    expect(p.optimistic).toEqual(new Set());
+  });
+});
+
+// 寫入的回應是 POST /i/<ref> 回的整張 IssueView（票 03）。收它整張當新快照，
+// 而不是只挑 status 出來 —— 同一次寫入可能同時改了標題、label 與留言。
+describe('ACK —— 收伺服器回的整張 issue 當新快照', () => {
+  it('標題、label、留言一併換成伺服器回的那張，樂觀值退場', () => {
+    const answered = full('a1', {
+      status: 'review',
+      title: 'agent 改過的標題',
+      labels: ['p1'],
+      comments: [
+        { id: 'c1', actor: 'ann@example.com', t: 1, body: '第一則' },
+        { id: 'c2', actor: 'agent@example.com', t: 7, body: 'agent 的留言' },
+      ],
+    });
+
+    const state = reduceAll(
+      initialClient([full('a1', { status: 'todo' })]),
+      { type: 'EDIT', issueId: 'a1', change: { title: '我改的標題' } },
+      { type: 'ACK', seq: 1, issue: answered },
+    );
+
+    const p = project(state)[0]!;
+
+    expect(p.shown).toEqual(answered);
+    expect(p.serverKnown).toEqual(answered);
+    expect(p.optimistic).toEqual(new Set());
+    expect(state.pending).toEqual([]);
+  });
+});
+
+// 亂序 ACK（原 nook 01M22EFD3，票 10 吸收）：兩次寫入的回應在網路上換了位置。
+// 少了這條，ACK(seq2) 之後 seq1 還掛在 pending 上，卡片當場閃回舊欄位 ——
+// 而 seq1 帶的是已經被 seq2 取代的值，它永遠不該再上畫面。
+describe('亂序 ACK —— 較晚的回應先到', () => {
+  it('ACK(seq2) 之後，畫面不得落回 seq1 的值', () => {
+    const dropped = reduceAll(
+      initialClient(snap(['a1', 'todo'])),
+      { type: 'DROP', issueId: 'a1', to: 'queued' }, // seq 1
+      { type: 'DROP', issueId: 'a1', to: 'review' }, // seq 2
+    );
+
+    const acked2 = clientReduce(dropped, {
+      type: 'ACK',
+      seq: 2,
+      issue: full('a1', { status: 'review' }),
+    });
+
+    expect(shown(acked2, 'a1')).toBe('review');
+    expect(acked2.pending).toEqual([]);
+
+    // 遲到的 ACK(seq1) 一樣不翻案：它對應的那筆已經不在飛行中了。
+    const acked1 = clientReduce(acked2, {
+      type: 'ACK',
+      seq: 1,
+      issue: full('a1', { status: 'queued' }),
+    });
+
+    expect(shown(acked1, 'a1')).toBe('review');
+  });
+});
+
+// seq 是整塊 board 共用的流水號，所以「清掉 seq <= action.seq」必須限縮在同一
+// 張 issue 上。少了這條限縮，回應一張卡片會把另一張卡片還在飛的變更一起抹掉
+// —— 那正是上面剛修掉的那個閃動，只是換了一張卡片。
+describe('亂序 ACK —— 只清同一張 issue', () => {
+  it('另一張 issue 上較早、還在飛的變更不受影響', () => {
+    const dropped = reduceAll(
+      initialClient(snap(['a1', 'todo'], ['b2', 'backlog'])),
+      { type: 'DROP', issueId: 'b2', to: 'todo' }, // seq 1
+      { type: 'DROP', issueId: 'a1', to: 'review' }, // seq 2
+    );
+
+    const acked = clientReduce(dropped, {
+      type: 'ACK',
+      seq: 2,
+      issue: full('a1', { status: 'review' }),
+    });
+
+    expect(shown(acked, 'b2')).toBe('todo');
+    expect(acked.pending.map((p) => p.seq)).toEqual([1]);
+  });
+});
+
+// 特徵測試（寫下來時就是綠的）：釘住「FAIL 不跟著 ACK 掃 seq <= action.seq」
+// 這個決定。ACK 說的是「伺服器已經把這張 issue 摺疊到這個版本」，更早的樂觀值
+// 因此過期；FAIL 只說「這一個 POST 沒送到」，它對更早那些寫入一無所知。
+describe('FAIL —— 只回滾它自己那一筆', () => {
+  it('同一張 issue 上較早、還在飛的那筆不受影響', () => {
+    const state = reduceAll(
+      initialClient(snap(['a1', 'todo'])),
+      { type: 'EDIT', issueId: 'a1', change: { title: '我改的標題' } }, // seq 1
+      { type: 'DROP', issueId: 'a1', to: 'review' }, // seq 2
+      { type: 'FAIL', seq: 2 },
+    );
+
+    const p = project(state)[0]!;
+
+    expect(p.shown.title).toBe('我改的標題');
+    expect(p.shown.status).toBe('todo');
+    expect(p.optimistic).toEqual(new Set(['title']));
+    expect(state.pending.map((x) => x.seq)).toEqual([1]);
   });
 });
