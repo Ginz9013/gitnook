@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { BoardHeader } from './BoardHeader';
 import { CardFace } from './Card';
 import { Column } from './Column';
+import { EmptyBoard } from './EmptyBoard';
 import type { DragState } from './Column';
 import { announceCancel, announceDrop, announceGrab, announceOver, dragInstructions } from './announce';
 import { collapsedNow, revealOver, toggleCollapsed } from './collapse';
@@ -350,7 +351,9 @@ export function Board({
           // 指標被別人搶走（或隱式釋放）也要收尾，否則游標會一直卡在 grabbing。
           onLostPointerCapture={handlePanEnd}
           className={cn(
-            'flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto pb-2',
+            // `relative` 是空看板那段話的定位基準（`EmptyBoard`）—— 它要對齊
+            // 欄位帶的中線，不是視窗的。
+            'relative flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto pb-2',
             // 平移中的游標。**整個子樹一起換**：卡片自己是 `cursor-grab`，不蓋掉
             // 的話手拉過卡片上方時游標會變回「可以抓」，而那一刻抓著的是看板。
             // `select-none` 是同一件事的另一半 —— 拉過欄名時不該一路反白。
@@ -372,6 +375,16 @@ export function Board({
               onCreate={onCreate}
             />
           ))}
+
+          {/*
+            一張都沒有的看板。**條件是整份投影是空的**，不是「某一欄是空的」——
+            被封存或被篩掉而看不見的那些不算沒有，那種情況 header 自己會說
+            「顯示已封存（N）」。
+
+            疊在欄位帶**裡面**（容器是 `relative`）而不是取代它：八欄是版面，
+            它們照樣在，而這段話對齊的是欄位的中線而不是視窗的。
+          */}
+          {issues.length === 0 && <EmptyBoard />}
         </div>
 
         {/* 欄位會 overflow-y-auto，被拖的那張放在 overlay 上才不會被裁掉。 */}

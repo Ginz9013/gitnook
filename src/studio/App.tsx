@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Board } from '@/board/Board';
 import { BoardSkeleton } from '@/board/BoardSkeleton';
-import { EmptyBoard } from '@/board/EmptyBoard';
 import { focusIssue } from '@/board/focus';
 import { IssueDrawer } from '@/drawer/IssueDrawer';
 import type { DrawerChange } from '@/drawer/changes';
@@ -289,13 +288,6 @@ export function App(): React.JSX.Element {
         onRelease={onRelease}
         onCreate={onCreate}
       />
-      {/*
-        一張都沒有的看板。**條件是整份投影是空的**，不是「某一欄是空的」——
-        被封存或被篩掉而看不見的那些不算沒有，那種情況 header 自己會說
-        「顯示已封存（N）」。疊在看板上而不是取代它，八欄照樣在
-        （`board/EmptyBoard.tsx`）。
-      */}
-      {projected.length === 0 && <EmptyBoard />}
       <IssueDrawer
         issue={selected}
         onClose={() => setSelectedId(null)}

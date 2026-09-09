@@ -18,10 +18,15 @@
  *
  * **這裡沒有自動化測試**（spec.md：React 組件不寫測試）。沒有 props、沒有
  * state、沒有分支 —— 該不該畫它是呼叫端的一個 `length === 0`。
+ *
+ * `absolute inset-0` 對齊的是**欄位帶**（`Board.tsx` 裡那個 `relative` 的捲動
+ * 容器），不是視窗。B5 當初只能用 `fixed`，因為 `Board.tsx` 那時是 B4 的地盤 ——
+ * 對齊視窗會讓這段話比欄位帶的中線高出半個 header。`pointer-events-none` 讓它
+ * 指得動的那顆「新增 Issue」按鈕真的按得到。
  */
 export function EmptyBoard(): React.JSX.Element {
   return (
-    <div className="pointer-events-none fixed inset-0 flex items-center justify-center p-6">
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
       <div className="bg-card text-card-foreground max-w-md rounded-lg border p-6 text-center shadow-lg">
         <p className="text-sm font-medium">這塊 board 還沒有任何 Issue</p>
         <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
