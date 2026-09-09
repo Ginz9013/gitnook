@@ -10,7 +10,8 @@ nook ref：`01M224RJ3V7CYJQH1P4HTQ5XEB`
 
 ## Acceptance criteria
 
-- [ ] `renderMarkdown(src: string): string` 成為 `html.ts` 的公開匯出
+- [ ] `renderMarkdown(src: string): string` 是 `html.ts` 的公開匯出
+      —— **票 01 已經改成 `export` 了**，這一條現在只是確認它還在、簽章沒變
 - [ ] 移除 `renderBoardHtml` `renderIssueHtml` `page` `STYLESHEET` `card`
       `labelList` `commentTimeline` `shortId` `inlineScriptTag` 與 `HtmlOptions`
 - [ ] `escapeHtml` 保留（markdown renderer 依賴它）

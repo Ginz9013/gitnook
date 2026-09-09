@@ -3,3 +3,5 @@
 {"id":"01M224RHGPN6271B5ZQY25Y8WJ","t":3,"a":"83a1","op":"label.add","v":"studio"}
 {"id":"01M224RHGPR0QVDS2XXWN6DSDQ","t":4,"a":"83a1","op":"label.add","v":"build"}
 {"id":"01M22BXAGDCXQS9K8TBVXW8R4T","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M22DS6EKQW53X2S9YZSNY365","t":6,"a":"83a1","op":"comment","body":"完成（commit 1c041cf），待簽核。\n\nGET / 換成不碰 board 的 SPA 殼，資料走 /api/board（IssueView = Issue + server 先渲染好的安全 HTML），資產走 /assets/<file> 在 request 當下才讀。src/studio/ 是獨立的 Vite 應用，React 19 + Tailwind v4 + shadcn，沒裝 vaul。\n\nADR-0008 那條冷啟硬約束是結構性守住的，不是靠設定：dist/cli/run.js 裡 react / createRoot / radix / tailwind 出現次數都是 0。冷啟 25.8 → 25.9ms（噪音範圍內）。\n\n測試 281 → 289，型別 0 錯誤，四個硬指標全過。package 123KB → 400KB（13% 的 3MB 閘門）。\n\n兩處超出 write scope 的改動，是我 board 畫錯：renderMarkdown 需要 export 但 html.ts 屬於票 04、而票 04 被本票擋住（循環）；test/cli/run.test.ts 對 / 內容的斷言必然轉紅但我沒指派給任何票。兩處都已接受並記在 commit 訊息裡。\n\nworker 發現的覆蓋缺口已轉進票 03：伺服器渲染的 GET /i/<ref> 移除時，連帶刪掉了測「有歧義 ref」的 describe，目前沒有測試釘住 AmbiguousRef → 404 含候選。"}
+{"id":"01M22DS6FRTK2GH1TBG2YM59EJ","t":7,"a":"83a1","op":"set","k":"status","v":"review"}

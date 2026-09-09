@@ -33,6 +33,10 @@ nook ref：`01M224SZA2S09YTQD0K8VNWBSQ`
 
 - [ ] `bench` 把 studio 資產的體積單獨列一行，讓它的成長看得見而不是混在
       package size 裡
+- [ ] **加一個結構性的冷啟守衛**：斷言 `dist/cli/run.js` 裡不含 React 痕跡
+      （`react` / `createRoot` / `radix` / `tailwind` 皆為 0 次）。目前這條
+      ADR-0008 的硬約束只由 bench 的計時中位數間接守著，而計時會漂；
+      直接檢查 bundle 內容才抓得到真正的失效模式
 - [ ] 四個硬指標全過
 
 ## Test seam
@@ -46,9 +50,11 @@ nook ref：`01M224SZA2S09YTQD0K8VNWBSQ`
 - `AGENT.md`
 - `bench/index.ts` `bench/size.ts`
 - `test/` 底下釘住 AGENT.md 與 CLI 一致性的測試檔（若因文案改動而需要更新）
+- `src/cli/run.ts` — **僅限** 218 行附近的 help 文字（`studio [--port <n>]
+  localhost 唯讀看板`）。studio 已經不是唯讀的。**不得**改該檔案的任何邏輯
 
-**不得碰**：`src/**`。這張票是文件與量測，**不改行為**。若發現需要改行為才能
-讓文件成真，回報 blocked。
+**不得碰**：`src/**` 的其餘部分。這張票是文件與量測，**不改行為**。若發現需要
+改行為才能讓文件成真，回報 blocked。
 
 ## Shared resources
 
