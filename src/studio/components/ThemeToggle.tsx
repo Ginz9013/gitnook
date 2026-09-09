@@ -58,7 +58,7 @@ export function ThemeToggle(): React.JSX.Element {
   /**
    * 偏好改了就套上去。**訂閱作業系統不在這裡** —— 它在 `main.tsx`，因為
    * 「跟著系統走」是這個頁面的性質，不是這顆按鈕的性質：訂閱掛在組件上時，
-   * 組件一 unmount（票 B2 正要把它搬進 header）跟隨系統就靜靜死掉。
+   * 組件一 unmount（B2 就把它從右上角搬進了 header）跟隨系統就靜靜死掉。
    */
   useEffect(() => applyTheme(preference), [preference]);
 
