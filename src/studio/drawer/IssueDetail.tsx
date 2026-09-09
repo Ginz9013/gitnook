@@ -161,12 +161,17 @@ function IssueActions({
               而不是在文件裡：讀它的人正在猶豫要不要按，而那正是這兩件事唯一
               有用的時刻。用字與 `nook rm` 的確認訊息一致（cli/run.ts 的
               `deletedMessage`）—— 同一個決定在三個介面上說同一句話。
+
+              **「每一個欄位寫過的值」是刻意的精確措辭，不要改回「每一個值」。**
+              `history` 列的是對 LWW 欄位的寫入（票 A12 之後含 create 寫下的
+              標題）；`comment` 與 `label` 不是欄位，不在那份清單裡 —— 它們
+              仍然在 `.ndjson` 裡，但這句話不該讓人以為 `history` 撈得到。
             */}
             <AlertDialogDescription>
               封存只是把它從看板上收起來，<code className="font-mono">nook list --all</code>{' '}
               還列得到；<strong className="text-foreground font-medium">刪除之後 --all 也不再列它</strong>。
               檔案不會被刪掉：<code className="font-mono">nook history {shortId}</code>{' '}
-              仍然撈得回它寫過的每一個值，
+              仍然撈得回它每一個欄位寫過的值，
               <code className="font-mono">nook set {shortId} deleted false</code> 可以把它放回來。
             </AlertDialogDescription>
           </AlertDialogHeader>

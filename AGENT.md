@@ -94,7 +94,7 @@ Checkboxes inside a description are plain text. They are not sub-tasks and nothi
 
 **Deleting never removes a file.** `nook rm <ref>` — and its plain form `nook set <ref> deleted true` — appends a tombstone to the op-log and stops there. The `.ndjson` file stays on disk, `nook list` and `nook list --all` both stop listing the issue, `nook show` on it exits 1, and `nook set <ref> deleted false` brings it back. Nothing in nook unlinks an issue file. That is deliberate: a modify/delete pair is the one conflict `merge=union` cannot resolve, so a branch that edits an issue another branch deleted would conflict — which is the exact failure this tracker exists to avoid (ADR-0009).
 
-**`nook rm` confirms before it writes**, and off a TTY it refuses rather than waiting — an agent pipeline is never a TTY, so pass `--yes` when you mean it. Deleting the wrong ref is cheap to make and expensive to notice; the content is still recoverable with `nook history <ref>`, which reads every value ever written, including to a deleted issue.
+**`nook rm` confirms before it writes**, and off a TTY it refuses rather than waiting — an agent pipeline is never a TTY, so pass `--yes` when you mean it. Deleting the wrong ref is cheap to make and expensive to notice; the content is still recoverable with `nook history <ref>`, which lists every write to a field — including the title the create op wrote, and including on a deleted issue. Comments and labels are not fields, so they are not in that listing; they are still in the `.ndjson`.
 
 ## studio is the human's interface
 
