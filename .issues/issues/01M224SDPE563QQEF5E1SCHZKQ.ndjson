@@ -1,0 +1,3 @@
+{"id":"01M224SDPEHK82ZKVZ2Q1NXJCB","t":1,"a":"83a1","op":"create","title":"Issue drawer：詳情、留言與內編輯"}
+{"id":"01M224SDPSJGZR3V8FA18X67XT","t":2,"a":"83a1","op":"set","k":"description","v":"點卡片開 drawer 看詳情，不離開看板。用 Radix Dialog 為底的 shadcn Sheet（不是 vaul，見 ADR-0008）。\n\n要做的：\n- 標題、status、labels、description、comment 時間軸\n- description 與 comments 由 server 送來已渲染的安全 HTML（見 html.ts 拆分那張票）\n- 內編輯：標題、description、留言、label 增減\n- comment 時間軸不得在前端重排。Issue.comments 已由 core 的 reduce() 以 (t, a, id) 全序產出，在此複製一份比較器只會與 core 分歧 —— 這正是 commit 463343d 那個 bug 的成因\n\nRadix 順帶處理 focus trap、ARIA 與 scroll lock，這些手寫都會寫錯。"}
+{"id":"01M224SDPSND8N3FDS67FWWZP6","t":3,"a":"83a1","op":"label.add","v":"studio"}

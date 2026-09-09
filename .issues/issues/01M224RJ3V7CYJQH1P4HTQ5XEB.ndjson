@@ -1,0 +1,4 @@
+{"id":"01M224RJ3VE052ED4GK22J3W6F","t":1,"a":"83a1","op":"create","title":"src/render/html.ts 拆分：保留 markdown renderer，移除看板渲染"}
+{"id":"01M224RJ475YGEXTHG57QCD09N","t":2,"a":"83a1","op":"set","k":"description","v":"ADR-0008。html.ts 的 markdown renderer 用「先逸出、再構造」建立安全模型：所有來源文字在任何標記產生之前就已經逸出，因此 raw HTML 天生無法通過，不需要危險標籤黑名單。這是 repo 裡最好的一段設計，在 React 裡重寫是降級。\n\n要做的：\n- 移除看板／卡片／頁面的渲染（renderBoardHtml、renderIssueHtml、page、STYLESHEET）\n- 保留 markdown → 安全 HTML，client 收到的 description 與 comments 已經是安全字串，用 dangerouslySetInnerHTML 注入。安全性由 server 保證，不靠前端紀律\n- 保留 shortIdLength 的呼叫方式不變（core 是唯一的長度來源，不得在渲染端重算）\n\ntest/render/html.test.ts 的 22 個 describe 裡有 8 個是 markdown 專屬的（區塊語法、行內語法、list、link、blockquote、fenced code、raw HTML 關閉），這樣拆它們原封不動存活。其餘的隨看板渲染一起移除，golden 檔 html-board.html / html-issue.html 也是。"}
+{"id":"01M224RJ47G4KXQVN81KB49BZE","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M224RJ47R8MGVAYST4D61W6B","t":4,"a":"83a1","op":"label.add","v":"render"}
