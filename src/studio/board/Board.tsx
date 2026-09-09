@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { Announcements, DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core';
 
@@ -6,6 +6,7 @@ import type { BoardInfo, IssueView, Status } from '@/api';
 import { readCollapsed, writeCollapsed } from '@/prefs';
 import type { ProjectedIssue } from '@/reconcile';
 import { STATUS_ORDER, groupByStatus } from '@/statuses';
+import { cn } from '@/lib/utils';
 
 import { BoardHeader } from './BoardHeader';
 import { CardFace } from './Card';
@@ -14,6 +15,8 @@ import type { DragState } from './Column';
 import { announceCancel, announceDrop, announceGrab, announceOver, dragInstructions } from './announce';
 import { collapsedNow, revealOver, toggleCollapsed } from './collapse';
 import { boardCollision, columnKeyboardCoordinates, draggedIssue, statusOf } from './dnd';
+import { panStarted, panTo } from './pan';
+import type { PanOrigin } from './pan';
 
 /**
  * 沒有任何欄位被拖曳掀開。**一個模組層級的常數而不是每次 `new Set()`** ——
@@ -21,6 +24,14 @@ import { boardCollision, columnKeyboardCoordinates, draggedIssue, statusOf } fro
  * 「掀開的是哪幾欄」根本沒變。
  */
 const NONE: ReadonlySet<Status> = new Set();
+
+/** 按著左鍵的那一隻指標，以及它有沒有已經走過門檻。 */
+interface PanGesture extends PanOrigin {
+  /** 只跟著這一隻指標走 —— 第二隻手指按下去不該接管別人的平移。 */
+  readonly pointerId: number;
+  /** 走過 `panStarted` 的門檻、指標已經抓住了嗎。 */
+  started: boolean;
+}
 
 /**
  * 看板對外的那一面。`App` 是唯一的呼叫端 —— 它持有調和 state 與寫入面，看板
@@ -110,6 +121,22 @@ export function Board({
    * 而放開之後那一欄要照樣折回去，偏好一格都不能動。
    */
   const [revealed, setRevealed] = useState<ReadonlySet<Status>>(NONE);
+  /**
+   * 那個橫向捲動的容器。八欄加間距超過 2100px，多數筆電放不下，於是右邊幾欄
+   * 在畫面外 —— 平移與拖曳自動捲動動的都是這一個節點的 `scrollLeft`。
+   */
+  const scroller = useRef<HTMLDivElement>(null);
+  /**
+   * 這次按著的那一隻指標。**放 ref 而不是 state**：一次平移是每一格指標移動改一次
+   * `scrollLeft`，走 state 等於每個 frame 重繪八欄，而畫面上會動的只有捲動位置
+   * ——瀏覽器自己就會畫。
+   */
+  const pan = useRef<PanGesture | null>(null);
+  /**
+   * 真的在平移了。**這一格值得一次重繪**：它只換游標，而游標是 CSS，非得經過
+   * React 不可。一次平移總共重繪兩次（開始與結束）。
+   */
+  const [panning, setPanning] = useState(false);
 
   const sensors = useSensors(
     // 4px 的門檻讓「點一下開細節」與「拖走」分得開。
@@ -208,6 +235,70 @@ export function Board({
     onRelease();
   }
 
+  /**
+   * 在欄位之間的空白按下左鍵 —— 記下起點，但**先不動**。
+   *
+   * 真的開始平移是在 `handlePanMove` 裡走過門檻之後（`pan.ts` 的 `panStarted`）：
+   * 捲動容器裡面還有欄頂的 `+` 與八顆折疊鈕，按下去就抓住指標的話那些按鈕會
+   * 永遠按不動。
+   */
+  function handlePanDown(event: React.PointerEvent<HTMLDivElement>): void {
+    const el = scroller.current;
+    if (el === null) return;
+    // 只收主要指標的左鍵：右鍵是選單，中鍵是瀏覽器自己那套捲動。
+    if (!event.isPrimary || event.button !== 0) return;
+    // 觸控本來就會用手指推著捲，兩份一起動的話一次會走兩倍遠。
+    if (event.pointerType !== 'mouse') return;
+    const target = event.target;
+    // **卡片上按下去是要拖那張卡片，不是拉看板。** 卡片自己是 draggable，門檻
+    // 4px 的 `PointerSensor`（見上面的 sensors）；兩邊都接的話卡片跟著手走、
+    // 看板也跟著手走。`data-issue` 是卡片既有的屬性（`focus.ts` 靠它找卡片），
+    // 不必為了這件事再加一個記號。
+    if (!(target instanceof Element) || target.closest('[data-issue]') !== null) return;
+    pan.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      scrollLeft: el.scrollLeft,
+      started: false,
+    };
+  }
+
+  /** 拉著走。走過門檻的那一下才抓指標、才換游標。 */
+  function handlePanMove(event: React.PointerEvent<HTMLDivElement>): void {
+    const gesture = pan.current;
+    const el = scroller.current;
+    if (gesture === null || el === null || event.pointerId !== gesture.pointerId) return;
+    // 左鍵已經放掉了 —— 那次 `pointerup` 沒有回到這裡（門檻還沒過、指標也還沒
+    // 抓住時，放在容器外面就收不到）。丟掉那次手勢，否則接下來只是把滑鼠移過
+    // 看板，看板就會自己跟著跑。
+    if ((event.buttons & 1) === 0) {
+      pan.current = null;
+      return;
+    }
+
+    if (!gesture.started) {
+      if (!panStarted(gesture, event.clientX)) return;
+      gesture.started = true;
+      // 抓住指標有兩個作用：拉出容器（甚至拉出視窗）之後還收得到移動，而且
+      // 這一下的 `click` 會改派到容器上 —— 放手時停在哪張卡片上都不會開 drawer。
+      el.setPointerCapture(event.pointerId);
+      setPanning(true);
+    }
+    el.scrollLeft = panTo(gesture, event.clientX);
+  }
+
+  /**
+   * 放手（或指標被系統收走）。**不自己 `releasePointerCapture`** —— `pointerup`
+   * 之後瀏覽器本來就會隱式釋放，而搶在 `click` 之前手動放掉，正好會讓上面那句
+   * 「click 改派到容器」失效。
+   */
+  function handlePanEnd(event: React.PointerEvent<HTMLDivElement>): void {
+    const gesture = pan.current;
+    if (gesture === null || event.pointerId !== gesture.pointerId) return;
+    pan.current = null;
+    if (gesture.started) setPanning(false);
+  }
+
   return (
     <main
       className="flex h-dvh flex-col gap-3 p-4 outline-none"
@@ -233,6 +324,14 @@ export function Board({
         onCreate={onCreate}
       />
 
+      {/*
+        **拖曳自動捲動用 `@dnd-kit` 的預設值，這裡刻意沒有 `autoScroll` 設定。**
+        它找得到下面那個 `overflow-x-auto` 的 div（`useScrollableAncestors` 從被拖
+        的那張卡片往上找），實測：900px 視窗、八欄共 2132px，把 backlog 的卡片
+        拖到右緣按著不動，0.75 秒內 `scrollLeft` 從 0 走到底 1264，`cancelled`
+        接著就是 drop target。預設的 threshold 0.2 與 acceleration 10 在這個版面
+        上是夠的，調它只會讓行為離 dnd-kit 的文件更遠。
+      */}
       <DndContext
         sensors={sensors}
         collisionDetection={boardCollision}
@@ -242,7 +341,22 @@ export function Board({
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto pb-2">
+        <div
+          ref={scroller}
+          onPointerDown={handlePanDown}
+          onPointerMove={handlePanMove}
+          onPointerUp={handlePanEnd}
+          onPointerCancel={handlePanEnd}
+          // 指標被別人搶走（或隱式釋放）也要收尾，否則游標會一直卡在 grabbing。
+          onLostPointerCapture={handlePanEnd}
+          className={cn(
+            'flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto pb-2',
+            // 平移中的游標。**整個子樹一起換**：卡片自己是 `cursor-grab`，不蓋掉
+            // 的話手拉過卡片上方時游標會變回「可以抓」，而那一刻抓著的是看板。
+            // `select-none` 是同一件事的另一半 —— 拉過欄名時不該一路反白。
+            panning && 'cursor-grabbing [&_*]:cursor-grabbing select-none',
+          )}
+        >
           {/* 由左到右照 `STATUS_ORDER`，鍵盤的左右鍵也照同一份（`dnd.ts`）。
               中間不插任何東西 —— 八欄一視同仁（ADR-0010）。 */}
           {STATUS_ORDER.map((status) => (
