@@ -1183,3 +1183,205 @@ describe('history', () => {
     expect(io.out).toBe('沒有 set op\n');
   });
 });
+
+/**
+ * 刪除一路做到底（spec D3）：core 的 `deleted` 欄位在 CLI 上有自己的入口，
+ * 而不是只有 GUI 按得到 —— `blocked` 曾經在三個介面上長成三種行為。
+ *
+ * `rm` 的定義是「`set deleted true` **加上一次確認**」，不是第二條路徑。
+ */
+describe('rm', () => {
+  it('--yes 直接刪除：list --all 不再列它，但檔案還在（墓碑，不 unlink）', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    const io = capture();
+
+    expect(await run(['rm', '01JBXA', '--yes'], io)).toBe(0);
+
+    const board = capture();
+    expect(await run(['list', '--all'], board)).toBe(0);
+    // `--all` 是「連 archived 與 done 都給我看」，不是「連刪掉的都給我看」。
+    expect(board.out).not.toContain('Fix login redirect');
+    // 真的清掉位元組留給日後的 gc（spec D2）：modify/delete 是 merge=union
+    // 不涵蓋的固有衝突，而「並行分支合併時不衝突」是這個工具的第一句話。
+    expect(existsSync(join(dir, '.issues', 'issues', `${fullId('01JBXA')}.ndjson`))).toBe(true);
+    expect(io.err).toBe('');
+  });
+});
+
+describe('rm 的確認是預設而不是選項', () => {
+  it('非 TTY 且沒有 --yes 時拒絕：exit 1、訊息說得出要加 --yes，且什麼都沒刪', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    // agent 的管線正是非 TTY。掛在一個等不到輸入的確認上等於整條管線掛死，
+    // 所以這裡是拒絕而不是等待 —— 同 --editor 的既有守門。
+    const io = capture();
+
+    expect(await run(['rm', '01JBXA'], io)).toBe(1);
+
+    expect(io.err).toContain('--yes');
+    expect(io.out).toBe('');
+    // agent 誤刪比人誤刪容易 —— 拒絕之後 op-log 上不得留下任何東西。
+    expect(openBoard({ dir }).get('01JBXA').deleted).toBe(false);
+  });
+});
+
+describe('set 的 deleted 欄位', () => {
+  it('true / false 兩向都成立 —— 復原就是 set deleted false，沒有第二條路徑', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    const io = capture();
+
+    expect(await run(['set', '01JBXA', 'deleted', 'true'], io)).toBe(0);
+    expect(openBoard({ dir }).get('01JBXA').deleted).toBe(true);
+
+    // 對一張已刪的 Issue 唯一允許的寫入就是復原本身（ADR-0009）。
+    expect(await run(['set', '01JBXA', 'deleted', 'false'], io)).toBe(0);
+    expect(openBoard({ dir }).get('01JBXA').deleted).toBe(false);
+
+    const board = capture();
+    expect(await run(['list', '--all'], board)).toBe(0);
+    expect(board.out).toContain('Fix login redirect');
+  });
+
+  it('非 true/false 的值直接報錯，且不寫入任何東西 —— 同 archived 的既有守衛', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    const log = join(dir, '.issues', 'issues', `${fullId('01JBXA')}.ndjson`);
+    const before = readFileSync(log, 'utf8');
+    const io = capture();
+
+    // 「yes」被靜默讀成一個真值，就是一次沒有人打算下達的刪除。
+    expect(await run(['set', '01JBXA', 'deleted', 'yes'], io)).toBe(1);
+
+    expect(io.err).toContain('deleted 只接受 true 或 false');
+    expect(io.out).toBe('');
+    expect(readFileSync(log, 'utf8')).toBe(before);
+  });
+});
+
+describe('show 對一張已刪的 Issue', () => {
+  it('說得出「已被刪除」並指向 nook history，exit 1，stdout 不留任何內容', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect', description: 'Only on Safari 17.' });
+    await run(['rm', '01JBXA', '--yes'], capture());
+    const io = capture();
+
+    // board.get() 對已刪的 Issue 不拋（ADR-0009），正是為了讓這裡說得出
+    // 「這張被刪了」而不是「找不到」—— 兩者要修的東西完全不同。
+    expect(await run(['show', '01JBXA'], io)).toBe(1);
+
+    expect(io.err).toContain('已被刪除');
+    // 誤刪的人下一步就是要把內容撈回來。不說出撈得回來的方法，這條訊息
+    // 等於在說東西沒了。
+    expect(io.err).toContain('nook history');
+    expect(io.out).toBe('');
+    expect(io.err).not.toContain('Only on Safari 17.');
+  });
+});
+
+/**
+ * `history` 是誤刪的救生索：檔案從來不被 unlink，所以刪掉之後每一次寫入
+ * 都還完整躺在 op-log 裡。`show` 之所以敢只說一句「已被刪除」，靠的就是
+ * 它指得到這裡。
+ */
+describe('history 對一張已刪的 Issue', () => {
+  const asActor = (actor: string, seed: string) =>
+    openBoard({ dir, actor, ids: seeded(fullId(seed)) });
+
+  it('照常列得出 op，exit 0 —— 刪除不擋讀取', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
+    await run(['rm', '01JBXA', '--yes'], capture());
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA'], io)).toBe(0);
+
+    // 被刪掉的那份 description 一個字都沒少 —— 這正是刪除不 unlink 的理由。
+    expect(io.out).toContain('alice 的原稿');
+    expect(io.err).toBe('');
+  });
+
+  it('history <ref> deleted 只列 deleted 的寫入 —— deleted 進了 SETTABLE 就免費', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
+    await run(['rm', '01JBXA', '--yes'], capture());
+    await run(['set', '01JBXA', 'deleted', 'false'], capture());
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA', 'deleted'], io)).toBe(0);
+
+    // 刪與復原各一行，依 core 的全序由舊到新；description 那一行不在其中。
+    expect(io.out.trim().split('\n').map((l) => l.split('  ').slice(2).join('  '))).toEqual([
+      'deleted  true',
+      'deleted  false',
+    ]);
+    expect(io.err).toBe('');
+  });
+});
+
+describe('對一張已刪的 Issue 寫入', () => {
+  it('comment / mv / label 一律 exit 1 並轉述 IssueDeleted —— 不是 exit 2 的內部錯誤', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    await run(['rm', '01JBXA', '--yes'], capture());
+
+    // 寫入安全的唯一決定點在 board.apply（ADR-0009），CLI 三條寫入路徑因此
+    // 一律繼承。這裡釘的是**分類**：使用者自己修得好（改指令、或先復原），
+    // 所以是 exit 1；exit 2 會把它讀成一個值得回報的 nook bug。
+    for (const argv of [
+      ['comment', '01JBXA', '還是壞的'],
+      ['mv', '01JBXA', 'done'],
+      ['label', '01JBXA', '+bug'],
+    ]) {
+      const io = capture();
+
+      expect(await run(argv, io), argv.join(' ')).toBe(1);
+
+      expect(io.err).toContain('已被刪除');
+      // 內部錯誤才帶型別名前綴。帶上它等於叫使用者去開 issue 回報自己的操作。
+      expect(io.err).not.toContain('IssueDeleted:');
+      expect(io.out).toBe('');
+    }
+  });
+});
+
+describe('--help 的指令表涵蓋 rm', () => {
+  it('列出 rm 與 set 的 deleted 欄位，且仍然短到值得每次都讀', async () => {
+    const io = capture();
+
+    expect(await run(['--help'], io)).toBe(0);
+
+    // 藏起一個存在的指令與教一個不存在的指令是同一種錯 —— 而 --help 是
+    // AGENT.md 自稱的「語法即時來源」，兩者由 test/agent-doc.test.ts 釘在一起。
+    expect(io.out).toContain('rm <ref>');
+    expect(io.out).toContain('--yes');
+    // 復原就是 set deleted false：不寫出 deleted 這個欄位，那條路等於不存在。
+    expect(io.out).toContain('deleted');
+    // agent 的 token 成本是硬指標（ADR-0005）。
+    expect(Buffer.byteLength(io.out, 'utf8')).toBeLessThan(1024);
+  });
+});
+
+describe('rm 的互動確認', () => {
+  it('TTY 上先問哪一張再刪：y 才刪，其他答案一律不刪並 exit 1', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+
+    const declined = { ...capture({ isTty: true }), readLine: () => 'n' };
+    expect(await run(['rm', '01JBXA'], declined)).toBe(1);
+
+    // 問句必須說出刪的是哪一張 —— 前綴打錯而刪掉另一張，正是這道關卡存在的
+    // 理由。問句走 stderr，stdout 只放資料。
+    expect(declined.err).toContain('Fix login redirect');
+    expect(declined.out).toBe('');
+    expect(openBoard({ dir }).get('01JBXA').deleted).toBe(false);
+
+    const confirmed = { ...capture({ isTty: true }), readLine: () => 'y' };
+    expect(await run(['rm', '01JBXA'], confirmed)).toBe(0);
+
+    expect(openBoard({ dir }).get('01JBXA').deleted).toBe(true);
+  });
+});

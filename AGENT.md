@@ -25,7 +25,8 @@ Issues are plain text files in the repo. They travel with the branch, merge with
 | `nook list [--all] [--status <s>] [--label <l>] [--json]` | one line per issue |
 | `nook show <ref> [--json]` | title, description, comments |
 | `nook history <ref> [<field>]` | every write to a LWW field, with actor and lamport `t` — read-only |
-| `nook set <ref> <title\|description\|status\|archived> <value\|-> [--editor]` | update one field |
+| `nook set <ref> <title\|description\|status\|archived\|deleted> <value\|-> [--editor]` | update one field |
+| `nook rm <ref> [--yes]` | delete; confirms first, so `--yes` is required off a TTY |
 | `nook mv <ref> <status>` | status transition (the common case) |
 | `nook comment <ref> <body\|->` | append a comment |
 | `nook label <ref> +bug -ui` | add and remove labels |
@@ -90,6 +91,10 @@ Data goes to **stdout**, errors and warnings to **stderr**.
 There is no assignee, priority, milestone, due date, estimate, sub-task, custom status, or search UI. **Do not simulate them.** Priority is expressed with labels (`+p1`). Ownership is in `git log`. Refusing to become a project-management tool is the design, not a gap — if the user wants one of these, say so rather than inventing a convention.
 
 Checkboxes inside a description are plain text. They are not sub-tasks and nothing tracks them.
+
+**Deleting never removes a file.** `nook rm <ref>` — and its plain form `nook set <ref> deleted true` — appends a tombstone to the op-log and stops there. The `.ndjson` file stays on disk, `nook list` and `nook list --all` both stop listing the issue, `nook show` on it exits 1, and `nook set <ref> deleted false` brings it back. Nothing in nook unlinks an issue file. That is deliberate: a modify/delete pair is the one conflict `merge=union` cannot resolve, so a branch that edits an issue another branch deleted would conflict — which is the exact failure this tracker exists to avoid (ADR-0009).
+
+**`nook rm` confirms before it writes**, and off a TTY it refuses rather than waiting — an agent pipeline is never a TTY, so pass `--yes` when you mean it. Deleting the wrong ref is cheap to make and expensive to notice; the content is still recoverable with `nook history <ref>`, which reads every value ever written, including to a deleted issue.
 
 ## studio is the human's interface
 

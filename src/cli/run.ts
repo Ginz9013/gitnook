@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,7 @@ import {
   AmbiguousRef,
   BoardNotInitialized,
   InvalidStatus,
+  IssueDeleted,
   RefNotFound,
 } from '../core/types.js';
 import { renderJson } from '../render/json.js';
@@ -50,6 +51,14 @@ export interface Io {
   /** stdin 是互動終端嗎？`--editor` 靠它在非 TTY 時報錯而不是卡住。 */
   readonly isTty: boolean;
   /**
+   * 互動確認讀一行 —— `rm` 的「真的要刪嗎」。
+   *
+   * 與 readStdin 是兩件事：那個讀到 EOF 為止（`-` 的用法就是餵一份東西
+   * 進來），拿它問問題會停在使用者按 Ctrl-D 才回來。可選的，因為它只有
+   * 一個呼叫端：沒有它的 adapter 就沒有確認可問，`rm` 於是要求 `--yes`。
+   */
+  readLine?(): string;
+  /**
    * 長駐指令（studio）的關閉信號。真實 adapter 綁 SIGINT，測試綁一個
    * AbortController —— 沒有它，`studio` 就只能靠殺掉 process 來結束。
    */
@@ -69,9 +78,43 @@ export function processIo(signal?: AbortSignal): Io {
     writeError: (text) => void process.stderr.write(text),
     // fd 0 一次讀完。`-` 的用法本來就是「把一份東西餵進來」。
     readStdin: () => readFileSync(0, 'utf8'),
+    readLine: readLineFromStdin,
     ...(signal === undefined ? {} : { signal }),
   };
 }
+
+/**
+ * fd 0 讀到第一個換行為止。終端機在正常（canonical）模式下本來就是一行一
+ * 送，所以這裡不必自己處理逐字元輸入；迴圈只是為了不假設一次 read 就拿得
+ * 到整行。讀到 EOF 就交出手上有的 —— 那等於使用者沒有回答，呼叫端會當成否定。
+ */
+function readLineFromStdin(): string {
+  const buffer = Buffer.alloc(256);
+  // Atomics.wait 是同步的睡眠。忙等在等一個人打字的那幾秒裡會把一顆核心燒滿。
+  const idle = new Int32Array(new SharedArrayBuffer(4));
+  let answer = '';
+  for (;;) {
+    let read: number;
+    try {
+      read = readSync(0, buffer, 0, buffer.length, null);
+    } catch (thrown) {
+      // 終端機的 fd 0 是 non-blocking 的：還沒有人打字時 read 立刻以 EAGAIN
+      // 失敗。那不是錯誤而是「還沒輸入」—— 照著拋出去，rm 會在真實終端機上
+      // 變成一個 exit 2 的內部錯誤（實測如此，而這條路徑沒有測試看得到）。
+      if ((thrown as NodeJS.ErrnoException).code !== 'EAGAIN') throw thrown;
+      Atomics.wait(idle, 0, 0, POLL_MS);
+      continue;
+    }
+    if (read === 0) return answer;
+    const chunk = buffer.toString('utf8', 0, read);
+    const end = chunk.indexOf('\n');
+    if (end !== -1) return answer + chunk.slice(0, end);
+    answer += chunk;
+  }
+}
+
+/** 兩次探問之間的間隔。夠短到打字沒有延遲感，夠長到不算忙等。 */
+const POLL_MS = 20;
 
 /** CLI 自己發現的使用者錯誤（用法不對、欄位不存在）。與領域錯誤同樣是 exit 1。 */
 class UsageError extends Error {
@@ -91,6 +134,9 @@ const USER_ERRORS = [
   RefNotFound,
   AmbiguousRef,
   InvalidStatus,
+  // 對一張已刪的 Issue 寫入：使用者先復原（set deleted false）就修好了，
+  // 而且什麼都沒壞 —— 那是一次被擋下的寫入，不是一個值得回報的 nook bug。
+  IssueDeleted,
   ConflictingGitAttributes,
   // 在 board 底下再 init：使用者 cd 到根目錄就修好了，而且不修也沒有壞任何東西。
   NestedBoard,
@@ -138,6 +184,8 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
       return cmdHistory(parseArgs(rest, NO_FLAGS), io);
     case 'set':
       return cmdSet(parseArgs(rest, SET_FLAGS), io);
+    case 'rm':
+      return cmdRm(parseArgs(rest, RM_FLAGS), io);
     case 'mv':
       return cmdMv(parseArgs(rest, NO_FLAGS), io);
     case 'comment':
@@ -153,7 +201,7 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
   throw new UsageError(unknownCommand(command));
 }
 
-const COMMANDS = ['init', 'new', 'list', 'show', 'history', 'set', 'mv', 'comment', 'label', 'doctor', 'studio'];
+const COMMANDS = ['init', 'new', 'list', 'show', 'history', 'set', 'rm', 'mv', 'comment', 'label', 'doctor', 'studio'];
 
 /** 打錯字與想要一個不存在的功能是兩件事，回答也該不一樣。 */
 function unknownCommand(command: string): string {
@@ -213,7 +261,8 @@ new <title> [--description <text|->] [--label <l>] [--editor]
 list [--all] [--status <s>] [--label <l>] [--json]
 show <ref> [--json]
 history <ref> [<field>]                看某個 LWW 欄位被寫過哪些值
-set <ref> <title|description|status|archived> <value|-> [--editor]
+set <ref> <title|description|status|archived|deleted> <value|-> [--editor]
+rm <ref> [--yes]                       刪除；非 TTY 需 --yes
 mv <ref> <status>
 comment <ref> <body|->
 label <ref> +bug -ui                   加減 Label（無優先級欄位，用 Label）
@@ -255,6 +304,7 @@ const NEW_FLAGS: ReadonlySet<string> = new Set(['--description', '--editor', '--
 const LIST_FLAGS: ReadonlySet<string> = new Set(['--all', '--status', '--label', '--json']);
 const SHOW_FLAGS: ReadonlySet<string> = new Set(['--json']);
 const SET_FLAGS: ReadonlySet<string> = new Set(['--editor']);
+const RM_FLAGS: ReadonlySet<string> = new Set(['--yes']);
 const DOCTOR_FLAGS: ReadonlySet<string> = new Set(['--fix']);
 const STUDIO_FLAGS: ReadonlySet<string> = new Set(['--port']);
 
@@ -359,7 +409,18 @@ function cmdList(args: Args, io: Io): number {
  */
 function cmdShow(args: Args, io: Io): number {
   const board = openBoard({ dir: io.cwd });
-  const issue = board.get(requireRef(args.positional[0] ?? ''));
+  const ref = requireRef(args.positional[0] ?? '');
+  const issue = board.get(ref);
+
+  // `board.get()` 對已刪的 Issue 不拋（ADR-0009），正是為了讓這裡分得出
+  // 「被刪了」與「找不到」—— 兩者要修的東西完全不同。訊息必須帶出撈得回來
+  // 的方法：只說東西沒了，誤刪的人下一步無處可去。
+  // 擺在 warnIfUnguarded 之前 —— 一個問題就講一個問題（同尚未 init 的目錄）。
+  if (issue.deleted) {
+    errLine(io, `issue 已被刪除：${ref}（nook history ${ref} 撈得回寫過的值，nook set ${ref} deleted false 復原）`);
+    return 1;
+  }
+
   warnIfUnguarded(io);
   // 單一物件而非長度 1 的陣列 —— 串接端不必為了取一張 Issue 去拆陣列。
   line(io, args.has('--json') ? renderJson(issue) : renderTable(issue, displayLength(board)));
@@ -367,10 +428,14 @@ function cmdShow(args: Args, io: Io): number {
 }
 
 /**
- * 四個 LWW 欄位：`set` 可寫的，也是 `history` 可查的。
+ * 五個 LWW 欄位：`set` 可寫的，也是 `history` 可查的。
  * labels 有專屬的 OR-Set 語意，不走這裡。
+ *
+ * `deleted` 在這份名單上，`nook set <ref> deleted <bool>` 與
+ * `nook history <ref> deleted` 因此不必各寫一份 —— 刪除是既有 LWW 機器上的
+ * 一個欄位，不是一種新的東西（ADR-0009）。
  */
-const SETTABLE = ['title', 'description', 'status', 'archived'] as const;
+const SETTABLE = ['title', 'description', 'status', 'archived', 'deleted'] as const;
 type Field = (typeof SETTABLE)[number];
 
 /**
@@ -439,17 +504,22 @@ function fromEditor(io: Io, seed: string): string {
   return readFileSync(file, 'utf8').replace(/\r?\n$/, '');
 }
 
+/** 兩個 boolean 欄位。`yes` 被靜默讀成真值，就是一次沒有人打算下達的刪除。 */
+const BOOLEAN_FIELDS: ReadonlySet<string> = new Set(['archived', 'deleted']);
+
 function asChange(field: Field, value: string): Change {
-  if (field === 'archived') {
-    if (value !== 'true' && value !== 'false') throw new UsageError(`archived 只接受 true 或 false：${value}`);
-    return { archived: value === 'true' };
+  if (BOOLEAN_FIELDS.has(field)) {
+    if (value !== 'true' && value !== 'false') {
+      throw new UsageError(`${field} 只接受 true 或 false：${value}`);
+    }
+    return { [field]: value === 'true' };
   }
   return { [field]: value };
 }
 
 function cmdSet(args: Args, io: Io): number {
   const [ref, field, value] = args.positional;
-  const usage = '用法：nook set <ref> <title|description|status|archived> <value|->';
+  const usage = '用法：nook set <ref> <title|description|status|archived|deleted> <value|->';
   if (ref === undefined || field === undefined) throw new UsageError(usage);
   requireRef(ref);
   if (!(SETTABLE as readonly string[]).includes(field)) {
@@ -471,6 +541,53 @@ function cmdSet(args: Args, io: Io): number {
   const updated = board.apply(ref, asChange(field as Field, text));
   // 回印更新後那一行 —— 呼叫端不必再跑一次 show 才知道結果。
   line(io, renderTable([updated], displayLength(board)));
+  return 0;
+}
+
+/**
+ * 問一次「真的要刪嗎」。**答案不是 y 就是否定** —— 一個看不懂的回答在這裡
+ * 只能當成「不要」。
+ *
+ * 非 TTY 是 agent 的實際情境：掛在一個等不到輸入的確認上等於整條管線掛死，
+ * 所以那裡拒絕而不是等待（同 --editor 的既有守門），出口是 `--yes`。
+ *
+ * 問句帶著標題：前綴打錯而刪掉另一張，正是這道關卡存在的理由。它走 stderr，
+ * 因為 stdout 是資料。
+ */
+function confirmed(io: Io, title: string): boolean {
+  if (!io.isTty || io.readLine === undefined) {
+    throw new UsageError('rm 預設要互動確認；非 TTY 請加 --yes');
+  }
+
+  io.writeError(`刪除 ${title}？(y/N) `);
+  if (io.readLine().trim().toLowerCase() === 'y') return true;
+
+  errLine(io, '取消：沒有刪除任何東西');
+  return false;
+}
+
+/**
+ * 刪除。定義是「`set <ref> deleted true` **加上一次確認**」—— 不是第二條
+ * 路徑，是一層安全包裝，所以寫入仍然只經過 `board.apply` 那一個決定點。
+ *
+ * 檔案永遠不 unlink：留下的是一個墓碑欄位（ADR-0009）。modify/delete 是
+ * merge=union 不涵蓋的固有衝突，而零衝突是這個工具的第一句話。
+ */
+function cmdRm(args: Args, io: Io): number {
+  const [ref] = args.positional;
+  if (ref === undefined) throw new UsageError('用法：nook rm <ref> [--yes]');
+  requireRef(ref);
+
+  const board = openBoard({ dir: io.cwd });
+  const target = board.get(ref);
+
+  // 守門在任何寫入之前。
+  if (!args.has('--yes') && !confirmed(io, target.title)) return 1;
+
+  board.apply(ref, { deleted: true });
+  // 回印的不是更新後那一行 —— 一張已刪的 Issue 印成普通的一列，看起來會像
+  // 什麼都沒發生。說出刪掉的是哪一張，同 init 的「動詞 + 對象」。
+  line(io, `Deleted  ${target.id.slice(0, displayLength(board))}  ${target.title}`);
   return 0;
 }
 
