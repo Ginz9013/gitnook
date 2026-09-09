@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nook studio 寫入模型 — prototype</title>
+<style>
+:root{
+  --fg:#1c1c1e; --muted:#6b6b70; --bg:#f6f6f7; --surface:#fff; --line:#dcdce0;
+  --accent:#0b57d0; --accent-soft:#e8f0fe;
+  --warn:#8a5a00; --warn-soft:#fff4e0;
+  --bad:#a11; --bad-soft:#fdeaea;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:15px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI","Noto Sans TC",sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding:40px 24px 80px}
+h1{font-size:26px;margin:0 0 6px;letter-spacing:-.01em}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+  margin:36px 0 12px;font-weight:600}
+.lede{margin:0 0 4px;color:var(--muted);max-width:70ch}
+.question{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:6px;padding:14px 18px;margin:20px 0 0;max-width:78ch}
+.question strong{color:var(--accent)}
+.throwaway{display:inline-block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  background:var(--warn-soft);color:var(--warn);border:1px solid #e8d5a8;border-radius:999px;
+  padding:2px 10px;margin-bottom:14px;font-weight:600}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:18px 20px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+@media(max-width:860px){.grid{grid-template-columns:1fr}}
+
+table{border-collapse:collapse;width:100%;font-size:14px}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted);font-weight:600;padding:0 8px 8px 0;border-bottom:1px solid var(--line)}
+td{padding:7px 8px 7px 0;border-bottom:1px solid #f0f0f2;vertical-align:top}
+tr:last-child td{border-bottom:none}
+.id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted)}
+.pill{display:inline-block;font-size:12px;border:1px solid var(--line);border-radius:999px;
+  padding:1px 9px;background:var(--bg);white-space:nowrap}
+.pill.moved{background:var(--accent-soft);border-color:#c3d7f7;color:var(--accent);font-weight:600}
+.pill.held{background:var(--warn-soft);border-color:#e8d5a8;color:var(--warn);font-weight:600}
+.diff{font-size:12px;color:var(--accent);margin-left:6px}
+
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+button{font:inherit;font-size:13px;background:var(--surface);color:var(--fg);
+  border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer}
+button:hover:not(:disabled){border-color:#b9b9c0}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary:hover:not(:disabled){background:#0a4cb8}
+button.done{background:var(--bg);color:var(--muted);border-style:dashed}
+select{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);
+  border-radius:6px;background:var(--surface);color:var(--fg)}
+label.inline{font-size:13px;color:var(--muted)}
+
+.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:0}
+.tab{border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;
+  padding:8px 14px;font-size:13px;background:none;cursor:pointer;color:var(--muted);margin-bottom:-1px}
+.tab[aria-selected="true"]{background:var(--surface);border-color:var(--line);color:var(--fg);font-weight:600}
+.tabpanel{background:var(--surface);border:1px solid var(--line);border-top:none;
+  border-radius:0 0 8px 8px;padding:18px 20px}
+.scenario-desc{margin:0 0 4px;max-width:70ch}
+.watch{margin:0 0 16px;font-size:14px;color:var(--warn);max-width:70ch}
+.watch::before{content:"要看的是：";font-weight:600}
+ol.steps{list-style:none;margin:0;padding:0;counter-reset:step}
+ol.steps li{counter-increment:step;display:flex;gap:12px;align-items:baseline;
+  padding:5px 0;border-bottom:1px solid #f4f4f6}
+ol.steps li:last-child{border-bottom:none}
+ol.steps li::before{content:counter(step);font-size:11px;color:var(--muted);
+  min-width:16px;font-family:ui-monospace,Menlo,monospace}
+ol.steps li.current button{box-shadow:0 0 0 3px var(--accent-soft)}
+.stepnote{font-size:13px;color:var(--muted)}
+
+.log{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+  line-height:1.7;max-height:260px;overflow-y:auto;margin:0}
+.log div{padding:2px 0;border-bottom:1px solid #f4f4f6}
+.log div:last-child{border-bottom:none}
+.log .k-warn{color:var(--warn)}
+.log .k-bad{color:var(--bad)}
+.log .k-ok{color:var(--accent)}
+.log .k-muted{color:var(--muted)}
+.empty{color:var(--muted);font-size:13px;font-style:italic}
+.hint{font-size:13px;color:var(--muted);margin:10px 0 0;max-width:74ch}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;
+  background:var(--bg);border:1px solid var(--line);border-radius:3px;padding:0 4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<span class="throwaway">Prototype — 用完即丟，不進 main</span>
+<h1>Nook studio 寫入模型</h1>
+<p class="lede">拖一張卡片改狀態時，畫面該相信誰：你的手，還是每兩秒回來一次的伺服器？</p>
+
+<div class="question">
+  <p style="margin:0 0 10px"><strong>這個 prototype 要回答的問題：</strong></p>
+  <p style="margin:0 0 10px">studio 目前是唯讀的，每 2 秒問一次 <code>/hash</code>，值變了就整頁重載。
+  一旦開放寫入並加上拖拉，整頁重載就不能用了 —— 拖到一半被重載、抽屜開著被重載。
+  取代它的東西必須同時處理三件事：<strong>樂觀更新</strong>（放手就動）、
+  <strong>輪詢調和</strong>（伺服器才是真相）、以及 <strong>append-only CRDT</strong>
+  （你的 op 一定寫得進去，但可能在 LWW 決勝時輸掉）。</p>
+  <p style="margin:0">按下面的按鈕，把這三件事的各種交錯順序實際跑一遍。
+  如果這個模型撐得住，那它在 SSR 和 React 底下是同一份程式碼 ——
+  <strong>框架選型就跟狀態同步無關</strong>，只剩渲染方式要選。這正是要驗證的。</p>
+</div>
+
+<h2>目前畫面</h2>
+<div class="grid">
+  <div class="panel">
+    <table>
+      <thead><tr><th>Issue</th><th>你看到的狀態</th><th>伺服器上的狀態</th></tr></thead>
+      <tbody id="board"></tbody>
+    </table>
+    <p class="hint" id="boardnote"></p>
+  </div>
+  <div class="panel">
+    <table>
+      <thead><tr><th>還沒落地的變更</th><th>內容</th></tr></thead>
+      <tbody id="pending"></tbody>
+    </table>
+    <p class="hint" id="dragnote"></p>
+  </div>
+</div>
+
+<h2>發生了什麼</h2>
+<div class="panel"><div class="log" id="log"></div></div>
+
+<h2>自由操作</h2>
+<div class="panel">
+  <div class="row">
+    <label class="inline">把</label>
+    <select id="pick-issue"></select>
+    <label class="inline">拖到</label>
+    <select id="pick-status"></select>
+    <button class="primary" id="btn-drop">放手</button>
+    <span class="stepnote">（樂觀更新：畫面立刻動）</span>
+  </div>
+  <div class="row">
+    <button id="btn-grab">抓住卡片不放</button>
+    <button id="btn-release">放開（不改狀態）</button>
+    <span class="stepnote">（模擬滑鼠按著、正在拖的那段時間）</span>
+  </div>
+  <div class="row">
+    <label class="inline">第</label>
+    <select id="pick-seq"></select>
+    <label class="inline">筆變更：</label>
+    <button id="btn-land">寫進伺服器的 op-log</button>
+    <button id="btn-ack">回應抵達瀏覽器</button>
+    <button id="btn-fail">傳輸失敗</button>
+  </div>
+  <div class="row">
+    <label class="inline">agent 在 CLI 把</label>
+    <select id="pick-issue2"></select>
+    <label class="inline">改成</label>
+    <select id="pick-status2"></select>
+    <button id="btn-agent">執行 nook mv</button>
+  </div>
+  <div class="row">
+    <button id="btn-poll">輪詢一次（/hash 改變 → 取得新快照）</button>
+    <button id="btn-reset">全部重來</button>
+  </div>
+  <p class="hint">「寫進 op-log」和「回應抵達瀏覽器」故意拆成兩顆按鈕 ——
+  真正難的情況全都發生在這兩件事之間。</p>
+</div>
+
+<h2>照著跑的情境</h2>
+<div class="tabs" id="tabs" role="tablist"></div>
+<div class="tabpanel" id="tabpanel"></div>
+
+</div>
+
+<script>
+/* =====================================================================
+ * 可移植模組 A —— 瀏覽器端的調和模型
+ *
+ * 這是這個 prototype 真正要驗證、也真正值得留下來的東西。
+ * 純函式，不碰 DOM。驗證過之後可以整塊搬進真正的 studio client，
+ * 不論外面包的是 SSR 的 fragment swap 還是 React。
+ * ===================================================================== */
+
+const STATUSES = ['backlog','todo','queued','in_progress','review','blocked','done','cancelled'];
+
+function initialClient(snapshot){
+  return {
+    snapshot,        // 最後一次輪詢拿到的伺服器真相：[{id,title,status}]
+    pending: [],     // 樂觀變更：{seq,issueId,value,landed}
+    drag: null,      // {issueId} —— 指標正按著的卡片
+    deferred: null,  // 因為正在拖曳而被押後的快照
+    seq: 0,
+    notes: []        // 這一步造成的說明，給畫面用
+  };
+}
+
+function clientReduce(state, action){
+  const s = { ...state, notes: [] };
+
+  switch(action.type){
+
+    case 'GRAB':
+      return { ...s, drag: { issueId: action.issueId },
+               notes: [['muted', '抓住 ' + short(action.issueId) + '。在放開之前，這張卡片不接受任何來自伺服器的移動。']] };
+
+    case 'RELEASE': {
+      // 放開的瞬間，把押後的快照補上 —— 這是「拖曳期間畫面不會被抽走」的代價，
+      // 也是它唯一的代價：延遲最多一次輪詢間隔。
+      if (!s.drag) return { ...s, notes: [['muted','沒有卡片被抓著。']] };
+      const held = s.drag.issueId;
+      let next = { ...s, drag: null, notes: [['muted','放開 ' + short(held) + '。']] };
+      if (s.deferred){
+        next = applySnapshot({ ...next, deferred: null }, s.deferred);
+        next.notes.unshift(['ok','押後的快照現在才套用。']);
+      }
+      return next;
+    }
+
+    case 'DROP': {
+      // 樂觀更新。同一張 issue 上較早的 in-flight 變更被這一筆取代 ——
+      // project() 只看最後一筆，所以舊的那筆之後回來也翻不了案。
+      const seq = s.seq + 1;
+      const superseded = s.pending.filter(p => p.issueId === action.issueId);
+      const notes = [['ok','畫面立刻把 ' + short(action.issueId) + ' 移到 ' + action.to + ' —— 不等伺服器。']];
+      if (superseded.length){
+        notes.push(['warn','第 ' + superseded.map(p=>p.seq).join('、') + ' 筆變更被這一筆取代；它們之後回來也不會把卡片拉回去。']);
+      }
+      return { ...s, drag: null, seq,
+               pending: [...s.pending, { seq, issueId: action.issueId, value: action.to, landed:false }],
+               notes };
+    }
+
+    case 'LAND': {
+      // op 已 append 進 .ndjson。append-only：這一步不可能失敗，也沒有「被拒絕」這回事。
+      const p = s.pending.find(x => x.seq === action.seq);
+      if (!p) return { ...s, notes: [['muted','第 ' + action.seq + ' 筆已經不在飛行中了。']] };
+      return { ...s, pending: s.pending.map(x => x.seq===action.seq ? {...x, landed:true} : x),
+               notes: [['muted','第 ' + action.seq + ' 筆的 op 已寫進 op-log。畫面還沒得到任何新資訊。']] };
+    }
+
+    case 'ACK': {
+      // 伺服器回應。它帶的是「寫入當下摺疊出來的值」—— 不是永恆真理：
+      // 在這個回應飛回來的路上，別人的 op 還是可能後來居上。
+      const p = s.pending.find(x => x.seq === action.seq);
+      if (!p) return { ...s, notes: [['muted','第 ' + action.seq + ' 筆已經不在飛行中了。']] };
+      const rest = s.pending.filter(x => x.seq !== action.seq);
+      const notes = [];
+      if (action.status === p.value){
+        notes.push(['ok','第 ' + action.seq + ' 筆確認：伺服器同意 ' + short(p.issueId) + ' 是 ' + p.value + '。']);
+      } else {
+        notes.push(['warn','第 ' + action.seq + ' 筆的 op 有寫進去，但摺疊後是 ' + action.status +
+          '，不是你拖的 ' + p.value + ' —— 有人的 op 在 LWW 決勝時贏了。畫面要接受 ' + action.status + '。']);
+      }
+      // 樂觀值退場，改用伺服器帶回來的值蓋進快照。
+      const snapshot = s.snapshot.map(i => i.id===p.issueId ? {...i, status: action.status} : i);
+      const still = rest.some(x => x.issueId === p.issueId);
+      if (still) notes.push(['muted','同一張還有更新的變更在飛，畫面繼續顯示那一筆。']);
+      return { ...s, pending: rest, snapshot, notes };
+    }
+
+    case 'FAIL': {
+      // 傳輸失敗（server 收掉了、board 目錄不見了）。這是唯一真正要回滾的情況。
+      const p = s.pending.find(x => x.seq === action.seq);
+      if (!p) return { ...s, notes: [['muted','第 ' + action.seq + ' 筆已經不在飛行中了。']] };
+      return { ...s, pending: s.pending.filter(x => x.seq !== action.seq),
+               notes: [['bad','第 ' + action.seq + ' 筆失敗（' + action.reason + '）。' +
+                 short(p.issueId) + ' 退回伺服器上的值。這是唯一需要回滾的情況。']] };
+    }
+
+    case 'POLL': {
+      if (s.drag){
+        // 拖曳期間絕不改動畫面。押著，等放開再說。
+        return { ...s, deferred: action.issues,
+                 notes: [['warn','輪詢拿到新快照，但你正抓著卡片 —— 押後，不套用。']] };
+      }
+      return applySnapshot(s, action.issues);
+    }
+  }
+  return s;
+}
+
+/**
+ * 套用一份新快照。關鍵規則：還在飛的樂觀變更「蓋過」快照。
+ *
+ * 少了這條，就會出現最難看的那個 bug：你放手、卡片移動、輪詢帶著
+ * 「還沒看到你這筆」的舊快照回來、卡片彈回原位、一秒後回應到了又彈過去。
+ */
+function applySnapshot(state, issues){
+  const notes = [];
+  const changed = issues.filter(n => {
+    const old = state.snapshot.find(o => o.id === n.id);
+    return old && old.status !== n.status;
+  });
+  const stale = state.pending.filter(p => {
+    const n = issues.find(i => i.id === p.issueId);
+    return n && n.status !== p.value;
+  });
+  if (changed.length){
+    notes.push(['ok','快照更新：' + changed.map(c=>short(c.id)+' → '+c.status).join('、')]);
+  } else {
+    notes.push(['muted','快照沒有變化。']);
+  }
+  if (stale.length){
+    notes.push(['ok','第 ' + stale.map(p=>p.seq).join('、') + ' 筆還在飛，畫面繼續顯示你拖的值 —— 卡片不會彈回去。']);
+  }
+  return { ...state, snapshot: issues, notes };
+}
+
+/** 使用者實際看到的東西：快照 + 樂觀覆蓋 + 拖曳鎖。 */
+function project(state){
+  return state.snapshot.map(issue => {
+    const mine = [...state.pending].reverse().find(p => p.issueId === issue.id);
+    const held = state.drag && state.drag.issueId === issue.id;
+    return {
+      id: issue.id,
+      title: issue.title,
+      shown: mine ? mine.value : issue.status,
+      serverKnown: issue.status,
+      optimistic: !!mine,
+      held: !!held
+    };
+  });
+}
+
+/* =====================================================================
+ * 可移植模組 B —— 伺服器（模擬）
+ *
+ * 純粹為了讓 prototype 跑得起來。真正的 nook 這一段是 board.apply()：
+ * append 一行進 .ndjson，per-issue lamport 取 max(t)+1，摺疊時
+ * 以 (t, actor, id) 全序決勝。這裡照著同一套規則做，只是放在記憶體。
+ * 不是要留下來的東西。
+ * ===================================================================== */
+
+function initialServer(){
+  return [
+    { id:'01M21Z3RY7', title:'Safari 登入導向迴圈',      status:'todo',        t:3, actor:'k3f9' },
+    { id:'01M21Z436T', title:'把 doctor --fix 寫進 CI',  status:'queued',      t:2, actor:'k3f9' },
+    { id:'01M21Z5B9R', title:'短 ID 撞號時的顯示長度',    status:'in_progress', t:5, actor:'m8q2' },
+    { id:'01M21Z7KQ2', title:'studio 的鍵盤操作',        status:'backlog',     t:1, actor:'k3f9' }
+  ];
+}
+
+/** append 一個 set status op。後 append 的 lamport 較大，因此在 LWW 勝出。 */
+function serverApply(server, issueId, status, actor){
+  return server.map(i => i.id===issueId ? { ...i, status, t: i.t + 1, actor } : i);
+}
+
+/** 輪詢看到的東西：只有摺疊後的結果，沒有 op-log。 */
+function serverSnapshot(server){
+  return server.map(i => ({ id:i.id, title:i.title, status:i.status }));
+}
+
+function short(id){ return id.slice(0,6); }
+
+/* =====================================================================
+ * 以下都是拋棄式的頁面外殼。不要搬進正式程式碼。
+ * ===================================================================== */
+
+let server, client, walkthrough = null;
+
+function reset(){
+  server = initialServer();
+  client = initialClient(serverSnapshot(server));
+  logLines = [['muted','初始狀態。畫面與伺服器一致。']];
+  render();
+}
+
+let logLines = [];
+
+function dispatch(action, serverEffect){
+  if (serverEffect) server = serverEffect(server);
+  client = clientReduce(client, action);
+  for (const n of client.notes) logLines.push(n);
+  render();
+}
+
+function render(){
+  const view = project(client);
+
+  // 看板
+  const board = document.getElementById('board');
+  board.innerHTML = view.map(v => {
+    const cls = v.held ? 'pill held' : v.optimistic ? 'pill moved' : 'pill';
+    const drift = v.shown !== v.serverKnown ? '<span class="diff">≠</span>' : '';
+    return '<tr><td><span class="id">'+short(v.id)+'</span><br>'+v.title+'</td>'+
+           '<td><span class="'+cls+'">'+v.shown+'</span>'+drift+'</td>'+
+           '<td><span class="pill">'+v.serverKnown+'</span></td></tr>';
+  }).join('');
+
+  const drifting = view.filter(v => v.shown !== v.serverKnown);
+  document.getElementById('boardnote').textContent = drifting.length
+    ? '有 ' + drifting.length + ' 張卡片的畫面值與最後一次快照不同 —— 這是樂觀更新正在生效，不是 bug。'
+    : '畫面與最後一次快照完全一致。';
+
+  // 飛行中的變更
+  const pend = document.getElementById('pending');
+  pend.innerHTML = client.pending.length
+    ? client.pending.map(p =>
+        '<tr><td>第 '+p.seq+' 筆'+(p.landed?'<br><span class="stepnote">已寫進 op-log</span>':'<br><span class="stepnote">還沒到伺服器</span>')+'</td>'+
+        '<td>'+short(p.issueId)+' → <span class="pill moved">'+p.value+'</span></td></tr>').join('')
+    : '<tr><td colspan="2"><span class="empty">沒有還在飛的變更。</span></td></tr>';
+
+  document.getElementById('dragnote').textContent =
+    client.drag ? '正抓著 ' + short(client.drag.issueId) + (client.deferred ? '，而且已經押著一份沒套用的快照。' : '。')
+                : (client.deferred ? '押著一份沒套用的快照。' : '沒有卡片被抓著。');
+
+  // 事件說明
+  const log = document.getElementById('log');
+  log.innerHTML = logLines.map(([k,t]) => '<div class="k-'+k+'">'+t+'</div>').join('');
+  log.scrollTop = log.scrollHeight;
+
+  // 選單
+  fillIssues('pick-issue'); fillIssues('pick-issue2');
+  const seqSel = document.getElementById('pick-seq');
+  const keep = seqSel.value;
+  seqSel.innerHTML = client.pending.map(p=>'<option value="'+p.seq+'">'+p.seq+'</option>').join('')
+    || '<option value="">—</option>';
+  if ([...seqSel.options].some(o=>o.value===keep)) seqSel.value = keep;
+
+  const noPending = client.pending.length === 0;
+  for (const id of ['btn-land','btn-ack','btn-fail']) document.getElementById(id).disabled = noPending;
+  document.getElementById('btn-release').disabled = !client.drag;
+
+  renderWalkthrough();
+}
+
+function fillIssues(id){
+  const sel = document.getElementById(id);
+  const keep = sel.value;
+  sel.innerHTML = client.snapshot.map(i=>'<option value="'+i.id+'">'+short(i.id)+' '+i.title+'</option>').join('');
+  if (keep) sel.value = keep;
+}
+
+function ackStatusFor(seq){
+  const p = client.pending.find(x=>x.seq===seq);
+  if (!p) return null;
+  // 回應帶的是「伺服器現在摺疊出來的值」。若 op 還沒 land，伺服器回的就是舊值。
+  const cur = server.find(i=>i.id===p.issueId);
+  return cur ? cur.status : null;
+}
+
+// 自由操作
+document.getElementById('btn-drop').onclick = () => {
+  const issueId = document.getElementById('pick-issue').value;
+  const to = document.getElementById('pick-status').value;
+  dispatch({ type:'DROP', issueId, to });
+};
+document.getElementById('btn-grab').onclick = () =>
+  dispatch({ type:'GRAB', issueId: document.getElementById('pick-issue').value });
+document.getElementById('btn-release').onclick = () => dispatch({ type:'RELEASE' });
+document.getElementById('btn-land').onclick = () => {
+  const seq = Number(document.getElementById('pick-seq').value);
+  const p = client.pending.find(x=>x.seq===seq); if(!p) return;
+  dispatch({ type:'LAND', seq }, srv => serverApply(srv, p.issueId, p.value, 'you'));
+};
+document.getElementById('btn-ack').onclick = () => {
+  const seq = Number(document.getElementById('pick-seq').value);
+  const status = ackStatusFor(seq); if(status===null) return;
+  dispatch({ type:'ACK', seq, status });
+};
+document.getElementById('btn-fail').onclick = () =>
+  dispatch({ type:'FAIL', seq: Number(document.getElementById('pick-seq').value), reason:'伺服器沒有回應' });
+document.getElementById('btn-agent').onclick = () => {
+  const issueId = document.getElementById('pick-issue2').value;
+  const to = document.getElementById('pick-status2').value;
+  server = serverApply(server, issueId, to, 'agent');
+  logLines.push(['muted','agent 在 CLI 執行了 nook mv '+short(issueId)+' '+to+'。伺服器變了，但畫面還不知道。']);
+  render();
+};
+document.getElementById('btn-poll').onclick = () =>
+  dispatch({ type:'POLL', issues: serverSnapshot(server) });
+document.getElementById('btn-reset').onclick = () => { walkthrough=null; reset(); };
+
+for (const id of ['pick-status','pick-status2']){
+  document.getElementById(id).innerHTML = STATUSES.map(s=>'<option>'+s+'</option>').join('');
+}
+document.getElementById('pick-status').value = 'in_progress';
+document.getElementById('pick-status2').value = 'review';
+
+/* ---------------- 情境 ---------------- */
+
+const A = '01M21Z3RY7'; // Safari 登入導向迴圈（todo）
+
+const SCENARIOS = [
+  {
+    name:'順利的一次拖曳',
+    desc:'最平常的情況：你把一張卡片拖到別欄，伺服器收下，下一次輪詢確認。',
+    watch:'每一步「你看到的狀態」都不跳動。畫面在放手的當下就到位了，後面三步只是把伺服器追上來。',
+    steps:[
+      ['把 Safari 那張拖到 in_progress', ()=>dispatch({type:'DROP',issueId:A,to:'in_progress'})],
+      ['op 寫進 op-log', ()=>{const p=last(A);dispatch({type:'LAND',seq:p.seq},s=>serverApply(s,A,'in_progress','you'));}],
+      ['回應抵達瀏覽器', ()=>{const p=last(A);dispatch({type:'ACK',seq:p.seq,status:'in_progress'});}],
+      ['輪詢一次', ()=>dispatch({type:'POLL',issues:serverSnapshot(server)})]
+    ]
+  },
+  {
+    name:'輪詢卡在半路',
+    desc:'你放手之後、伺服器回應之前，2 秒的輪詢剛好到了 —— 而它帶回來的快照還沒有你這筆變更。這是舊架構下 location.reload() 最致命的時刻。',
+    watch:'第 2 步輪詢帶回的是「還在 todo」的舊快照，但卡片沒有彈回 todo。少了「飛行中的變更蓋過快照」這條規則，這裡就會閃一下再跳回去。',
+    steps:[
+      ['把 Safari 那張拖到 review', ()=>dispatch({type:'DROP',issueId:A,to:'review'})],
+      ['輪詢（快照還是舊的）', ()=>dispatch({type:'POLL',issues:serverSnapshot(server)})],
+      ['op 才寫進 op-log', ()=>{const p=last(A);dispatch({type:'LAND',seq:p.seq},s=>serverApply(s,A,'review','you'));}],
+      ['回應抵達瀏覽器', ()=>{const p=last(A);dispatch({type:'ACK',seq:p.seq,status:'review'});}]
+    ]
+  },
+  {
+    name:'agent 同時改了同一張',
+    desc:'你拖到 blocked，你的 op 寫進去了；緊接著 agent 在 CLI 把同一張改成 review。append-only 之下你的 op 沒有被拒絕 —— 它只是在 LWW 決勝時輸了。',
+    watch:'第 4 步的回應說「blocked」（那是寫入當下的事實），但第 5 步輪詢把它改成 review。伺服器的回應不是永恆真理，這是 CRDT 特有的、一般 REST 樂觀更新不會遇到的情況。',
+    steps:[
+      ['你把 Safari 那張拖到 blocked', ()=>dispatch({type:'DROP',issueId:A,to:'blocked'})],
+      ['你的 op 寫進 op-log', ()=>{const p=last(A);dispatch({type:'LAND',seq:p.seq},s=>serverApply(s,A,'blocked','you'));}],
+      ['agent 執行 nook mv → review', ()=>{server=serverApply(server,A,'review','agent');logLines.push(['muted','agent 的 op lamport 更大，在 LWW 決勝時贏過你剛剛那筆。']);render();}],
+      ['你的回應抵達（帶著寫入當下的值）', ()=>{const p=last(A);dispatch({type:'ACK',seq:p.seq,status:'blocked'});}],
+      ['輪詢一次', ()=>dispatch({type:'POLL',issues:serverSnapshot(server)})]
+    ]
+  },
+  {
+    name:'拖到一半，伺服器變了',
+    desc:'你按著滑鼠、卡片正跟著游標移動，這時 agent 改了那張卡片，而輪詢也回來了。',
+    watch:'第 3 步輪詢明確說「押後，不套用」。畫面在你手指離開之前完全不動 —— 代價只是延遲一次輪詢間隔。這條規則在整頁重載的架構下根本無法表達。',
+    steps:[
+      ['抓住 Safari 那張不放', ()=>dispatch({type:'GRAB',issueId:A})],
+      ['agent 執行 nook mv → done', ()=>{server=serverApply(server,A,'done','agent');logLines.push(['muted','agent 改了伺服器，但你還按著滑鼠。']);render();}],
+      ['輪詢一次', ()=>dispatch({type:'POLL',issues:serverSnapshot(server)})],
+      ['放開', ()=>dispatch({type:'RELEASE'})]
+    ]
+  },
+  {
+    name:'寫入失敗',
+    desc:'你放手了，但伺服器收掉了（你關掉了跑 nook studio 的那個終端機，或 board 目錄被移走）。',
+    watch:'這是整個模型裡唯一需要回滾的情況。append-only 之下沒有「被拒絕的寫入」，只有「根本沒送到」。',
+    steps:[
+      ['把 Safari 那張拖到 done', ()=>dispatch({type:'DROP',issueId:A,to:'done'})],
+      ['傳輸失敗', ()=>{const p=last(A);dispatch({type:'FAIL',seq:p.seq,reason:'伺服器沒有回應'});}]
+    ]
+  },
+  {
+    name:'連拖兩次',
+    desc:'你很快地連拖兩次同一張卡片，第一次的回應在第二次之後才回來。',
+    watch:'第 4 步第一筆的回應到了，但卡片停在 review（第二筆的值），沒有被拉回 in_progress。舊的回應不能翻案 —— 這是手寫狀態同步最容易漏掉的一條。',
+    steps:[
+      ['拖到 in_progress', ()=>dispatch({type:'DROP',issueId:A,to:'in_progress'})],
+      ['再拖到 review', ()=>dispatch({type:'DROP',issueId:A,to:'review'})],
+      ['第 1 筆寫進 op-log', ()=>{const p=client.pending[0];if(p)dispatch({type:'LAND',seq:p.seq},s=>serverApply(s,A,'in_progress','you'));}],
+      ['第 1 筆的回應抵達', ()=>{const p=client.pending[0];if(p)dispatch({type:'ACK',seq:p.seq,status:'in_progress'});}],
+      ['第 2 筆寫進 op-log', ()=>{const p=client.pending[0];if(p)dispatch({type:'LAND',seq:p.seq},s=>serverApply(s,A,'review','you'));}],
+      ['第 2 筆的回應抵達', ()=>{const p=client.pending[0];if(p)dispatch({type:'ACK',seq:p.seq,status:'review'});}]
+    ]
+  }
+];
+
+function last(issueId){
+  return [...client.pending].reverse().find(p=>p.issueId===issueId) || {seq:-1};
+}
+
+let activeTab = 0;
+
+function renderTabs(){
+  document.getElementById('tabs').innerHTML = SCENARIOS.map((s,i)=>
+    '<button class="tab" role="tab" aria-selected="'+(i===activeTab)+'" data-i="'+i+'">'+s.name+'</button>').join('');
+  for (const b of document.querySelectorAll('.tab')){
+    b.onclick = () => { activeTab = Number(b.dataset.i); startWalkthrough(); };
+  }
+}
+
+function startWalkthrough(){
+  walkthrough = { scenario: activeTab, step: 0 };
+  reset();
+  logLines.push(['muted','—— 開始情境：' + SCENARIOS[activeTab].name + ' ——']);
+  render();
+}
+
+function renderWalkthrough(){
+  renderTabs();
+  const s = SCENARIOS[activeTab];
+  const at = walkthrough && walkthrough.scenario===activeTab ? walkthrough.step : -1;
+  document.getElementById('tabpanel').innerHTML =
+    '<p class="scenario-desc">'+s.desc+'</p>'+
+    '<p class="watch">'+s.watch+'</p>'+
+    (at < 0 ? '<div class="row"><button class="primary" id="wt-start">從頭開始這個情境</button></div>' : '')+
+    '<ol class="steps">'+ s.steps.map((st,i)=>
+      '<li class="'+(i===at?'current':'')+'">'+
+      '<button data-step="'+i+'" class="'+(at>i?'done':i===at?'primary':'')+'" '+
+      (i===at?'':'disabled')+'>'+st[0]+'</button></li>').join('') +'</ol>'+
+    (at >= s.steps.length ? '<p class="hint">情境跑完了。往上看「發生了什麼」，或用自由操作繼續戳。</p>' : '');
+
+  const start = document.getElementById('wt-start');
+  if (start) start.onclick = startWalkthrough;
+  for (const b of document.querySelectorAll('.steps button[data-step]')){
+    b.onclick = () => {
+      const i = Number(b.dataset.step);
+      SCENARIOS[activeTab].steps[i][1]();
+      walkthrough.step = i + 1;
+      render();
+    };
+  }
+}
+
+reset();
+</script>
+</body>
+</html>
