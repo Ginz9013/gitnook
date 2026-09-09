@@ -1,0 +1,3 @@
+{"id":"01M22NG4WA3DFZNBBR1T8Y53AZ","t":1,"a":"83a1","op":"create","title":"拖曳中的卡片在看板上沒有「送出中」的樣子"}
+{"id":"01M22NG4WM1D47QBD5EA38TF9R","t":2,"a":"83a1","op":"set","k":"description","v":"票 12 的 worker 回報。BoardProps.issues 是 readonly IssueView[]，所以 App 交給 Board 的是 project() 的 p.shown，held 與 optimistic 兩個欄位算出來就被丟掉。\n\n後果：一張還在飛的卡片跟已經落地的長得一模一樣。drawer 有送出中的樣子，看板沒有。\n\n修法是把 BoardProps 放寬成收 ProjectedIssue。屬於 board/ 的擁有者。"}
+{"id":"01M22NG4WMB4EX4JWM26ZN0JFT","t":3,"a":"83a1","op":"label.add","v":"studio"}

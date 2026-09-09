@@ -34,6 +34,11 @@ nook ref：`01M224SZA2S09YTQD0K8VNWBSQ`
       當下才從磁碟讀。理由（每次 `nook list` 多 parse 400KB）要寫出來，
       否則下一個人會覺得這條規則沒道理而拿掉它
 
+**貢獻者文件**
+
+- [ ] 寫明 `npx tsup` 單獨跑會清掉整個 `dist/`，包含只有 `vite build` 會寫的
+      `dist/studio/` —— 之後 server 就沒有資產可服務。要用 `npm run build`
+
 **閘門**
 
 - [ ] `bench` 把 studio 資產的體積單獨列一行，讓它的成長看得見而不是混在
@@ -42,7 +47,10 @@ nook ref：`01M224SZA2S09YTQD0K8VNWBSQ`
       （`react` / `createRoot` / `radix` / `tailwind` 皆為 0 次）。目前這條
       ADR-0008 的硬約束只由 bench 的計時中位數間接守著，而計時會漂；
       直接檢查 bundle 內容才抓得到真正的失效模式
-- [ ] 四個硬指標全過
+- [ ] 四個硬指標全過。**乾淨 build 的實測值**（2026-09-09，node v22.22.1）：
+      package 537,433 B（17% 的 3MB 閘門）／冷啟 27.7ms／合併零衝突／
+      token 4,065 B。注意 package size 必須從乾淨的 `dist/` 量 ——
+      帶著陳舊產物的 `dist/` 會量出 748KB 這種假數字
 
 ## Test seam
 

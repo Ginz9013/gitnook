@@ -4,3 +4,5 @@
 {"id":"01M22BXAJMKAEWMZWJ5NV2RF49","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M22FM971A93K45J14C7X83Y3","t":5,"a":"83a1","op":"comment","body":"程式碼完成（f78315e）但**三條驗收條件尚未達成**，都不是 worker 的問題，是我切票時把 composition root 漏掉了：\n\n1. 卡片顯示短 ID —— IssueView 沒有這個欄位。修法已給出：在 boardSnapshot() 裡算一次 shortIdLength(board.refs())，傳進 toIssueView。必須 per-snapshot 不能 per-issue，後者回的是單張的下限會撞號。\n2. 放手即樂觀更新再 POST，以及 GRAB/RELEASE 派給 reducer —— App.tsx 的 onMove 還是票 01 的 no-op stub。目前拖曳視覺正確但什麼都不會改。\n3. blocked 留言的保證 —— 閘門擋得住、也帶到 drawer，但無法保證留言真的被寫下。\n\n因此維持 in_progress，不進 review。"}
 {"id":"01M22FM9847EN0VWBCZTSVHR0T","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M22NG4SPDBR55ADAVBQFZ2NC","t":7,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M22NG4V0M88JQK20AGBYXWXT","t":8,"a":"83a1","op":"comment","body":"三條卡住的驗收條件已由票 11（shortId）與票 12（App 接線）補齊。票 12 的 worker 用 headless Chrome 走 CDP 真實驗證過滑鼠拖曳與鍵盤拖曳，op-log 留下十筆真實的 op。"}

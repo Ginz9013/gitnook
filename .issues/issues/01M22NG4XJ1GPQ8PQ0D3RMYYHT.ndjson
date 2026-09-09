@@ -1,0 +1,4 @@
+{"id":"01M22NG4XJQY6B570FPC7PAGNT","t":1,"a":"83a1","op":"create","title":"blocked 閘門帶開 drawer 之後，Esc 關閉會讓鍵盤焦點無處可去"}
+{"id":"01M22NG4XXEV7FBY038NWF7A2H","t":2,"a":"83a1","op":"set","k":"description","v":"票 12 的 worker 在真實瀏覽器裡實測到的，不是推論。\n\nRadix 會把焦點還給觸發元素，但這個 drawer 是從 blocked 閘門「程式化」打開的，沒有觸發元素。Esc 關閉之後 document.activeElement 上的 aria-roledescription 是 null —— 鍵盤使用者在看板上失去了自己的位置。\n\n這對這次改版特別要緊：ADR-0008 選 React 的唯一理由就是鍵盤無障礙。\n\n要決定的是焦點該回到哪裡（剛才那張卡片？該欄？看板容器？），所以 worker 沒有自己發明一個。涉及 board/BlockedGate.tsx 與 drawer/IssueDrawer.tsx。"}
+{"id":"01M22NG4XXNZRM5C4DNZFR2NJ1","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M22NG4XXT45W49XDVHGTNMN4","t":4,"a":"83a1","op":"label.add","v":"bug"}
