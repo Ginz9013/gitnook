@@ -13,7 +13,7 @@
  * 文字進入 HTML 前一律逸出。這是本模組唯一的注入防線：
  * issue 內容可能是從外部 repo pull 來的，而產物會被 client 直接注入 DOM。
  */
-function escapeHtml(text: string): string {
+export function escapeHtml(text: string): string {
   return text
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')

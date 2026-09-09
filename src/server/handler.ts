@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { shortIdLength } from '../core/ids.js';
 import type { Board, Change, Issue, Status } from '../core/types.js';
 import { AmbiguousRef, InvalidStatus, RefNotFound } from '../core/types.js';
-import { renderMarkdown } from '../render/html.js';
+import { escapeHtml, renderMarkdown } from '../render/html.js';
 
 /**
  * 純請求處理器。刻意不接觸 node:http —— 路由與回應在不綁 port 的情況下即可測試，
@@ -184,15 +184,6 @@ function missingAssetsPage(assetsDir: string): string {
   );
 }
 
-/** 這一頁只插入一個本機路徑，但逸出仍然發生在插入標籤之前（同 html.ts 的模型）。 */
-function escapeHtml(text: string): string {
-  return text
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
 
 export interface CommentView {
   readonly id: string;
