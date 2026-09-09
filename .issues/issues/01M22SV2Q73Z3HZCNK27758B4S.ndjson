@@ -1,0 +1,4 @@
+{"id":"01M22SV2Q71DPF2EYBBBEKWP56","t":1,"a":"83a1","op":"create","title":"studio 的純模組沒有測試，是我票面措辭造成的洞"}
+{"id":"01M22SV2QHQWJQ7Q2RXYGH03AE","t":2,"a":"83a1","op":"set","k":"description","v":"票 05 的 worker 指出，我認為它是對的。\n\nspec.md 寫的是「只測純邏輯，**React 組件**不寫測試」。但我在票 06（拖拉）、票 05 與這一批多張票的票面上寫成「本片段無自動化測試」—— 範圍比我引用的策略更寬，等於把純模組也一起豁免掉了。\n\n實際上這些都是純函式、有真實分支、不碰 DOM、不需要 jsdom：\n- board/announce.ts：pendingParts、pendingLabel、announceIssueState（欄位排序、comment 折入、held/pending 三種組合），以及四個 announce* 拖曳函式\n- board/lanes.ts：dropEffect、groupByStatus、isStatus\n- board/statuses.ts：順序守衛已經是編譯期的，但 STATUS_LANES 的衍生邏輯沒測\n\n前面幾輪的 worker 為了遵守票面，把可判定的邏輯正確地推進這些純模組裡（那是對的），然後因為票面說「無自動化測試」而沒有測它們。邏輯放對了位置，網子卻沒有張開。\n\n一個 test/studio/board.test.ts 就能補上，不碰 jsdom、不新增任何相依。"}
+{"id":"01M22SV2QHFF0CW7267G7WHM6J","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M22SV2QHY11NH3ZHD9DF5TVW","t":4,"a":"83a1","op":"label.add","v":"test"}
