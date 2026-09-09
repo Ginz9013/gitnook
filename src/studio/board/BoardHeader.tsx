@@ -1,8 +1,16 @@
-import { TriangleAlert } from 'lucide-react';
+import { ListFilter, TriangleAlert, X } from 'lucide-react';
 
 import type { BoardInfo, Status } from '@/api';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 import { NewIssueForm, useNewIssueEntry } from './NewIssueForm';
 import { boardAlerts } from './health';
@@ -34,11 +42,36 @@ export interface BoardHeaderProps {
    * 路徑與分支是「這是哪一塊 board」的說明，不是看板能不能用的前提。
    */
   readonly info: BoardInfo | null;
-  /** 現在畫得出來的張數 —— 已經套過「顯示已封存」的那一份。 */
+  /** 現在畫得出來的張數 —— 已經套過「顯示已封存」**與** Label 篩選的那一份。 */
   readonly visibleCount: number;
   readonly archivedCount: number;
   readonly showArchived: boolean;
   readonly onToggleArchived: () => void;
+  /**
+   * 這塊 board 上出現過的全部 Label（`board/filter.ts` 的 `allLabels`）——
+   * 面板列的就是這一份，**依出現順序、沒有排序**。
+   *
+   * 它是對**整份投影**算的，不是對現在看得見的那一份：否則勾一個 Label 之後
+   * 面板自己會縮水，而使用者正要在同一個面板上勾第二個。
+   */
+  readonly labels: readonly string[];
+  /** 目前勾起來的 Label。**多選之間是 AND** —— 空的就是沒有篩選。 */
+  readonly selectedLabels: readonly string[];
+  readonly onToggleLabel: (label: string) => void;
+  readonly onClearLabels: () => void;
+  /**
+   * Label 篩選**現在藏起來幾張** —— 已經套過「顯示已封存」之後，再被 Label
+   * 篩掉的那些。
+   *
+   * **這一格是這張票真正的驗收條件**（D12）：篩選不持久化，但只要它生效，
+   * header 就必須顯眼地說出「篩選中，N 張被隱藏」並給一鍵清除。一個把 Issue
+   * 藏起來、又不說自己藏了東西的畫面，是讓人以為自己弄丟資料的最快方法。
+   *
+   * 不含被「顯示已封存」藏起來的那些 —— 那是另一個維度，它有自己那顆按鈕上
+   * 的 `（N）` 在說話。兩個維度各自交代自己藏了什麼，合起來算就沒有人說得出
+   * 哪一半是誰藏的。
+   */
+  readonly hiddenByLabel: number;
   /**
    * 開一張新的 Issue。**不帶 `status`** —— header 這顆問的是「開一張」，不是
    * 「在哪一欄開一張」，落點由 core 的預設回答（`api.ts` 的 `createIssue`）。
@@ -68,6 +101,11 @@ export function BoardHeader({
   archivedCount,
   showArchived,
   onToggleArchived,
+  labels,
+  selectedLabels,
+  onToggleLabel,
+  onClearLabels,
+  hiddenByLabel,
   onCreate,
 }: BoardHeaderProps): React.JSX.Element {
   // 新增入口的開關與焦點。**住在這裡而不是 `Board.tsx`**：八欄各自還有一個，
@@ -78,6 +116,9 @@ export function BoardHeader({
   // （票 B1），這裡只是把它翻成人讀得懂的話（`board/health.ts`）。
   // `info` 還沒到就是空的，健康的 board 也是空的：**沒事就一個字都不畫**。
   const alerts = boardAlerts(info?.diagnostics ?? []);
+
+  /** 篩選現在生效中嗎。空的 `selectedLabels` 就是沒有篩選（`matchesLabels` 同一條）。 */
+  const filtering = selectedLabels.length > 0;
 
   return (
     // `<header>` 而已 —— **不要再包一層 landmark**。`Board.tsx` 的 `<main>` 已經
@@ -148,7 +189,54 @@ export function BoardHeader({
             新增 Issue
           </Button>
 
-          {/* 篩選（B6）的位置在這裡 —— 那張票會把它接上，這張不先畫一顆按不動的鈕。 */}
+          {/*
+            依 Label 篩選（B6）。**一張 Label 都沒有的 board 上不畫它** —— 同
+            下面那顆「顯示已封存」的理由：不要在畫面上放一個按下去只會開出一片
+            空白的東西。
+
+            用 `DropdownMenuCheckboxItem` 而不是自己做一個面板：多選、鍵盤操作、
+            `aria-checked` 與焦點迴圈 Radix 都處理好了，而這個檔案沒有自動化
+            測試（見上面），所以自己寫的每一條互動都只能用看的驗收。
+          */}
+          {labels.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant={filtering ? 'default' : 'ghost'}
+                  size="sm"
+                  aria-label={
+                    filtering
+                      ? `依 Label 篩選，篩選中：${selectedLabels.join('、')}`
+                      : '依 Label 篩選'
+                  }
+                >
+                  <ListFilter aria-hidden className="size-4" />
+                  篩選
+                  {/*
+                    勾了幾個。**數字畫在按鈕上**，因為面板關起來之後它是唯一
+                    還留在畫面上的痕跡 —— 下面那條說明列講的是「藏了幾張」，
+                    那是另一件事。
+                  */}
+                  {filtering && `（${selectedLabels.length}）`}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-80 w-56 overflow-y-auto">
+                <DropdownMenuLabel>依 Label 篩選（越加越窄）</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {labels.map((label) => (
+                  <DropdownMenuCheckboxItem
+                    key={label}
+                    checked={selectedLabels.includes(label)}
+                    // 勾一個不該把面板關掉 —— 多選的意思就是接著還要勾第二個。
+                    onSelect={(event) => event.preventDefault()}
+                    onCheckedChange={() => onToggleLabel(label)}
+                  >
+                    <span className="[overflow-wrap:anywhere]">{label}</span>
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           {/*
             一張都沒有封存過的 board 上，這顆按鈕切的是一個空集合。不畫它不是省
@@ -180,6 +268,52 @@ export function BoardHeader({
       */}
       {entry.open && (
         <NewIssueForm onCreate={onCreate} onCancel={entry.close} className="w-72 self-end" />
+      )}
+
+      {/*
+        **篩選中的那條說明 —— 這張票真正的驗收條件**（D12），不是上面那個面板。
+
+        篩選不持久化，所以它活不過重新整理；但只要它生效，畫面上就少了東西，
+        而少掉的東西看起來與「不見了」一模一樣。這條說明把三件事同時講出來：
+        正在篩什麼、藏了幾張、以及怎麼還原。
+
+        `role="status"` 而不是 `role="alert"`：這是使用者自己按出來的狀態，
+        不是壞消息 —— `alert` 會打斷正在唸的內容，而下面那條 `.gitattributes`
+        的警示才該有那個權力。
+      */}
+      {filtering && (
+        <div
+          role="status"
+          className="border-primary bg-primary/10 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border px-3 py-2 text-sm"
+        >
+          <ListFilter aria-hidden className="text-primary size-4 shrink-0" />
+          <span className="font-medium">篩選中</span>
+          <span className="[overflow-wrap:anywhere]">
+            {/*
+              「以及」不是「或」—— 多選之間是 AND（`filter.ts`）。把它寫在畫面上，
+              使用者才不會把兩個勾勾讀成「這兩種都給我看」。
+            */}
+            同時帶著 <span className="font-mono font-semibold">{selectedLabels.join(' + ')}</span>
+          </span>
+          {/*
+            **藏了幾張**。一張都沒藏時照樣講（「沒有藏起任何一張」）——
+            只在 N > 0 時出現的話，使用者會學會「沒看到這句就是沒在篩選」，
+            而那正好是這條說明最需要否認的事。
+          */}
+          <span className="text-muted-foreground">
+            {hiddenByLabel > 0
+              ? `${hiddenByLabel} 張被隱藏`
+              : '沒有藏起任何一張（另外被封存藏起來的不算在內）'}
+          </span>
+          {/*
+            一鍵清除。`ml-auto` 推到最右邊，跟上面那組動作對齊 —— 出路要永遠
+            在同一個地方。
+          */}
+          <Button variant="outline" size="sm" className="ml-auto" onClick={onClearLabels}>
+            <X aria-hidden className="size-4" />
+            清除篩選
+          </Button>
+        </div>
       )}
 
       {/*

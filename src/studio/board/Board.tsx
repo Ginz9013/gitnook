@@ -16,6 +16,7 @@ import type { DragState } from './Column';
 import { announceCancel, announceDrop, announceGrab, announceOver, dragInstructions } from './announce';
 import { collapsedNow, revealOver, toggleCollapsed } from './collapse';
 import { boardCollision, columnKeyboardCoordinates, draggedIssue, statusOf } from './dnd';
+import { allLabels, matchesLabels } from './filter';
 import { panStarted, panTo } from './pan';
 import type { PanOrigin } from './pan';
 
@@ -109,6 +110,14 @@ export function Board({
   const [dragging, setDragging] = useState<DragState | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   /**
+   * 勾起來的 Label。**多選之間是 AND**（`board/filter.ts`）。
+   *
+   * **刻意不進 `localStorage`**（D12）—— 折疊與主題該記住，這一個不該：一個活過
+   * 重新整理、又把 Issue 藏起來的篩選器，是讓人以為自己弄丟資料的最快方法。
+   * 折起來的欄位還看得到欄名，被篩掉的那張則是整個不見了。
+   */
+  const [selectedLabels, setSelectedLabels] = useState<readonly string[]>([]);
+  /**
    * 使用者折起來的欄位。**這一份是偏好，記在 `localStorage`**（D11：只影響這台
    * 機器上這個人怎麼看，不進 op-log），開場讀一次，預設全展開。讀壞了退回空
    * 集合而不是拋 —— 那條規則在 `@/prefs`，有測試。
@@ -155,7 +164,14 @@ export function Board({
   // archived 是可見性欄位而不是第九個 Status（ADR-0003）：它不多佔一欄，而是
   // 從八欄裡隱藏起來，預設不顯示。
   const visible = showArchived ? issues : issues.filter((i) => !i.shown.archived);
-  const byStatus = groupByStatus(visible, (i) => i.shown.status);
+  // **第二個、獨立的維度**：Label 篩選與「顯示已封存」套的是同一份 `issues`，
+  // 兩者不互相折進對方。分成兩步是為了算得出「Label 現在藏了幾張」—— 那個數字
+  // 是這張票的驗收條件（D12），而合成一次 filter 就再也分不出哪一張是誰藏的。
+  const shown = visible.filter((i) => matchesLabels(i.shown, selectedLabels));
+  // 面板列的 Label 對**整份投影**算，不是對 `shown`：否則勾了一個之後面板自己
+  // 會縮到只剩與它共存的那幾個，而使用者正要在同一個面板上勾第二個。
+  const labels = allLabels(issues.map((i) => i.shown));
+  const byStatus = groupByStatus(shown, (i) => i.shown.status);
   // 畫面上現在真的折著的是哪幾欄：偏好扣掉這次拖曳掀開的（`collapse.ts`）。
   const foldedNow = collapsedNow(collapsed, revealed);
   const activeIssue = dragging === null ? null : (issues.find((i) => i.id === dragging.id) ?? null);
@@ -193,6 +209,17 @@ export function Board({
     const next = toggleCollapsed(collapsed, status);
     writeCollapsed(window.localStorage, next);
     setCollapsed(next);
+  }
+
+  /**
+   * 勾起或取消一個 Label。**永遠交出一個新陣列** —— 就地 `push` 再把同一個參照
+   * 交回 `useState`，React 看到的是同一個東西，於是不重繪：勾勾按下去畫面什麼
+   * 都不會發生，而程式沒有任何錯誤（同 `collapse.ts` 的 `toggleCollapsed`）。
+   *
+   * 取消時**保留其餘的順序** —— 那是 `allLabels` 的出現順序，面板照著它畫。
+   */
+  function toggleLabel(label: string): void {
+    setSelectedLabels((s) => (s.includes(label) ? s.filter((l) => l !== label) : [...s, label]));
   }
 
   /**
@@ -318,10 +345,17 @@ export function Board({
           檔案已經是 DndContext 的持有者。 */}
       <BoardHeader
         info={info}
-        visibleCount={visible.length}
+        visibleCount={shown.length}
         archivedCount={archivedCount}
         showArchived={showArchived}
         onToggleArchived={() => setShowArchived((v) => !v)}
+        labels={labels}
+        selectedLabels={selectedLabels}
+        onToggleLabel={toggleLabel}
+        onClearLabels={() => setSelectedLabels([])}
+        // 只算 Label 這一刀藏掉的：被封存藏起來的那些由「顯示已封存（N）」
+        // 自己交代。兩個維度各自說自己藏了什麼。
+        hiddenByLabel={visible.length - shown.length}
         onCreate={onCreate}
       />
 
