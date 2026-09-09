@@ -1,3 +1,4 @@
 {"id":"01M2307YME54Y8NCD63XCFVFTM","t":1,"a":"83a1","op":"create","title":"200 但 body 解析不了會被歸類成「連不上」"}
 {"id":"01M2307YMRBR9NP8X1GYMPNHTH","t":2,"a":"83a1","op":"set","k":"description","v":"票 02 的 worker 回報，它刻意沒有從例外型別去猜。\n\nres.json() 丟 SyntaxError 時，classifyFailure 落到 else 分支 = 'failed'（連不上）。但伺服器確實答了，嚴格說是伺服器錯誤。\n\n修法屬於 api.ts：一個具名的「答了，但不是承諾的形狀」錯誤。已記在 classifyFailure 的註解裡。"}
 {"id":"01M2307YMRQA9GTCN769GZAZTB","t":3,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M2313JGAQ5D4BEYEVMKXG93E","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
