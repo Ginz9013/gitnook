@@ -3,3 +3,7 @@
 {"id":"01M21Z5BA3MRYKFCG55GJANNQD","t":3,"a":"83a1","op":"label.add","v":"dogfood"}
 {"id":"01M21Z5BA3PHJC55J46RR847PM","t":4,"a":"83a1","op":"label.add","v":"bug"}
 {"id":"01M21Z5BA3DWVDP3VVRV38WFW7","t":5,"a":"83a1","op":"label.add","v":"render"}
+{"id":"01M22BAENNAS1T6GEV8H87V5VK","t":6,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M22BAF6QMNCG7BR1SNYGCGNG","t":7,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M22BMB55CH14AD8G6EF74AF7","t":8,"a":"83a1","op":"comment","body":"修好了（commit 696cb85）。\n\n新增 src/render/width.ts —— 範圍表取自 Unicode EastAsianWidth 的 W 與 F 兩類，自己寫不引入 string-width。table.ts 三處改用：欄寬計算、pad、truncate。\n\n順帶修掉一個票面沒寫到、但更難看的情況：truncate 原本按字元數切，30 個全形字（60 顯示欄）根本不會被截斷，而一旦截斷就切在半個字元上產生亂碼。現在按顯示欄寬算，且全形字放不進剩餘欄寬時整個不放。\n\nAmbiguous（`…`、重音字母）一律算一欄，wcwidth 的慣例。兩可時算窄只會讓欄位稍寬，算寬會讓非 CJK 語系的終端整排跑掉。\n\n測試：+7（width）+4（table CJK），共 281 passed。__golden__ 補了 table-list-cjk.txt。golden 的對齊另用 Python 的 unicodedata.east_asian_width 獨立驗證，避免實作與驗證犯同一個錯。\n\n四個硬指標未受影響：package 123KB / 冷啟 25.8ms / 合併零衝突 / agent token 4065B。"}
+{"id":"01M22BMB6AK2S2R7MTBWGM8YWQ","t":9,"a":"83a1","op":"set","k":"status","v":"review"}
