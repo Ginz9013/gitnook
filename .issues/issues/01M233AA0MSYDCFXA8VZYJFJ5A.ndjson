@@ -2,3 +2,4 @@
 {"id":"01M233AA13G7H78N6AT8TZ94KZ","t":2,"a":"83a1","op":"set","k":"description","v":"studio-followup3/02 的 worker 回報，它刻意沒有自作主張處理。\n\n任何文字都是合法的 `/hash` 回應，所以 `fetchHash` 不可能判定「答了但形狀不對」。若那個 port 上其實是另一個 server，回 200 加一段 HTML，輪詢會把它當成一次成功的 hash 比對；要等到 hash「改變」而去抓 `/api/board` 時才會發現。\n\n它刻意不在 `fetchHash` 裡加「像不像 64 個十六進位字元」的檢查 —— 那正是 ADR-0004 與 `classifyFailure` 的註解警告的那種猜測。\n\n所以這張票要決定的是：這個延遲可不可以接受？若不行，正確的判準是什麼（形狀檢查？還是別的）？"}
 {"id":"01M233AA133J6ZFR3JYQAJXX9N","t":3,"a":"83a1","op":"label.add","v":"studio"}
 {"id":"01M236BEWHTM2BPV0PCWQGGC7B","t":4,"a":"83a1","op":"comment","body":"決定（2026-09-09）：接受，寫明理由就好，不加形狀檢查。\n\n理由：延遲最多一個輪詢間隔（2 秒），而 /api/board 那邊已經會抓到（票 01M233A9Y 決定加上最小形狀檢查之後更確定）。在 fetchHash 裡發明「像不像 64 個十六進位字元」的檢查是 ADR-0004 警告的那種猜測，而且會把一個 server 實作細節釘進 client。\n\n這張票因此變成純文件：把上面這段理由寫進 fetchHash 的註解，讓下一個讀到的人知道這是想過的，不是漏掉的。"}
+{"id":"01M236J643T23NT2RKYYRVM7P9","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
