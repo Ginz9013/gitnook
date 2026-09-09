@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Board } from '../core/types.js';
 import { handleRequest } from './handler.js';
+import type { HandlerOptions } from './handler.js';
 
 /**
  * 只綁 loopback，且刻意不提供 --host。studio 是唯讀的會議投影用檢視器，
@@ -20,6 +21,14 @@ export interface Studio {
 
 export interface ServeOptions {
   readonly port?: number;
+  /**
+   * 前端資產目錄，預設為套件自己的 `dist/studio/`。
+   *
+   * 存在的理由是測試：資產是磁碟上的檔案（ADR-0008），所以「服務得出來嗎」
+   * 只能對著一個真的目錄問。有了它，測試就不必先跑一次 vite build ——
+   * 也不會跟 packed-smoke 中途的 `tsup --clean` 撞在一起。
+   */
+  readonly assetsDir?: string;
 }
 
 export class PortInUse extends Error {
@@ -31,9 +40,12 @@ export class PortInUse extends Error {
 
 export function serve(board: Board, opts: ServeOptions = {}): Promise<Studio> {
   const port = opts.port ?? DEFAULT_PORT;
+  // 只把有指定的欄位往下傳：exactOptionalPropertyTypes 之下，
+  // `{ assetsDir: undefined }` 與「沒給」不是同一件事。
+  const handlerOpts: HandlerOptions = opts.assetsDir === undefined ? {} : { assetsDir: opts.assetsDir };
 
   const server = createServer((req, res) => {
-    const out = handleRequest(board, { method: req.method ?? 'GET', url: req.url ?? '/' });
+    const out = handleRequest(board, { method: req.method ?? 'GET', url: req.url ?? '/' }, handlerOpts);
     res.writeHead(out.status, out.headers);
     res.end(out.body);
   });

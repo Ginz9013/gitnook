@@ -1,22 +1,30 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import vm from 'node:vm';
 import { join } from 'node:path';
 import { openBoard } from '../../src/index.js';
 import type { Board, CreateInput, IdSource, Issue } from '../../src/index.js';
 import { handleRequest } from '../../src/server/handler.js';
+import type { IssueView } from '../../src/server/handler.js';
 
 // ADR-0004：無 storage 接縫、無 in-memory fake。每個測試用例一個 mkdtemp 的真實 board。
 let dir: string;
+/**
+ * 每個用例自己的假 `dist/studio/`。測試**不得**依賴真的建置產物：
+ * 那會讓整份測試檔要先跑一次 vite build 才動得了，而且 packed-smoke 會在
+ * 測試中途 `tsup --clean` 把 dist/ 整個清掉，變成 flaky。
+ */
+let assets: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nook-handler-'));
   mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
+  assets = mkdtempSync(join(tmpdir(), 'nook-assets-'));
 });
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
+  rmSync(assets, { recursive: true, force: true });
 });
 
 /** 測試用的完整 ULID：不足 26 碼補 0，字元皆屬 Crockford base32。 */
@@ -33,10 +41,10 @@ const board = (): Board => openBoard({ dir, actor: 'test' });
 const createWith = (issueId: string, input: CreateInput): Issue =>
   openBoard({ dir, actor: 'test', ids: seeded(issueId) }).create(input);
 
-const get = (url: string) => handleRequest(board(), { method: 'GET', url });
+const get = (url: string) => handleRequest(board(), { method: 'GET', url }, { assetsDir: assets });
 
 describe('GET /', () => {
-  it('回傳看板 HTML，200', () => {
+  it('回傳 SPA 殼，200', () => {
     createWith(fullId('01JBXA'), { title: 'Fix login redirect', status: 'queued' });
 
     const res = get('/');
@@ -44,51 +52,50 @@ describe('GET /', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/^text\/html/);
     expect(res.body).toContain('<!doctype html>');
-    // 八欄看板，且該票落在自己的欄位裡。
-    expect(res.body).toContain('data-status="queued"');
-    expect(res.body).toContain('Fix login redirect');
+    // React 掛載點與打包後的資產。殼本身不含任何看板結構。
+    expect(res.body).toContain('<div id="root"></div>');
+    expect(res.body).toContain('src="/assets/studio.js"');
+    expect(res.body).toContain('href="/assets/studio.css"');
+  });
+
+  it('殼不含 board 的內容 —— 資料一律走 /api/board', () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect', status: 'queued' });
+
+    const body = get('/').body;
+
+    expect(body).not.toContain('Fix login redirect');
+    expect(body).not.toContain('data-status="queued"');
+  });
+
+  it('沒有任何內嵌腳本 —— 輪詢改由 SPA 自己做（票 05）', () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+
+    // 內嵌 <script> 的內容一律為空：唯一的 script 元素是指向 /assets 的 src。
+    for (const inline of scripts(get('/').body)) {
+      expect(inline.trim()).toBe('');
+    }
   });
 });
 
 describe('GET /i/<ref>', () => {
-  it('回傳該 Issue 的詳情 HTML，200', () => {
+  /**
+   * 伺服器渲染的詳情頁沒了 —— 讀取一律走 /api/board，一張 Issue 的細節由
+   * drawer 在 client 端顯示（票 07）。`/i/<ref>` 這條路徑本身保留給票 03 的
+   * 寫入端點（POST），但它不是一個讀取面。
+   */
+  it('不再有伺服器渲染的詳情頁，一律 404', () => {
     createWith(fullId('01JBXA'), {
       title: 'Union merge spike',
-      status: 'blocked',
       description: 'keeps **both** sides',
     });
 
-    const res = get(`/i/${fullId('01JBXA')}`);
-
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toMatch(/^text\/html/);
-    expect(res.body).toMatch(/<h1[^>]*>Union merge spike<\/h1>/);
-    expect(res.body).toContain('<strong>both</strong>');
-    // 票 08 的契約：詳情頁連回看板。
-    expect(res.body).toContain('href="/"');
+    for (const url of [`/i/${fullId('01JBXA')}`, '/i/01JBXA', '/i/01jbxa']) {
+      const res = get(url);
+      expect(res.status, url).toBe(404);
+      expect(res.body, url).not.toContain('Union merge spike');
+    }
   });
 });
-
-describe('GET /i/<ref> 的 ref 解析', () => {
-  it('接受無歧義前綴 —— 票 08 的卡片就是連到短 ID', () => {
-    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
-    createWith(fullId('01JBXB'), { title: 'Write the skill doc' });
-
-    const res = get('/i/01JBXA');
-
-    expect(res.status).toBe(200);
-    expect(res.body).toContain('Fix login redirect');
-    expect(res.body).not.toContain('Write the skill doc');
-  });
-
-  it('ref 大小寫不敏感（CONTEXT.md 的 Ref 定義）', () => {
-    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
-
-    expect(get('/i/01jbxa').status).toBe(200);
-    expect(get('/i/01jbxa').body).toContain('Fix login redirect');
-  });
-});
-
 describe('未知路徑', () => {
   it('回傳 404', () => {
     // `/i/`（空 ref）屬於「ref 解析失敗」那一組，見下一個 describe。
@@ -109,22 +116,6 @@ describe('無法解析的 ref', () => {
       expect(res.status, url).toBe(404);
       expect(res.body, url).not.toContain('Fix login redirect');
     }
-  });
-});
-
-describe('有歧義的 ref', () => {
-  it('撞號的前綴回傳 404，並在內文給出足以區分的候選', () => {
-    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
-    createWith(fullId('01JBXA1'), { title: 'Write the skill doc' });
-
-    const res = get('/i/01JBXA');
-
-    // 猜其中一張都是錯的答案；處理器同樣不得讓例外變成 500。
-    expect(res.status).toBe(404);
-    expect(res.body).not.toContain('Fix login redirect');
-    expect(res.body).not.toContain('Write the skill doc');
-    expect(res.body).toContain('01JBXA0');
-    expect(res.body).toContain('01JBXA1');
   });
 });
 
@@ -252,121 +243,239 @@ function scripts(html: string): string[] {
   return [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]!);
 }
 
-interface PollRun {
-  readonly fetched: string[];
-  readonly reloads: number;
-  readonly intervalMs: number | undefined;
-}
+describe('GET /api/board', () => {
+  it('回傳 { issues, hash } 的 JSON，200', () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect', status: 'queued' });
 
-/**
- * 把輪詢腳本當成 JS 真的跑起來，而不是對它的文字下斷言。
- * fetch / setInterval / location 都由這裡提供，因此「值改變才重載」是被
- * 觀察到的行為，不是從原始碼推測出來的。
- */
-async function runPollingScript(script: string, responses: string[]): Promise<PollRun> {
-  const fetched: string[] = [];
-  let reloads = 0;
-  let tick: (() => unknown) | undefined;
-  let intervalMs: number | undefined;
-  const queue = [...responses];
+    const res = get('/api/board');
 
-  const context = vm.createContext({
-    fetch: (url: string) => {
-      fetched.push(url);
-      return Promise.resolve({ ok: true, text: () => Promise.resolve(queue.shift() ?? '') });
-    },
-    setInterval: (fn: () => unknown, ms: number) => {
-      tick = fn;
-      intervalMs = ms;
-      return 1;
-    },
-    location: {
-      reload: () => {
-        reloads += 1;
-      },
-    },
-  });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
 
-  vm.runInContext(script, context);
-  if (tick === undefined) throw new Error('腳本沒有註冊任何輪詢');
-  for (let i = 0; i < responses.length; i++) await tick();
-
-  return { fetched, reloads, intervalMs };
-}
-
-describe('輪詢重載腳本', () => {
-  it('看板頁與詳情頁各內嵌一段腳本，且它是該頁唯一的 JS', () => {
-    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
-
-    // spec.md 的 AC 是「nook studio … 每 2 秒輪詢 /hash 變更即重載」。看板是
-    // 開會的投影面，詳情是討論一張 Issue 時停留的地方 —— 只有一邊會更新，
-    // 另一邊就是一個看起來還活著的舊畫面。
-    expect(scripts(get('/').body)).toHaveLength(1);
-    expect(scripts(get(`/i/${fullId('01JBXA')}`).body)).toHaveLength(1);
-  });
-
-  it('每 2 秒 fetch /hash；值沒變不重載，值一變就 location.reload()', async () => {
-    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
-    const script = scripts(get('/').body)[0]!;
-    const current = get('/hash').body;
-
-    // 三次回覆都是「與頁面渲染當下相同」的值 —— 不得重載。
-    const quiet = await runPollingScript(script, [current, current, current]);
-    expect(quiet.intervalMs).toBe(2000);
-    expect(quiet.fetched).toEqual(['/hash', '/hash', '/hash']);
-    expect(quiet.reloads).toBe(0);
-
-    // 第二次回覆換了值 —— 必須重載。
-    const changed = await runPollingScript(script, [current, 'a'.repeat(64)]);
-    expect(changed.reloads).toBe(1);
-  });
-
-  it('詳情頁的腳本同樣每 2 秒問一次 /hash，值一變就重載', async () => {
-    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
-    const script = scripts(get(`/i/${fullId('01JBXA')}`).body)[0]!;
-    const current = get('/hash').body;
-
-    const quiet = await runPollingScript(script, [current, current]);
-    expect(quiet.intervalMs).toBe(2000);
-    expect(quiet.fetched).toEqual(['/hash', '/hash']);
-    expect(quiet.reloads).toBe(0);
-
-    // 種子取自渲染當下的狀態，所以「這一張沒變、但 board 變了」同樣要重載：
-    // /hash 涵蓋整塊 board，而畫面上的短 ID 長度就會隨別張 Issue 改變。
-    board().apply(fullId('01JBXA'), { status: 'queued' });
-    const changed = await runPollingScript(script, [get('/hash').body]);
-    expect(changed.reloads).toBe(1);
-  });
-
-  it('board 真的變了之後，/hash 給出的新值會讓已載入的頁面重載', async () => {
-    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
-    const script = scripts(get('/').body)[0]!;
-
-    board().apply('01JBXA', { status: 'queued' });
-
-    const run = await runPollingScript(script, [get('/hash').body]);
-    expect(run.reloads).toBe(1);
+    const payload = JSON.parse(res.body) as { issues: unknown[]; hash: string };
+    // hash 與 /hash 是同一個值 —— SPA 拿到快照的同時就知道自己看的是哪一版，
+    // 否則輪詢的第一次比對會憑空重抓一次。
+    expect(payload.hash).toBe(get('/hash').body);
+    expect(payload.issues).toHaveLength(1);
   });
 });
 
-describe('看板的可見性', () => {
-  /**
-   * 八欄裡有 done 與 cancelled 兩欄。list() 的預設過濾會把它們藏起來 ——
-   * 那是 CLI 的預設檢視該有的行為，不是看板的：看板上那兩欄會因此永遠是空的。
-   * archived 才是看板要藏的東西（ADR-0003：可見性與工作結果正交）。
-   */
-  it('done 與 cancelled 出現在看板上，archived 不出現', () => {
+describe('/api/board 的 IssueView', () => {
+  it('帶齊 client 排版所需的欄位，且 description 是原文（供編輯用）', () => {
+    createWith(fullId('01JBXA'), {
+      title: 'Union merge spike',
+      status: 'blocked',
+      description: 'keeps **both** sides',
+      labels: ['bug', 'p1'],
+    });
+    board().apply(fullId('01JBXA'), { comment: 'reproduced on **2.50.1**' });
+
+    const [issue] = JSON.parse(get('/api/board').body).issues as IssueView[];
+
+    expect(issue).toMatchObject({
+      // 完整識別碼，不是短 Ref：短幾碼才無歧義是整批的性質，client 手上有整批。
+      id: fullId('01JBXA'),
+      title: 'Union merge spike',
+      status: 'blocked',
+      labels: ['bug', 'p1'],
+      archived: false,
+      description: 'keeps **both** sides',
+    });
+    expect(issue!.comments).toHaveLength(1);
+    expect(issue!.comments[0]).toMatchObject({ actor: 'test', body: 'reproduced on **2.50.1**' });
+    expect(issue!.comments[0]!.t).toBeTypeOf('number');
+    expect(issue!.comments[0]!.id).toMatch(/^[0-9A-Z]{26}$/);
+  });
+
+  it('archived 的 Issue 也在快照裡 —— 可見性由 client 決定（ADR-0003）', () => {
     createWith(fullId('01JBXA'), { title: 'Choose NDJSON layout', status: 'done' });
-    createWith(fullId('01JBXB'), { title: 'Build a TUI', status: 'cancelled' });
-    createWith(fullId('01JBXC'), { title: 'Reducer convergence', status: 'in_progress' });
-    createWith(fullId('01JBXD'), { title: 'Archived, must not appear', status: 'done' });
-    board().apply('01JBXD', { archived: true });
+    createWith(fullId('01JBXB'), { title: 'Archived but present' });
+    board().apply(fullId('01JBXB'), { archived: true });
 
-    const body = get('/').body;
+    const issues = (JSON.parse(get('/api/board').body).issues as IssueView[]);
 
-    expect(body).toContain('Choose NDJSON layout');
-    expect(body).toContain('Build a TUI');
-    expect(body).toContain('Reducer convergence');
-    expect(body).not.toContain('Archived, must not appear');
+    // done 與 cancelled 是看板上的兩欄；archived 是正交的可見性欄位。
+    expect(issues.map((i) => i.title).sort()).toEqual(['Archived but present', 'Choose NDJSON layout']);
+    expect(issues.find((i) => i.title === 'Archived but present')!.archived).toBe(true);
+  });
+});
+
+describe('/api/board 的預渲染 HTML', () => {
+  /**
+   * 安全性由 server 保證，不靠前端紀律（ADR-0008）：client 拿到的字串已經走過
+   * html.ts 的「先逸出、再構造」，因此 dangerouslySetInnerHTML 是安全的。
+   * 這裡不重新測 markdown 的全部語法 —— 那是 test/render/html.test.ts 的事。
+   * 這裡要釘的是「走的真的是那一份 renderer」。
+   */
+  it('descriptionHtml 與 bodyHtml 是 markdown 渲染後的安全 HTML', () => {
+    createWith(fullId('01JBXA'), {
+      title: 'Union merge spike',
+      description: 'keeps **both** sides',
+    });
+    board().apply(fullId('01JBXA'), { comment: 'reproduced on `2.50.1`' });
+
+    const [issue] = JSON.parse(get('/api/board').body).issues as IssueView[];
+
+    expect(issue!.descriptionHtml).toBe('<p>keeps <strong>both</strong> sides</p>');
+    expect(issue!.comments[0]!.bodyHtml).toBe('<p>reproduced on <code>2.50.1</code></p>');
+  });
+
+  it('raw HTML 進不去 —— 逸出發生在任何標記產生之前', () => {
+    createWith(fullId('01JBXA'), {
+      title: 'xss',
+      description: '<img src=x onerror=alert(1)>',
+    });
+    board().apply(fullId('01JBXA'), { comment: '<script>alert(2)</script>' });
+
+    const [issue] = JSON.parse(get('/api/board').body).issues as IssueView[];
+
+    expect(issue!.descriptionHtml).not.toContain('<img');
+    expect(issue!.descriptionHtml).toContain('&lt;img');
+    expect(issue!.comments[0]!.bodyHtml).not.toContain('<script');
+    expect(issue!.comments[0]!.bodyHtml).toContain('&lt;script');
+  });
+});
+
+/**
+ * 假的 `dist/studio/`。刻意不依賴真的建置產物：測試不該要求先跑一次 vite，
+ * 而且「讀得到什麼」正是這一層要證明的事，交給建置就沒得證明了。
+ */
+function fakeAssets(files: Readonly<Record<string, string>>): string {
+  for (const [name, body] of Object.entries(files)) writeFileSync(join(assets, name), body, 'utf8');
+  return assets;
+}
+
+const getAsset = (url: string, assetsDir: string) =>
+  handleRequest(board(), { method: 'GET', url }, { assetsDir });
+
+describe('GET /assets/<file>', () => {
+  it('服務 dist/studio/ 底下的檔案，帶對的 content-type', () => {
+    const assetsDir = fakeAssets({
+      'studio.js': 'console.log("hi")\n',
+      'studio.css': ':root{--x:1}\n',
+    });
+
+    const js = getAsset('/assets/studio.js', assetsDir);
+    expect(js.status).toBe(200);
+    expect(js.headers['content-type']).toMatch(/^text\/javascript/);
+    expect(js.body).toBe('console.log("hi")\n');
+
+    const css = getAsset('/assets/studio.css', assetsDir);
+    expect(css.status).toBe(200);
+    expect(css.headers['content-type']).toMatch(/^text\/css/);
+    expect(css.body).toBe(':root{--x:1}\n');
+  });
+
+  /**
+   * ADR-0008 的硬約束：bundle 是磁碟上的靜態檔，**在 request 當下才讀**。
+   * 一旦它被當成模組或字串 import 進來，每一次 `nook list` 都要多 parse
+   * 400KB，冷啟閘門就沒了。改掉磁碟上的檔案、下一次請求就該看到新內容 ——
+   * 這是「沒有在啟動時被吸進記憶體」唯一測得出來的證據。
+   */
+  it('每次請求都重新讀磁碟，不是啟動時載入的常數', () => {
+    const assetsDir = fakeAssets({ 'studio.js': 'const version = 1\n' });
+
+    expect(getAsset('/assets/studio.js', assetsDir).body).toBe('const version = 1\n');
+
+    writeFileSync(join(assetsDir, 'studio.js'), 'const version = 2\n', 'utf8');
+
+    expect(getAsset('/assets/studio.js', assetsDir).body).toBe('const version = 2\n');
+  });
+
+  it('不存在的資產是 404，不是例外', () => {
+    const assetsDir = fakeAssets({ 'studio.js': 'x\n' });
+
+    const res = getAsset('/assets/nope.js', assetsDir);
+
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('/assets/ 的路徑穿越', () => {
+  /**
+   * `/assets/` 是這一版唯一把 URL 片段接進檔案路徑並真的讀檔的地方，因此
+   * 舊的 `/i/<ref>` 穿越測試那份嚴格度整個搬到這裡來。
+   *
+   * 同樣刻意不經過 new URL()：WHATWG 的解析器會把 `..` 正規化掉，讓穿越在
+   * 到達守衛之前就消失，測試會因此變成空的。
+   */
+  const TRAVERSALS = [
+    '/assets/../../../etc/passwd',
+    '/assets/..%2F..%2F..%2Fetc%2Fpasswd',
+    '/assets/%2e%2e%2f%2e%2e%2fetc%2fpasswd',
+    '/assets/....//....//etc/passwd',
+    '/assets//etc/passwd',
+    '/assets/..%5c..%5cwindows%5cwin.ini',
+    '/assets/../../CONTEXT.md',
+    '/assets/../../package.json',
+    '/assets/sub/studio.js',
+  ];
+
+  it('穿越用的檔名一律 404，既不 500 也不回傳檔案內容', () => {
+    const assetsDir = fakeAssets({ 'studio.js': 'x\n' });
+
+    for (const url of TRAVERSALS) {
+      const res = getAsset(url, assetsDir);
+      expect(res.status, url).toBe(404);
+      expect(res.body, url).not.toContain('root:');
+      expect(res.body, url).not.toContain('gitnook');
+      expect(res.body, url).not.toContain('Op-log');
+    }
+  });
+
+  /**
+   * 上面那些 payload 只證明「這些 URL 不會有事」。在資產目錄的正上方放一個
+   * 貨真價實、副檔名還在白名單上的誘餌，才是會隨守衛消失而變紅的測試。
+   */
+  it('資產目錄之外的 .js 讀不到 —— 有誘餌才證明得了守衛還在', () => {
+    const assetsDir = fakeAssets({ 'studio.js': 'x\n' });
+    writeFileSync(join(assetsDir, '..', 'SECRET.js'), 'LEAKED FROM OUTSIDE\n', 'utf8');
+
+    try {
+      for (const url of ['/assets/../SECRET.js', '/assets/..%2FSECRET.js', '/assets/%2e%2e/SECRET.js']) {
+        const res = getAsset(url, assetsDir);
+        expect(res.status, url).toBe(404);
+        expect(res.body, url).not.toContain('LEAKED FROM OUTSIDE');
+      }
+    } finally {
+      rmSync(join(assetsDir, '..', 'SECRET.js'), { force: true });
+    }
+  });
+
+  it('壞掉的百分號跳脫是 404，不是例外', () => {
+    const assetsDir = fakeAssets({ 'studio.js': 'x\n' });
+
+    expect(getAsset('/assets/%E0%A4%A.js', assetsDir).status).toBe(404);
+  });
+});
+
+describe('dist/studio/ 不存在時', () => {
+  /**
+   * 只有從原始碼跑而忘了建置的人會撞到這個 —— 出貨的 tarball 裡 dist/studio/
+   * 一定在。給的是一頁看得懂的說明，不是空白畫面，也不是堆疊追蹤。
+   *
+   * 刻意仍然回 200：這是給一個人看的頁面，不是 API；而且 `/` 的狀態碼是
+   * `nook studio` 活著與否的訊號，不該隨建置狀態改變。
+   */
+  it('GET / 給出說得出下一步的訊息頁，而不是空白的殼', () => {
+    const missing = join(mkdtempSync(join(tmpdir(), 'nook-noassets-')), 'studio');
+
+    const res = getAsset('/', missing);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^text\/html/);
+    expect(res.body).toContain('npm run build');
+    expect(res.body).toContain(missing);
+    // 殼載不起來，就不要送出一份會 404 的 <script>。
+    expect(res.body).not.toContain('/assets/studio.js');
+  });
+
+  it('資產在的時候送的是殼，不是訊息頁', () => {
+    const assetsDir = fakeAssets({ 'studio.js': 'x\n' });
+
+    const res = getAsset('/', assetsDir);
+
+    expect(res.body).toContain('<div id="root"></div>');
+    expect(res.body).not.toContain('npm run build');
   });
 });

@@ -14,14 +14,24 @@ let dir: string;
 // 共用資源紀律：一律綁 port 0 由 OS 指派，不得硬編碼 port。
 const open: Studio[] = [];
 
+/**
+ * 每個用例自己的假 `dist/studio/`。不依賴真的建置產物 —— packed-smoke 會在
+ * 測試中途 `tsup --clean` 把 dist/ 清掉，靠它就是 flaky。
+ */
+let assets: string;
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nook-serve-'));
   mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
+  assets = mkdtempSync(join(tmpdir(), 'nook-serve-assets-'));
 });
 
 afterEach(async () => {
   await Promise.all(open.splice(0).map((s) => s.close()));
   rmSync(dir, { recursive: true, force: true });
+  rmSync(assets, { recursive: true, force: true });
+  // 穿越測試的誘餌落在 assets 的上一層，跟著一起收乾淨。
+  rmSync(join(assets, '..', 'SECRET.js'), { force: true });
 });
 
 const fullId = (prefix: string): string => prefix.padEnd(26, '0');
@@ -36,8 +46,8 @@ const board = (): Board => openBoard({ dir, actor: 'test' });
 const createWith = (issueId: string, input: CreateInput): Issue =>
   openBoard({ dir, actor: 'test', ids: seeded(issueId) }).create(input);
 
-async function start(opts: { port?: number } = {}): Promise<Studio> {
-  const studio = await serve(board(), { port: 0, ...opts });
+async function start(opts: { port?: number; assetsDir?: string } = {}): Promise<Studio> {
+  const studio = await serve(board(), { port: 0, assetsDir: assets, ...opts });
   open.push(studio);
   return studio;
 }
@@ -53,7 +63,11 @@ describe('serve', () => {
     const res = await fetch(`${studio.url}/`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/^text\/html/);
-    expect(await res.text()).toContain('Fix login redirect');
+    // 送出去的是 SPA 的殼 —— 看板的內容走 /api/board。
+    expect(await res.text()).toContain('<div id="root"></div>');
+
+    const snapshot = await (await fetch(`${studio.url}/api/board`)).json();
+    expect(snapshot.issues.map((i: { title: string }) => i.title)).toEqual(['Fix login redirect']);
 
     await studio.close();
     await expect(fetch(`${studio.url}/`)).rejects.toThrow();
@@ -201,10 +215,16 @@ describe('線上（wire）行為', () => {
     );
     const studio = await start();
 
+    // 資產目錄正上方的誘餌 .js —— `/assets/` 是這一版唯一真的讀檔的路徑。
+    writeFileSync(join(assets, '..', 'SECRET.js'), 'LEAKED FROM OUTSIDE\n', 'utf8');
+
     for (const target of [
       '/i/../../../etc/passwd',
       '/i/../../OUTSIDE',
       '/i/..%2f..%2fetc%2fpasswd',
+      '/assets/../../../etc/passwd',
+      '/assets/../SECRET.js',
+      '/assets/..%2fSECRET.js',
     ]) {
       const raw = await rawRequest(studio.url, `GET ${target} HTTP/1.1`);
       expect(raw, target).toMatch(/^HTTP\/1\.1 404 /);
@@ -222,5 +242,22 @@ describe('線上（wire）行為', () => {
       expect(res.status, method).toBe(405);
       expect(res.headers.get('allow'), method).toBe('GET');
     }
+  });
+});
+
+describe('前端資產', () => {
+  it('把 opts.assetsDir 底下的檔案服務在 /assets/ —— 在 request 當下才讀', async () => {
+    writeFileSync(join(assets, 'studio.js'), 'const version = 1\n', 'utf8');
+    const studio = await start();
+
+    const first = await fetch(`${studio.url}/assets/studio.js`);
+    expect(first.status).toBe(200);
+    expect(first.headers.get('content-type')).toMatch(/^text\/javascript/);
+    expect(await first.text()).toBe('const version = 1\n');
+
+    // server 沒有重啟，磁碟上的內容換了就該送新的：bundle 不是啟動時吸進
+    // 記憶體的常數（ADR-0008 的冷啟約束）。
+    writeFileSync(join(assets, 'studio.js'), 'const version = 2\n', 'utf8');
+    expect(await (await fetch(`${studio.url}/assets/studio.js`)).text()).toBe('const version = 2\n');
   });
 });

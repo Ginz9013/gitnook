@@ -96,7 +96,7 @@ function escapeHtml(text: string): string {
  * —— 不需要一份「危險標籤黑名單」，也就沒有黑名單漏列的那類漏洞。
  * 不支援圖片。
  */
-function renderMarkdown(src: string): string {
+export function renderMarkdown(src: string): string {
   return renderBlocks(src.replace(/\r\n?/g, '\n').split('\n'));
 }
 
