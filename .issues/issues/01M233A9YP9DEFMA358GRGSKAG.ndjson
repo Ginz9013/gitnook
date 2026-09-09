@@ -3,3 +3,4 @@
 {"id":"01M233A9Z5R2H5FBM47KJZYH1J","t":3,"a":"83a1","op":"label.add","v":"studio"}
 {"id":"01M236BEVEGRBBK3VWN6G9REZA","t":4,"a":"83a1","op":"comment","body":"決定（2026-09-09）：手寫一個最小形狀檢查。只檢 BoardSnapshot 的頂層（issues 是陣列、hash 是字串），不逐張 issue 驗。不對就丟 MalformedResponseError，與「解不開」同一個分類。零新增相依。"}
 {"id":"01M236J6304TEMN46XQST1SXZZ","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M237GYSM0MPEX3BNQ7ME7XDX","t":6,"a":"83a1","op":"set","k":"status","v":"review"}

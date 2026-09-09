@@ -3,3 +3,4 @@
 {"id":"01M233WYNP5EMDWRC2K9M4A0S8","t":3,"a":"83a1","op":"label.add","v":"studio"}
 {"id":"01M236BEZYYS60F10JRN3CX47D","t":4,"a":"83a1","op":"comment","body":"決定（2026-09-09）：擋掉。無 scheme 但以 // 開頭的視為不安全，退回純文字。issue 內容可能是從外部 repo pull 來的，而讀者現在會在同一個頁面上做寫入操作 —— 被騙走的代價比唯讀時期大。既有測試已涵蓋相對路徑與錨點，不會誤傷。"}
 {"id":"01M236J6AQP26RM0TSDTEK3ZMA","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M237GYRF98JB3SYH87DZN9BG","t":6,"a":"83a1","op":"set","k":"status","v":"review"}

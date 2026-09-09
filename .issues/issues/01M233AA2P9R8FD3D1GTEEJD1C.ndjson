@@ -3,3 +3,4 @@
 {"id":"01M233AA35MP8QD0PDW3TZ0HY5","t":3,"a":"83a1","op":"label.add","v":"studio"}
 {"id":"01M236BEXNBHYN02H0XB81GXXF","t":4,"a":"83a1","op":"comment","body":"決定（2026-09-09）：接受現況，不改。\n\nhandleRequest 的純函數性質這一批貨了很多次：500 兜底能不綁 port 就測、rejection 路徑在構造上不存在、logUnexpected 靠狀態碼而不必看到原始 Error。為了 stack 破掉它不划算。\n\n而且 studio 只綁 loopback，真出事時使用者就在那台機器上，造得出重現步驟。\n\n這張票因此變成純文件：把「只有 message、沒有 stack，這是刻意的」寫進 logUnexpected 的註解，並說明為什麼取回更多的代價太高。"}
 {"id":"01M236J657Y2D74JWPGV8F30AK","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M237GYQACNCZS8KJS3G4FM1B","t":6,"a":"83a1","op":"set","k":"status","v":"review"}
