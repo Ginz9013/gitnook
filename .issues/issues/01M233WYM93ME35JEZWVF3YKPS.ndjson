@@ -1,0 +1,3 @@
+{"id":"01M233WYM9FKP7889M0MSXS8MC","t":1,"a":"83a1","op":"create","title":"show 沒有 markdown 輸出 —— ADR-0001 承諾的緩解只做了一半"}
+{"id":"01M233WYMK1HFX7TC82J61H2XN","t":2,"a":"83a1","op":"set","k":"description","v":"ADR-0001 在權衡「NDJSON 在 GitHub 網頁上不如 markdown 好讀」時寫下的緩解手段有兩半：\n\n「緩解方式是讓 Op 的 JSON 單行可讀，**並提供 show 的 markdown 輸出**。」\n\n前半做了（每個 op 一行、欄位短、看得懂）。後半沒有 —— nook show 只有預設的表格輸出與 --json。\n\n這條的價值取決於使用情境：把一張 issue 貼進 PR 描述、貼進 Slack、或丟給另一個工具時，markdown 是通用格式。目前要嘛自己從表格拼，要嘛解析 --json。\n\n注意 ADR-0005 的 token 預算：show 不在 40 票情境的量測範圍內（那個情境是 list → show → mv → comment，show 只有一張），但如果 markdown 輸出比表格長很多，仍會動到那個數字。做之前先看一眼 bench。\n\n也要想清楚它是 --markdown 旗標還是別的形狀 —— 這個 CLI 目前只有 --json 一個輸出格式旗標，多一個就變成一組，值得一次決定好。"}
+{"id":"01M233WYMK699S97WJQB364F4X","t":3,"a":"83a1","op":"label.add","v":"ux"}
