@@ -1,11 +1,12 @@
 import { shortIdLength } from '../core/ids.js';
+import { displayWidth } from './width.js';
 import type { Comment, Issue } from '../core/types.js';
 
 /** 欄位分隔。ADR-0005 的量測範例即以兩個空白分隔。 */
 const GAP = '  ';
 /**
- * title 欄的上限。80 欄終端扣掉 id(6)+分隔(2)+最寬 status `in_progress`(11)+分隔(2)=21，
- * 再為 labels 欄留約 11 欄，剩下 48。
+ * title 欄的上限，單位是**顯示欄**而非字元。80 欄終端扣掉 id(6)+分隔(2)+
+ * 最寬 status `in_progress`(11)+分隔(2)=21，再為 labels 欄留約 11 欄，剩下 48。
  */
 const TITLE_MAX = 48;
 const ELLIPSIS = '…';
@@ -21,12 +22,27 @@ const shortId = (issue: Issue, len: number): string => issue.id.slice(0, len);
 const labelCell = (issue: Issue): string =>
   issue.labels.length === 0 ? '' : `[${issue.labels.join(',')}]`;
 
+/**
+ * 以顯示欄寬截斷，不以字元數截斷。全形字放不進剩餘欄寬時整個不放 ——
+ * 切半個字元會產生亂碼，而寧可少一欄也不要多一欄。
+ */
 function truncate(text: string, max: number): string {
-  return text.length <= max ? text : text.slice(0, max - ELLIPSIS.length) + ELLIPSIS;
+  if (displayWidth(text) <= max) return text;
+
+  const budget = max - displayWidth(ELLIPSIS);
+  let out = '';
+  let used = 0;
+  for (const ch of text) {
+    const w = displayWidth(ch);
+    if (used + w > budget) break;
+    out += ch;
+    used += w;
+  }
+  return out + ELLIPSIS;
 }
 
 function pad(text: string, width: number): string {
-  return text + ' '.repeat(width - text.length);
+  return text + ' '.repeat(width - displayWidth(text));
 }
 
 /** 清單的緊湊表格 —— ADR-0005 的量測對象。 */
@@ -48,7 +64,7 @@ function renderList(issues: readonly Issue[], given: number | undefined): string
     labelCell(issue),
   ]);
   // 欄寬依內容自適應；最後一欄不補寬，且整行去除尾隨空白 —— 尾隨空白是純粹的 token 浪費。
-  const widths = [0, 1, 2].map((col) => Math.max(...cells.map((row) => row[col]!.length)));
+  const widths = [0, 1, 2].map((col) => Math.max(...cells.map((row) => displayWidth(row[col]!))));
 
   return cells
     .map((row) =>
