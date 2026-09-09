@@ -1,5 +1,6 @@
 import { shortIdLength } from '../core/ids.js';
 import { displayWidth } from './width.js';
+import type { SetOp } from '../core/ops.js';
 import type { Comment, Issue } from '../core/types.js';
 
 /** 欄位分隔。ADR-0005 的量測範例即以兩個空白分隔。 */
@@ -12,6 +13,8 @@ const TITLE_MAX = 48;
 const ELLIPSIS = '…';
 /** 空清單的訊息。輸出一個空表頭比一句話更浪費，也更難讀。 */
 const EMPTY = '沒有 issue';
+/** 同上，但問的是一張 Issue 的 Op-log。 */
+const EMPTY_OPS = '沒有 set op';
 
 /**
  * 短 ID 的長度由呼叫端算好後傳進來 —— 長度是「整批的性質」，單張 Issue
@@ -45,6 +48,24 @@ function pad(text: string, width: number): string {
   return text + ' '.repeat(width - displayWidth(text));
 }
 
+/**
+ * 欄寬依內容自適應；最後一欄不補寬，且整行去除尾隨空白 —— 尾隨空白是純粹的
+ * token 浪費（ADR-0005）。這是本檔兩張表格共用的版面規則，只有一份。
+ */
+function grid(rows: readonly (readonly string[])[]): string[] {
+  // 呼叫端都先擋掉空清單（各有自己的訊息），所以這裡一定有第一列可以定欄數。
+  const last = rows[0]!.length - 1;
+  const widths = rows[0]!.map((_, col) =>
+    col === last ? 0 : Math.max(...rows.map((row) => displayWidth(row[col]!))),
+  );
+  return rows.map((row) =>
+    row
+      .map((cell, col) => (col === last ? cell : pad(cell, widths[col]!)))
+      .join(GAP)
+      .trimEnd(),
+  );
+}
+
 /** 清單的緊湊表格 —— ADR-0005 的量測對象。 */
 function renderList(issues: readonly Issue[], given: number | undefined): string {
   if (issues.length === 0) return EMPTY;
@@ -63,17 +84,8 @@ function renderList(issues: readonly Issue[], given: number | undefined): string
     truncate(issue.title, TITLE_MAX),
     labelCell(issue),
   ]);
-  // 欄寬依內容自適應；最後一欄不補寬，且整行去除尾隨空白 —— 尾隨空白是純粹的 token 浪費。
-  const widths = [0, 1, 2].map((col) => Math.max(...cells.map((row) => displayWidth(row[col]!))));
 
-  return cells
-    .map((row) =>
-      row
-        .map((cell, col) => (col < widths.length ? pad(cell, widths[col]!) : cell))
-        .join(GAP)
-        .trimEnd(),
-    )
-    .join('\n');
+  return grid(cells).join('\n');
 }
 
 // 不重排：Issue.comments 已由 reduce() 以 (t, a, id) 全序產出。
@@ -113,4 +125,30 @@ export function renderTable(input: readonly Issue[] | Issue, shortIdLen?: number
   return Array.isArray(input)
     ? renderList(input, shortIdLen)
     : renderDetail(input as Issue, shortIdLen);
+}
+
+/**
+ * 一張 Issue 的 Op-log 中的 set Op：誰、在哪個 lamport `t`、把哪個欄位寫成什麼。
+ *
+ * 不重排 —— 傳進來的順序就是 core 的 (t, a, id) 全序（`Board.opLog`）。在此
+ * 複製一份比較器只會與 core 分歧，同 timeline 的理由（commit 463343d）。
+ *
+ * 值**不截斷**：這張表存在的理由就是把被 LWW 蓋掉的那份 description 原封不動
+ * 交回讀者手上，截斷等於沒救回來。description 因此常常是多行的，而多行的值
+ * 塞不進一列 —— 只要有一個值含換行，就整份改成「表頭一行、值另起、區塊間空
+ * 一行」。全部一起換而不是逐列決定：讀者要能一眼看出一個值在哪裡結束，而那
+ * 取決於整份輸出的形狀，不是單一列的。
+ */
+export function renderSetOps(ops: readonly SetOp[]): string {
+  if (ops.length === 0) return EMPTY_OPS;
+
+  const values = ops.map((op) => String(op.v));
+  const head = ops.map((op) => [String(op.t), op.a, op.k]);
+
+  if (values.some((v) => v.includes('\n'))) {
+    return grid(head)
+      .map((row, i) => `${row}\n${values[i]!}`)
+      .join('\n\n');
+  }
+  return grid(head.map((row, i) => [...row, values[i]!])).join('\n');
 }

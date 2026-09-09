@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { Board, Op } from '../src/index.js';
 
 describe('src/index.ts 的公開匯出', () => {
   it('只有 Board 的入口、初始化／診斷／服務、以及使用者接得到的錯誤型別', async () => {
@@ -28,5 +29,20 @@ describe('src/index.ts 的公開匯出', () => {
         'PortInUse',
       ].sort(),
     );
+  });
+});
+
+/**
+ * 型別匯出在執行期看不見，因此這一條由 `npx tsc --noEmit` 守住。
+ *
+ * `Board.opLog()` 一旦上了公開面，Op 的形狀就已經是相容承諾了 —— 不匯出
+ * 名字並不會少欠一分，只會讓呼叫端包不住它（同 ServeOptions 的理由：
+ * 簽章要能被呼叫端命名，否則它等於只能被呼叫、不能被包裝）。
+ */
+describe('Op-log 的回傳型別', () => {
+  it('opLog 的回傳值命名得出來', () => {
+    const nameable: (board: Board) => readonly Op[] = (board) => board.opLog('01JBX7A9Q3');
+
+    expect(typeof nameable).toBe('function');
   });
 });

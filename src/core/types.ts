@@ -1,3 +1,5 @@
+import type { Op } from './ops.js';
+
 /** 八個固定 Status。不可自訂 —— 見 docs/adr/0003。 */
 export const STATUSES = [
   'backlog',
@@ -95,6 +97,16 @@ export interface IdSource {
 export interface Board {
   create(input: CreateInput): Issue;
   get(ref: string): Issue;
+  /**
+   * 一張 Issue 的 Op-log 原文。
+   *
+   * 這是 Board 上**唯一**交出 Op 的地方，而且是唯讀的 —— 寫入端仍然只有
+   * Change（CONTEXT.md：呼叫端永遠不接觸 Op）。之所以要有它：`description`
+   * 是 LWW，兩個 Actor 並行編輯時摺疊只留一份，敗方的文字完整躺在檔案裡卻
+   * 沒有任何介面拿得回來（v1 spec 的 Risks 記為已知缺口）。`get()` 回答
+   * 「現在是什麼」，這裡回答「曾經被寫過什麼、誰寫的」。
+   */
+  opLog(ref: string): readonly Op[];
   /**
    * 整塊 Board 上每一張 Issue 的**完整** Ref，已排序。
    *

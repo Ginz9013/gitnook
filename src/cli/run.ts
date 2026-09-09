@@ -23,8 +23,9 @@ import {
   RefNotFound,
 } from '../core/types.js';
 import { renderJson } from '../render/json.js';
-import { renderTable } from '../render/table.js';
+import { renderSetOps, renderTable } from '../render/table.js';
 import { PortInUse, serve } from '../server/serve.js';
+import type { SetOp } from '../core/ops.js';
 import type { Board, Change, CreateInput, Filter } from '../core/types.js';
 
 /**
@@ -133,6 +134,8 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
       return cmdList(parseArgs(rest, LIST_FLAGS), io);
     case 'show':
       return cmdShow(parseArgs(rest, SHOW_FLAGS), io);
+    case 'history':
+      return cmdHistory(parseArgs(rest, NO_FLAGS), io);
     case 'set':
       return cmdSet(parseArgs(rest, SET_FLAGS), io);
     case 'mv':
@@ -150,7 +153,7 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
   throw new UsageError(unknownCommand(command));
 }
 
-const COMMANDS = ['init', 'new', 'list', 'show', 'set', 'mv', 'comment', 'label', 'doctor', 'studio'];
+const COMMANDS = ['init', 'new', 'list', 'show', 'history', 'set', 'mv', 'comment', 'label', 'doctor', 'studio'];
 
 /** 打錯字與想要一個不存在的功能是兩件事，回答也該不一樣。 */
 function unknownCommand(command: string): string {
@@ -362,9 +365,45 @@ function cmdShow(args: Args, io: Io): number {
   return 0;
 }
 
-/** `set` 可寫的欄位。labels 有專屬的 OR-Set 語意，不走這裡。 */
+/**
+ * 四個 LWW 欄位：`set` 可寫的，也是 `history` 可查的。
+ * labels 有專屬的 OR-Set 語意，不走這裡。
+ */
 const SETTABLE = ['title', 'description', 'status', 'archived'] as const;
 type Field = (typeof SETTABLE)[number];
+
+/**
+ * 一張 Issue 的 Op-log 中的 set Op —— 每一次對 LWW 欄位的寫入，誰寫的、
+ * 在哪個 lamport `t`、寫成什麼。
+ *
+ * 存在的理由只有一個：`description` 是 LWW，並行編輯時摺疊只留一份，敗方的
+ * 文字完整躺在檔案裡卻沒有任何指令拿得回來。看得到就手動 copy 回 `nook set`
+ * 拿得回來 —— **刻意不做 restore**，那是 append 一個新 Op 把舊值寫回去，不是
+ * 「回到過去」，語意值得單獨定。
+ *
+ * 只列 set op：label 是 OR-Set、comment 只增不減，兩者都不會弄丟東西，而
+ * comment 在 `show` 就看得到。**本指令唯讀，不 append 任何 Op。**
+ */
+function cmdHistory(args: Args, io: Io): number {
+  const [ref, field] = args.positional;
+  if (ref === undefined) throw new UsageError('用法：nook history <ref> [<field>]');
+  requireRef(ref);
+  // 打錯欄位名而靜默回一份空清單，等於告訴呼叫端「那個欄位從沒被寫過」——
+  // 而他正是在找一份被蓋掉的舊值。同 `set` 與未知旗標的慣例：不靜默猜測。
+  if (field !== undefined && !(SETTABLE as readonly string[]).includes(field)) {
+    throw new UsageError(`不是可查的欄位：${field}（可用：${SETTABLE.join(', ')}）`);
+  }
+
+  const board = openBoard({ dir: io.cwd });
+  const ops = board
+    .opLog(ref)
+    .filter((op): op is SetOp => op.op === 'set' && (field === undefined || op.k === field));
+  // 同 list / show：單點失效的監看擺在讀完之後，board 不存在時該說的是
+  // 「先跑 nook init」而不是兩個問題。
+  warnIfUnguarded(io);
+  line(io, renderSetOps(ops));
+  return 0;
+}
 
 /**
  * 長文的兩條路之一：`-` 表示從 stdin 讀（`nook set X description - < bug.md`）——

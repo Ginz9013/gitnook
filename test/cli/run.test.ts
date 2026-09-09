@@ -1059,3 +1059,126 @@ describe('短 ID 的長度對整塊 Board 算', () => {
  * 本測試落在 CLI 的測試檔裡，是因為本次工作的測試寫入範圍只到這三個檔；
  * 它真正的位置是一個獨立的 test/index.test.ts。
  */
+
+/**
+ * `description` 是 LWW：兩個 Actor 並行編輯，摺疊後只剩一份，敗方的文字
+ * 完整躺在 Op-log 裡卻沒有任何指令拿得回來（v1 spec 記為已知缺口）。
+ *
+ * 唯讀。看得到就手動 copy 回 `nook set` 拿得回來，而 restore 是 append 一個
+ * 新 Op 把舊值寫回去、不是「回到過去」，那個語意值得單獨定。
+ */
+describe('history', () => {
+  /** 每個 Actor 一個獨立的種子，op 的識別碼才不會撞號（撞號會被 dedupe 吃掉）。 */
+  const asActor = (actor: string, seed: string) =>
+    openBoard({ dir, actor, ids: seeded(fullId(seed)) });
+
+  it('列出全部 set op，帶 lamport t 與 Actor，並依 core 的全序由舊到新', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
+    asActor('bob', '01ZZZA').apply('01JBXA', { description: 'bob 蓋掉的版本' });
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA'], io)).toBe(0);
+
+    // 敗方（t=2）與勝方（t=3）都在，而 show 只看得到勝方。
+    expect(io.out).toBe(
+      '2  alice  description  alice 的原稿\n' + '3  bob    description  bob 蓋掉的版本\n',
+    );
+    expect(io.err).toBe('');
+  });
+
+  it('多行的值原封不動印出來 —— 撈得回來才是這個指令存在的理由', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({
+      title: 'Fix login redirect',
+      description: 'Repro:\n1. 開啟 /login\n2. 轉圈',
+    });
+    asActor('bob', '01ZZZA').apply('01JBXA', { description: 'Safari 17 才會出現' });
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA'], io)).toBe(0);
+
+    // 有多行的值時，值一律另起 —— 否則讀者無從得知一個值在哪裡結束。
+    expect(io.out).toBe(
+      '2  alice  description\n' +
+        'Repro:\n1. 開啟 /login\n2. 轉圈\n' +
+        '\n' +
+        '3  bob    description\n' +
+        'Safari 17 才會出現\n',
+    );
+  });
+
+  it('帶欄位時只列那個欄位的 set op', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({
+      title: 'Fix login redirect',
+      status: 'queued',
+      description: 'alice 的原稿',
+    });
+    asActor('bob', '01ZZZA').apply('01JBXA', { status: 'in_progress' });
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA', 'status'], io)).toBe(0);
+
+    expect(io.out).toBe('2  alice  status  queued\n' + '4  bob    status  in_progress\n');
+  });
+
+  it('打錯欄位名直接報錯 —— 靜默回一份空清單會讓人以為那個欄位從沒被寫過', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA', 'descripton'], io)).toBe(1);
+
+    expect(io.err).toContain('descripton');
+    expect(io.out).toBe('');
+  });
+
+  it('缺 merge=union 時照樣警告 —— 正在撈舊值的人最不該忽略那條保證', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
+    rmSync(join(dir, '.gitattributes'));
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA'], io)).toBe(0);
+
+    expect(io.err).toContain('merge=union');
+    // 警告走 stderr，資料照樣讀得到。
+    expect(io.out).toBe('2  alice  description  alice 的原稿\n');
+  });
+
+  /**
+   * 唯讀是這張票的邊界，不是它的副作用：restore 是 append 一個新 Op 把舊值
+   * 寫回去，那是另一個決定。這條是那個邊界的守門，因此一開始就是綠的。
+   */
+  it('唯讀：跑完之後 op-log 一個 byte 都沒變', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
+    asActor('bob', '01ZZZA').apply('01JBXA', { description: 'bob 蓋掉的版本' });
+    const log = join(dir, '.issues', 'issues', `${fullId('01JBXA')}.ndjson`);
+    const before = readFileSync(log, 'utf8');
+
+    expect(await run(['history', '01JBXA'], capture())).toBe(0);
+    expect(await run(['history', '01JBXA', 'description'], capture())).toBe(0);
+
+    expect(readFileSync(log, 'utf8')).toBe(before);
+  });
+
+  /** renderList 的空清單訊息已有前例，本條與它同批寫成，因此一開始就是綠的。 */
+  it('一次都沒被寫過的欄位說得清楚，而不是印一個空表頭', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({ title: 'Fix login redirect' });
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA'], io)).toBe(0);
+
+    // create 帶的 title 不是 set op —— 它是這張 Issue 的第一行，不是一次改寫。
+    expect(io.out).toBe('沒有 set op\n');
+  });
+});

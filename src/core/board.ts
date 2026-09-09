@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { Board, CreateInput, Change, Filter, Issue, Diagnostic, OpenBoardOptions, IdSource } from './types.js';
 import { BoardNotInitialized, RefNotFound, resolveStatus } from './types.js';
 import { serialize, parseLine, nextLamport, type Op, type SetKey } from './ops.js';
-import { reduce } from './reduce.js';
+import { orderOps, reduce } from './reduce.js';
 import { systemIds, resolvePrefix, isValidRef, normalizeRef } from './ids.js';
 import { deriveActor } from './actor.js';
 import { diagnose } from './health.js';
@@ -106,6 +106,13 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
       requireInitialized();
       const id = resolve(ref);
       return reduce(id, readOps(pathOf(id)));
+    },
+    opLog(ref: string): readonly Op[] {
+      requireInitialized();
+      const id = resolve(ref);
+      // 順序沿用 reduce 的全序，不在此另寫一份比較器 —— 呼叫端看到的順序
+      // 因此必然與 Issue 被摺出來的順序一致。
+      return orderOps(readOps(pathOf(id)));
     },
     refs(): readonly string[] {
       requireInitialized();

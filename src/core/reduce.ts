@@ -2,14 +2,23 @@ import type { Comment, Issue, Status } from './types.js';
 import { STATUSES } from './types.js';
 import type { Op } from './ops.js';
 
-/** 以 (t, a, id) 全序排序 → dedupe by id → fold。順序無關性的來源 —— docs/adr/0001。 */
-export function reduce(id: string, ops: readonly Op[]): Issue {
+/**
+ * 以 (t, a, id) 全序排序 → dedupe by id。**這是全序在整個 repo 的唯一一份**：
+ * 想按同一個順序看 Op 的人（`Board.opLog`）走這裡，不要另抄一份比較器 ——
+ * 兩份比較器分歧正是 commit 463343d 的成因。
+ */
+export function orderOps(ops: readonly Op[]): readonly Op[] {
   // 排序必須在 dedupe 之前：union merge 會保留同 id 但內容不同的兩行（spike T3），
   // 若先 dedupe 就等於「保留檔案裡的第一個」，收斂性隨即取決於行的順序。
   const seen = new Set<string>();
-  const ordered = [...ops]
+  return [...ops]
     .sort((x, y) => x.t - y.t || cmp(x.a, y.a) || cmp(x.id, y.id))
     .filter((o) => (seen.has(o.id) ? false : (seen.add(o.id), true)));
+}
+
+/** 全序 → fold。順序無關性的來源 —— docs/adr/0001。 */
+export function reduce(id: string, ops: readonly Op[]): Issue {
+  const ordered = orderOps(ops);
 
   let title = '';
   let status: Status = 'backlog';
