@@ -73,10 +73,26 @@ function readBody(req: IncomingMessage): Promise<string> {
  * 記下來，等於讓前端每 2 秒一次的輪詢與每一次 `nook list` 都在洗版，
  * 而真正需要被看見的那一行就埋在裡面 —— 一個什麼都印的終端機沒有人讀。
  *
+ * **只留下一行 message，沒有 stack 也沒有 error class —— 這是刻意的。**
  * 訊息取自回應主體而不是 Error 物件：`handleRequest` 是純函數，例外在它
  * 那一格變成值的時候就只剩下 message（見 handler.ts 的 `serverError`），
- * serve.ts 拿不到原本擲出的東西。這也正好是對的 —— 終端機上讀到的，
- * 與瀏覽器那邊收到的是同一句話。
+ * serve.ts 拿不到原本擲出的東西。對 BoardNotInitialized 這一類，這正好是
+ * 對的 ——「先執行 nook init」說得出下一步，一份 stack 說不出；終端機上
+ * 讀到的與瀏覽器那邊收到的也是同一句話。真的是內部 bug 的時候，這一行
+ * 確實薄，而那個代價是知情之後接受的。
+ *
+ * 被否決的做法是讓 `handleRequest` 在回應之外另外把原本擲出的 Error 交出來，
+ * 好讓這裡印得出 stack。**不划算，兩個理由：**
+ *
+ * 1. **要付的是 `handleRequest` 的純函數性質，而那份性質已經付過好幾次帳。**
+ *    500 兜底不必綁 port 就測得到、rejection 路徑是在構造上不存在而不是靠
+ *    try/catch 補起來的（見下面 createServer 裡那段）、`logUnexpected` 只靠
+ *    狀態碼就成立，從頭到尾不必看見原始 Error。開一條「回應之外的第二個
+ *    輸出」就是把回應以外的東西塞回那道接縫，上面三件事全部要重新論證。
+ * 2. **studio 只綁 loopback（ADR-0007）。** 真出事的時候，使用者就坐在跑這個
+ *    process 的那台機器前面，手上有那塊 board 與自己剛剛做過的操作 —— 重現
+ *    步驟造得出來。stack 在這裡省下的是那一步，不是唯一的線索。換成一個看不
+ *    到現場的遠端服務，這個結論才會反過來。
  */
 function logUnexpected(method: string, url: string, out: StudioResponse): void {
   if (out.status < 500) return;
