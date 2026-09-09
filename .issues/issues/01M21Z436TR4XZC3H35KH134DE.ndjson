@@ -8,3 +8,4 @@
 {"id":"01M23393M9N6V1Z7G0XPSDGJR8","t":8,"a":"83a1","op":"set","k":"archived","v":false}
 {"id":"01M2361VC7APVGY25D5S30FPAK","t":9,"a":"83a1","op":"comment","body":"決定（2026-09-09）：init 說話（列出建立了什麼、並區分 no-op），doctor 維持沉默。doctor 符合 unix 慣例「沒消息就是好消息」，而且它會進 CI —— 健康時噴東西反而是雜訊。票面原本主張兩個都說話，這裡收窄。"}
 {"id":"01M236J60PBYTV267VQ60GND1Y","t":10,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M2383D4RRKQ2FSWMHCE9WTEB","t":11,"a":"83a1","op":"set","k":"status","v":"review"}
