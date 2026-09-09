@@ -4,6 +4,7 @@ import type { Announcements, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 
 import type { IssueView, Status } from '@/api';
 import type { ProjectedIssue } from '@/reconcile';
+import type { DrawerChange } from '@/drawer/changes';
 import { Button } from '@/components/ui/button';
 
 import { BlockedGate } from './BlockedGate';
@@ -12,12 +13,12 @@ import { Column } from './Column';
 import type { DragState } from './Column';
 import { announceCancel, announceDrop, announceGrab, announceOver, dragInstructions } from './announce';
 import { boardCollision, columnKeyboardCoordinates, draggedIssue, statusOf } from './dnd';
+import { focusIssue } from './focus';
 import { STATUS_LANES, dropEffect, groupByStatus } from './lanes';
 
 /**
- * 看板的插槽。**這是票 06 要填的空殼** —— 八個 Status、Issue 與 `@dnd-kit` 的拖拉
- * 都在那張票。這裡先把介面定下來，票 06 因此只需要改本目錄底下的檔案，
- * 不必回頭動 `App.tsx`。
+ * 看板對外的那一面。`App` 是唯一的呼叫端 —— 它持有調和 state 與寫入面，看板
+ * 只把事件翻成這裡的 action。
  */
 export interface BoardProps {
   /**
@@ -33,28 +34,44 @@ export interface BoardProps {
   /** drawer 目前開在哪一張；沒開就是 null。 */
   readonly selectedId: string | null;
   readonly onSelect: (id: string | null) => void;
-  /** 一次拖曳的結果。票 06 接上 @dnd-kit，票 05 負責送出與調和。 */
+  /**
+   * 一次拖曳造成的移動。**不含 `blocked`** —— 那條路走 `onBlock`，因為它要帶著
+   * 原因，而「只有 status」正是這個簽章能表達的全部。
+   */
   readonly onMove: (id: string, status: Status) => void;
+  /**
+   * 拖進 `blocked`，而且使用者已經在閘門裡寫下原因。
+   *
+   * **收的是整份 `Change`，不是 `(id, reason)`。** ADR-0003 要的不是「有一段
+   * 文字」而是「status 與 comment 是同一次 append」——`board.apply()` 對一份
+   * Change 只 append 一次，所以只要它們同在一個物件裡，磁碟上就不可能出現
+   * 「已經 blocked 但還沒留言」的中間狀態。拆成兩個參數就等於把配對的責任
+   * 交回給呼叫端，而那正是 drawer 那條路徑早就做對、看板這條做錯的地方。
+   */
+  readonly onBlock: (id: string, change: DrawerChange) => void;
   /**
    * 這張 Issue 被指標或鍵盤抓住了。對應調和 reducer 的 `GRAB`：抓住之後它在
    * 放開之前不接受任何來自伺服器的移動（`reconcile.ts` 第三條規則）。
    *
-   * 選用 —— 目前的 `App.tsx` 還沒有 reducer 可派（票 05）。看板這一側的責任
-   * 是把時機正確地講出來，接不接得住是輪詢那一票的事。
+   * **必填。** 原本是選用的（那時 `App.tsx` 還沒有 reducer 可派），但看板現在
+   * 靠 `held` 畫出「被抓著」的那張卡片 —— 少傳 `onGrab` 的看板永遠不會有任何
+   * 一張是 held，而且編得過、跑得動、沒有任何錯誤。可選的接線就是這樣靜靜壞掉的。
    */
-  readonly onGrab?: (id: string) => void;
+  readonly onGrab: (id: string) => void;
   /**
    * 放開了，而且**沒有**造成移動（取消、放回原本的 Status、或在 blocked 閘門前反悔）。
    * 對應 `RELEASE`。有移動時只送 `onMove`：reducer 的 `DROP` 本身就結束拖曳，
    * 再補一次 `RELEASE` 會把押後的快照套兩次。
    */
-  readonly onRelease?: () => void;
+  readonly onRelease: () => void;
 }
 
 /** blocked 閘門正在問的那一張。 */
 interface Gate {
   readonly id: string;
   readonly title: string;
+  /** 它現在的 Status —— 閘門要它才組得出那份 `Change`。 */
+  readonly from: Status;
 }
 
 export function Board({
@@ -62,6 +79,7 @@ export function Board({
   selectedId,
   onSelect,
   onMove,
+  onBlock,
   onGrab,
   onRelease,
 }: BoardProps): React.JSX.Element {
@@ -115,7 +133,7 @@ export function Board({
     if (data === null) return;
     const id = String(event.active.id);
     setDragging({ id, ...data });
-    onGrab?.(id);
+    onGrab(id);
   }
 
   function handleDragEnd(event: DragEndEvent): void {
@@ -125,16 +143,16 @@ export function Board({
 
     const to = statusOf(event.over);
     if (to === null) {
-      onRelease?.();
+      onRelease();
       return;
     }
     switch (dropEffect(drag.status, to)) {
       case 'none':
-        onRelease?.();
+        onRelease();
         return;
       case 'needs-reason':
         // 還沒決定，所以還沒 RELEASE：閘門開著的時候這張 Issue 不該被伺服器抽走。
-        setGate({ id: drag.id, title: drag.title });
+        setGate({ id: drag.id, title: drag.title, from: drag.status });
         return;
       case 'authorize':
       case 'move':
@@ -145,11 +163,18 @@ export function Board({
 
   function handleDragCancel(): void {
     setDragging(null);
-    onRelease?.();
+    onRelease();
   }
 
   return (
-    <main className="flex h-dvh flex-col gap-3 p-4" data-slot="board">
+    <main
+      className="flex h-dvh flex-col gap-3 p-4 outline-none"
+      data-slot="board"
+      // 焦點的最後退路（`focus.ts`）：對話框關掉時那張 Issue 已經不在畫面上
+      // （被 archived 篩掉、從快照消失）就 focus 到這裡。`-1` 是「程式可以給它
+      // 焦點，但 Tab 不會停在這」。
+      tabIndex={-1}
+    >
       <header className="flex shrink-0 items-center gap-3">
         <span className="text-muted-foreground text-xs">{visible.length} 張 Issue</span>
         {archivedCount > 0 && (
@@ -198,16 +223,26 @@ export function Board({
       {gate !== null && (
         <BlockedGate
           title={gate.title}
-          onConfirm={() => {
-            onMove(gate.id, 'blocked');
-            // 原因寫在 drawer 裡（票 07）—— 閘門只負責在放手的當下把人帶到那裡。
-            onSelect(gate.id);
+          from={gate.from}
+          onConfirm={(change) => {
+            // 一次 `onBlock`，不是「先移動再開 drawer 請人補留言」：status 與
+            // 原因在同一份 Change 裡，磁碟上不會出現只有其中一半的那一刻。
+            //
+            // **確認之後刻意不開 drawer。** 前一版開它是因為原因只能寫在那裡；
+            // 現在原因已經收完了，再彈出一整面細節就只是打斷拖曳的節奏 ——
+            // 而且那面 drawer 是程式化開啟的，正是焦點會掉進 <body> 的那條路徑。
+            onBlock(gate.id, change);
             setGate(null);
           }}
           onCancel={() => {
-            onRelease?.();
+            // 取消什麼都不送：不移動、不留言。這裡只把拖曳鎖解開。
+            onRelease();
             setGate(null);
           }}
+          // 焦點回到剛才那張卡片 —— 確認的話它已經在 blocked 欄裡，取消的話它
+          // 還在原處。理由見 `focus.ts`：焦點跟著 Issue 走，而卡片現在的位置
+          // 同時回答了「我剛做的事成功了嗎」。
+          onCloseFocus={() => focusIssue(gate.id)}
         />
       )}
     </main>

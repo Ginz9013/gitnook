@@ -10,10 +10,16 @@ import type { DrawerChange } from './changes';
  * 點卡片開出來的詳情與內編輯面板。Radix Dialog 為底的 Sheet
  * （ADR-0008：**不裝 vaul**）。
  *
- * focus trap、`aria-modal`、scroll lock、Esc 關閉、關閉後把焦點還給觸發的
- * 元素 —— **全部交給 Radix**，這個檔案裡一行都沒有。手寫這些是 ADR-0008
- * 願意接受這個相依的主要理由；在上面補一層自己的處理只會跟它打架
- * （所以刻意不傳 `onEscapeKeyDown` / `onCloseAutoFocus`）。
+ * focus trap、`aria-modal`、scroll lock、Esc 關閉 —— 交給 Radix。手寫這些是
+ * ADR-0008 願意接受這個相依的主要理由。
+ *
+ * **一個例外：關閉後的焦點。** 原本這裡連 `onCloseAutoFocus` 都不傳，寫著
+ * 「關閉後把焦點還給觸發的元素也交給 Radix」。那句話是錯的，而且是在真的瀏覽器
+ * 裡按 Esc 才看得出來錯：Radix 的 modal Dialog 關閉時做的事是
+ * `context.triggerRef.current?.focus()`，而這個 drawer 由 `selectedId` 受控開啟、
+ * **沒有 `<Dialog.Trigger>`** —— 於是那一行等於「把焦點交給 null」，
+ * `document.activeElement` 掉回 `<body>`。不傳 prop 不是「交給 Radix」，
+ * 是「接受一個對受控 Dialog 而言壞掉的預設」。見 `board/focus.ts`。
  */
 export interface IssueDrawerProps {
   /**
@@ -30,9 +36,21 @@ export interface IssueDrawerProps {
    * 一側因此沒有自己的 pending 狀態可以跟看板分歧。
    */
   readonly onSubmit: (id: string, change: DrawerChange | undefined) => boolean;
+  /**
+   * 關閉之後鍵盤焦點要去哪，帶著剛才顯示的那張 Issue 的 id。
+   *
+   * drawer 不自己決定 —— 它不知道看板長什麼樣，也不該知道。它知道的只有
+   * 「剛才在看的是哪一張 Issue」，而那正是這個決定唯一需要的輸入。
+   */
+  readonly onCloseFocus: (id: string) => void;
 }
 
-export function IssueDrawer({ issue, onClose, onSubmit }: IssueDrawerProps): React.JSX.Element {
+export function IssueDrawer({
+  issue,
+  onClose,
+  onSubmit,
+  onCloseFocus,
+}: IssueDrawerProps): React.JSX.Element {
   // 關閉之後 Radix 還要放退場動畫，那段期間 issue 已經是 null。留住最後一張，
   // 否則 Sheet 會在動畫中途少掉 Title —— Radix 會抱怨對話框沒有可及名稱。
   const last = useRef<ProjectedIssue<IssueView> | null>(null);
@@ -46,7 +64,18 @@ export function IssueDrawer({ issue, onClose, onSubmit }: IssueDrawerProps): Rea
         if (!open) onClose();
       }}
     >
-      <SheetContent side="right" data-slot="issue-drawer" className="gap-4 overflow-y-auto sm:max-w-xl">
+      <SheetContent
+        side="right"
+        data-slot="issue-drawer"
+        onCloseAutoFocus={(event) => {
+          // 一律接手（見上）。`preventDefault` 擋掉的是 Radix 那句
+          // `triggerRef.current?.focus()` —— `composeEventHandlers` 看到
+          // `defaultPrevented` 就不再跑它內建的處理。
+          event.preventDefault();
+          if (shown !== null) onCloseFocus(shown.id);
+        }}
+        className="gap-4 overflow-y-auto sm:max-w-xl"
+      >
         {shown === null ? (
           <SheetHeader>
             <SheetTitle>Issue</SheetTitle>

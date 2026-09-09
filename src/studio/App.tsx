@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Board } from '@/board/Board';
+import { focusIssue } from '@/board/focus';
 import { IssueDrawer } from '@/drawer/IssueDrawer';
 import type { DrawerChange } from '@/drawer/changes';
 import { fetchBoard, postChange } from '@/api';
@@ -118,6 +119,34 @@ export function App(): React.JSX.Element {
     return startPolling({ hash, dispatch: apply, onConnectionChange: setDisconnected });
   }, [hash, apply]);
 
+  /**
+   * 落空的 ACK：伺服器確認了對某張 issue 的寫入，但它不在我們手上這份快照裡
+   * （`reconcile.ts` 的 ACK）。**那句話說的是「這份快照落後了」**，不是
+   * 「這張 issue 不存在」—— 所以正確的反應是重新問一次 server，而不是自己把
+   * 那張 issue 補進快照。成員資格是 server 的決定，client 憑一則寫入回應就
+   * 塞一張進來，是另一個 bug 而不是修好這一個。
+   *
+   * dep 是那個標記本身（reducer 每次落空都給一個新物件），所以同一則不會抓兩次；
+   * 抓回來的快照一經套用，`applySnapshot` 就把標記清成 null。拖曳中的快照會被
+   * 押後、標記因此還留著，那也正確：放開時押後的那份會補上，一併清掉。
+   *
+   * 抓不到就不重試 —— 輪詢迴圈本來就每 2 秒問一次 hash，它會補上這一趟。
+   */
+  const unmatchedAck = state?.unmatchedAck ?? null;
+  useEffect(() => {
+    if (unmatchedAck === null) return;
+    const abort = new AbortController();
+    fetchBoard(abort.signal).then(
+      (snapshot) => {
+        if (!abort.signal.aborted) apply({ type: 'POLL', issues: snapshot.issues });
+      },
+      () => {
+        // 連線狀態由輪詢迴圈負責報，這裡不重複講一次。
+      },
+    );
+    return () => abort.abort();
+  }, [unmatchedAck, apply]);
+
   const projected = useMemo(() => (state === null ? [] : project(state)), [state]);
 
   const onMove = useCallback(
@@ -126,6 +155,27 @@ export function App(): React.JSX.Element {
       send(id, { status }, { type: 'DROP', issueId: id, to: status });
     },
     [send],
+  );
+
+  /**
+   * 拖進 `blocked`：status 與原因是**同一份 Change**，因此是同一次 `POST`，
+   * 而 `board.apply()` 對一份 Change 只 append 一次 —— 磁碟上不會出現
+   * 「已經 blocked 但還沒留言」的那一刻（ADR-0003）。
+   *
+   * **為什麼是 `RELEASE` + `EDIT` 而不是 `DROP`。** `DROP` 只帶得動一個 `to`
+   * 字串，reducer 用它組出來的樂觀變更就只有 `{ status }` —— 那則留言會在樂觀
+   * 這一側被丟掉，於是閘門關掉的瞬間，畫面上那張 Issue 已經是 blocked、卻看不到
+   * 使用者一秒前才打進去的原因，要等 ACK 回來才補上。`DROP` 做的兩件事拆開來
+   * 就是這兩個 action：`RELEASE` 結束拖曳（閘門開著的期間看板刻意押著沒放），
+   * `EDIT` 掛上完整的那份 Change。drawer 那條路徑用的也是 `EDIT`，兩邊從此
+   * 連樂觀模型上的形狀都一樣。
+   */
+  const onBlock = useCallback(
+    (id: string, change: DrawerChange) => {
+      apply({ type: 'RELEASE' });
+      send(id, change, { type: 'EDIT', issueId: id, change });
+    },
+    [apply, send],
   );
 
   const onGrab = useCallback((id: string) => void apply({ type: 'GRAB', issueId: id }), [apply]);
@@ -174,10 +224,18 @@ export function App(): React.JSX.Element {
         selectedId={selectedId}
         onSelect={setSelectedId}
         onMove={onMove}
+        onBlock={onBlock}
         onGrab={onGrab}
         onRelease={onRelease}
       />
-      <IssueDrawer issue={selected} onClose={() => setSelectedId(null)} onSubmit={onSubmit} />
+      <IssueDrawer
+        issue={selected}
+        onClose={() => setSelectedId(null)}
+        onSubmit={onSubmit}
+        // 關掉之後焦點回到那張 Issue 的卡片。Radix 對受控 Dialog 的預設是把
+        // 焦點交給不存在的 Trigger，等於交給 <body> —— 見 `board/focus.ts`。
+        onCloseFocus={focusIssue}
+      />
       <StatusBanner
         disconnected={disconnected}
         failed={failed}

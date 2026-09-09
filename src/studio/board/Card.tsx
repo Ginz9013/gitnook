@@ -115,6 +115,11 @@ export function Card({ projected, selected, onSelect }: CardProps): React.JSX.El
         ref={setNodeRef}
         {...attributes}
         {...listeners}
+        // 「這個節點代表哪一張 Issue」—— `focus.ts` 靠它把焦點放回這張卡片。
+        // 用 data 屬性而不是往上傳一份 ref 登記表：卡片會因為換 Status 而被
+        // React 拆掉重建，登記表要在對的時機更新才不會拿到脫落的節點，而查詢
+        // 是在需要的當下才做，本來就沒有這個問題。
+        data-issue={issue.id}
         onKeyDown={handleKeyDown}
         onClick={() => onSelect(issue.id)}
         // 顯示的已經是樂觀值；還在飛就讓輔助技術知道這裡尚未定案（同 drawer 的欄位）。
