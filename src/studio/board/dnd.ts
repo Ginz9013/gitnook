@@ -3,21 +3,21 @@ import type { Active, CollisionDetection, KeyboardCoordinateGetter, Over } from 
 
 import type { Status } from '@/api';
 
-import { COLUMNS, isStatus } from './lanes';
+import { STATUS_LANES, isStatus } from './lanes';
 
 /**
  * `@dnd-kit` 與這個看板之間的轉接層：把它的 id、rect 與座標翻成 Status。
  * 領域規則不在這裡（在 `lanes.ts`），畫面也不在這裡。
  */
 
-/** 每張卡片掛在 draggable 上的資料。播報要靠它才講得出「哪一張、從哪一欄」。 */
-export interface CardData {
+/** 被拖的那張 Issue 掛在 draggable 上的資料。播報要靠它才講得出「哪一張、從哪個 Status」。 */
+export interface DraggedIssue {
   readonly title: string;
   readonly status: Status;
 }
 
-export function cardData(active: Active): CardData | null {
-  // `active.data.current` 是 `Record<string, any>` —— 逐欄檢查而不是斷言。
+export function draggedIssue(active: Active): DraggedIssue | null {
+  // `active.data.current` 是 `Record<string, any>` —— 逐個欄位檢查而不是斷言。
   const data = active.data.current;
   if (data === undefined) return null;
   const title: unknown = data['title'];
@@ -26,7 +26,7 @@ export function cardData(active: Active): CardData | null {
   return { title, status };
 }
 
-/** droppable 的 id 就是它那一欄的 Status；認不出來就是沒放進任何欄位。 */
+/** droppable 的 id 就是那一欄的 Status；認不出來就是沒放進任何一欄。 */
 export function statusOf(over: Over | null): Status | null {
   if (over === null) return null;
   return isStatus(over.id) ? over.id : null;
@@ -36,8 +36,8 @@ export function statusOf(over: Over | null): Status | null {
  * 指標時用 `pointerWithin`（游標在哪一欄裡是精確的），鍵盤時沒有游標座標，
  * 退回 `closestCenter`。
  *
- * `closestCenter` 在這個版面上是安全的：欄位很高，卡片停在自己這一欄時中心
- * 只差垂直距離，鄰欄還要再加上水平距離，必然更遠。
+ * `closestCenter` 在這個版面上是安全的：欄位很高，被拖的方框停在自己這一欄時
+ * 中心只差垂直距離，鄰欄還要再加上水平距離，必然更遠。
  */
 export const boardCollision: CollisionDetection = (args) => {
   const pointer = pointerWithin(args);
@@ -48,9 +48,9 @@ export const boardCollision: CollisionDetection = (args) => {
  * 鍵盤拖曳：左右方向鍵一次走一欄，上下鍵不做任何事。
  *
  * `@dnd-kit` 內建的座標取得器一次只移動 25px，在八欄的看板上等於要按幾十次；
- * `@dnd-kit/sortable` 的那一個則是為「欄內有順序」設計的，而 Nook 的欄內沒有
- * 順序（ADR-0003 只定義八個 Status）。所以這裡自己走欄位：把被拖的矩形水平
- * 對齊到下一欄的中央，垂直位置不動。
+ * `@dnd-kit/sortable` 的那一個則是為「一欄之內有順序」設計的，而 Nook 的同一個
+ * Status 裡沒有順序（ADR-0003 只定義八個 Status）。所以這裡自己走欄位：把被拖的
+ * 矩形水平對齊到下一欄的中央，垂直位置不動。
  *
  * 回傳值的座標系與 `sortableKeyboardCoordinates` 相同：被拖矩形的新左上角
  * （viewport 座標），sensor 自己算差值。
@@ -67,7 +67,8 @@ export const columnKeyboardCoordinates: KeyboardCoordinateGetter = (
   const { collisionRect, droppableRects } = context;
   if (collisionRect === null) return;
 
-  const rects = COLUMNS.map((column) => droppableRects.get(column.status));
+  // 欄位在畫面上的順序就是 STATUS_LANES 的順序 —— 左右鍵沿著它走。
+  const rects = STATUS_LANES.map(({ status }) => droppableRects.get(status));
   const dragCenter = collisionRect.left + collisionRect.width / 2;
 
   // 目前在哪一欄：中心最接近的那一欄。用距離而不是「包含」，欄位之間的空隙

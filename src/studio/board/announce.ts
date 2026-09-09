@@ -12,21 +12,23 @@ import { dropEffect } from './lanes';
  */
 
 /**
- * 卡片取得焦點時念的說明（`aria-describedby`，由 @dnd-kit 掛上）。
+ * 一張 Issue 取得焦點時念的說明（`aria-describedby`，由 @dnd-kit 掛上）。
  *
- * 上下鍵不做事，而且這裡明講：Nook 的欄內沒有順序（ADR-0003 只定義八個 Status），
- * 讓卡片上下動會讓人以為自己改變了什麼。
+ * 用字講 Status 而不是「欄位」：看不見畫面的人沒有那八個直排，聽到的是
+ * `backlog`、`queued` 這些 Status 值本身，說「欄位」等於多發明一個他們對不上
+ * 的東西。上下鍵不做事，而且這裡明講：Nook 的同一個 Status 裡沒有順序
+ * （ADR-0003 只定義八個 Status），讓 Issue 上下動會讓人以為自己改變了什麼。
  */
 export const dragInstructions =
-  '按 Space 抓起這張 Issue，用左右方向鍵在欄位之間移動，再按一次 Space 放下，Esc 取消。' +
-  '按 Enter 開啟細節。欄內沒有順序，上下鍵不會移動卡片。';
+  '按 Space 抓起這張 Issue，用左右方向鍵在 Status 之間移動，再按一次 Space 放下，Esc 取消。' +
+  '按 Enter 開啟細節。同一個 Status 裡沒有順序，上下鍵不會移動 Issue。';
 
 export function announceGrab(title: string, from: Status): string {
-  return `抓起「${title}」，目前在 ${from}。用左右方向鍵換欄位。`;
+  return `抓起「${title}」，目前在 ${from}。用左右方向鍵換 Status。`;
 }
 
 export function announceOver(title: string, from: Status, to: Status | null): string {
-  if (to === null) return `「${title}」不在任何欄位上，放開不會移動。`;
+  if (to === null) return `「${title}」不在任何 Status 上，放開不會移動。`;
   switch (dropEffect(from, to)) {
     case 'none':
       return `「${title}」回到原本的 ${to}。`;
@@ -40,7 +42,7 @@ export function announceOver(title: string, from: Status, to: Status | null): st
 }
 
 export function announceDrop(title: string, from: Status, to: Status | null): string {
-  if (to === null) return `放開「${title}」，沒有放進任何欄位，維持在 ${from}。`;
+  if (to === null) return `放開「${title}」，沒有放進任何 Status，維持在 ${from}。`;
   switch (dropEffect(from, to)) {
     case 'none':
       return `放回原處，「${title}」仍然在 ${from}。`;

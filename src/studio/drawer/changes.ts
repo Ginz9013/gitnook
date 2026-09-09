@@ -16,6 +16,8 @@
 // 同 `api.ts` 對 server 的規則，這裡對 core 也只能是 `import type`。
 import type { Change, Status } from '@/api';
 
+import { STATUS_ORDER } from '@/board/statuses';
+
 /**
  * Drawer 送得出去的 Change。`status` 收窄成完整的 `Status`：core 也收無歧義
  * 前綴，但選單裡挑出來的永遠是完整值，收窄讓呼叫端不必再斷言一次。
@@ -26,26 +28,17 @@ import type { Change, Status } from '@/api';
 export type DrawerChange = Omit<Change, 'status'> & { readonly status?: Status };
 
 /**
- * 八個 Status 的顯示順序（ADR-0003：固定，不可自訂）。
+ * 選單列出來的八個 Status（ADR-0003：固定，不可自訂）。
  *
- * 用 `Record<Status, number>` 宣告而不是直接寫陣列：少一個或多一個都會在
- * `tsc` 停下來。不從 core 的值層 import `STATUSES`，是為了維持「studio 對
- * core 只有 `import type`」——一個值的 import 就會把 core 拉進 bundle。
+ * **這裡不再自己抄一份。** 原本的 `STATUS_INDEX` 與 `board/statuses.ts` 是同一份
+ * 清單的兩次手抄：兩邊各有自己的完整性守衛，所以數量不會漂，但**順序沒有任何
+ * 東西守著** —— 兩邊排出不同的順序仍然編得過，而 drawer 的選單就會跟看板由左到
+ * 右的順序不一樣。唯一擁有者是 `board/statuses.ts`，那裡連順序都有守衛。
+ *
+ * 名字留在這裡是因為 `StatusPicker` 從這個模組拿它 —— 它要的是「drawer 送得出去
+ * 的東西」，而不是看板的模組。
  */
-const STATUS_INDEX: Readonly<Record<Status, number>> = {
-  backlog: 0,
-  todo: 1,
-  queued: 2,
-  in_progress: 3,
-  review: 4,
-  blocked: 5,
-  done: 6,
-  cancelled: 7,
-};
-
-export const STATUSES: readonly Status[] = (Object.keys(STATUS_INDEX) as Status[]).sort(
-  (a, b) => STATUS_INDEX[a] - STATUS_INDEX[b],
-);
+export const STATUSES: readonly Status[] = STATUS_ORDER;
 
 export function titleChange(next: string, current: string): DrawerChange | undefined {
   const title = next.trim();

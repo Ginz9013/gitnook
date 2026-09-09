@@ -17,9 +17,10 @@ type Client = ClientState<IssueView>;
  * 它持有的東西剛好是「不屬於任何一個目錄」的那些：**一份**調和 state
  * （`reconcile.ts`）、**一份**寫入面（`api.ts` 的 `postChange`）、輪詢迴圈，
  * 以及 drawer 開在哪一張。看板（`board/`）與 drawer（`drawer/`）都不持有
- * 樂觀狀態：兩份樂觀模型會分歧，而分歧的樣子是「卡片在 A 欄、drawer 說在 B 欄」。
+ * 樂觀狀態：兩份樂觀模型會分歧，而分歧的樣子是「同一張 Issue 看板上停在 A，
+ * drawer 說它在 B」。
  *
- * **可判定的邏輯不留在這個檔案。** 調和規則在 `reconcile.ts`，欄位歸欄位的
+ * **可判定的邏輯不留在這個檔案。** 調和規則在 `reconcile.ts`，Status 與車道的
  * 判斷在 `board/lanes.ts` 與 `drawer/changes.ts`，連線中斷的門檻在 `poll.ts`
  * 的 `connectionReduce` —— 那些都有測試。這裡只剩接線，接線沒有自動化測試
  * （spec.md 的測試策略：不引入 jsdom）。
@@ -68,7 +69,7 @@ export function App(): React.JSX.Element {
    * 一次寫入：畫面先動（`action` 交給 reducer），`POST` 隨後，回應把伺服器
    * 摺疊出來的整張 issue 蓋回快照（`ACK`），送不到就退場（`FAIL`）。
    *
-   * 刻意不 abort：drawer 關掉、卡片被輪詢挪走，都不代表使用者要收回這次寫入，
+   * 刻意不 abort：drawer 關掉、那張 Issue 被輪詢挪走，都不代表使用者要收回這次寫入，
    * 而 append-only 之下也收不回來。讓它飛完。
    */
   const send = useCallback(
@@ -163,7 +164,7 @@ export function App(): React.JSX.Element {
     <>
       <Board
         // 看板拿的是 `project()` 的產物而不是原始快照 —— 飛行中的變更蓋過快照，
-        // 否則輪詢帶回舊快照時卡片會彈回去再彈回來（reconcile 的第一條規則）。
+        // 否則輪詢帶回舊快照時那張 Issue 會彈回去再彈回來（reconcile 的第一條規則）。
         // `BoardProps` 收的是 `IssueView[]`，所以這裡交出每一張的 `shown`。
         issues={projected.map((p) => p.shown)}
         selectedId={selectedId}
@@ -186,7 +187,7 @@ export function App(): React.JSX.Element {
  * 「你的變更正在掉」這件事，畫面必須說出來（ADR-0007）。
  *
  * 放在最上層而不是 drawer 裡：拖曳失敗時 drawer 可能根本沒開著，而失敗的
- * 拖曳看起來就只是卡片自己彈回去 —— 那是最容易被讀成「我拖歪了」的一種失敗。
+ * 拖曳看起來就只是那張 Issue 自己彈回去 —— 那是最容易被讀成「我拖歪了」的一種失敗。
  *
  * 「中斷」蓋過「單次失敗」：伺服器不通的時候，每一筆寫入都會失敗，把最後
  * 那一筆的訊息貼在中斷橫幅旁邊只是噪音。

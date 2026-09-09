@@ -10,11 +10,11 @@ import { CardFace } from './Card';
 import { Column } from './Column';
 import type { DragState } from './Column';
 import { announceCancel, announceDrop, announceGrab, announceOver, dragInstructions } from './announce';
-import { boardCollision, cardData, columnKeyboardCoordinates, statusOf } from './dnd';
-import { COLUMNS, dropEffect, groupByStatus } from './lanes';
+import { boardCollision, columnKeyboardCoordinates, draggedIssue, statusOf } from './dnd';
+import { STATUS_LANES, dropEffect, groupByStatus } from './lanes';
 
 /**
- * 看板的插槽。**這是票 06 要填的空殼** —— 八欄、卡片與 `@dnd-kit` 的拖拉
+ * 看板的插槽。**這是票 06 要填的空殼** —— 八個 Status、Issue 與 `@dnd-kit` 的拖拉
  * 都在那張票。這裡先把介面定下來，票 06 因此只需要改本目錄底下的檔案，
  * 不必回頭動 `App.tsx`。
  */
@@ -27,7 +27,7 @@ export interface BoardProps {
   /** 一次拖曳的結果。票 06 接上 @dnd-kit，票 05 負責送出與調和。 */
   readonly onMove: (id: string, status: Status) => void;
   /**
-   * 卡片被指標或鍵盤抓住了。對應調和 reducer 的 `GRAB`：抓住之後這張卡片在
+   * 這張 Issue 被指標或鍵盤抓住了。對應調和 reducer 的 `GRAB`：抓住之後它在
    * 放開之前不接受任何來自伺服器的移動（`reconcile.ts` 第三條規則）。
    *
    * 選用 —— 目前的 `App.tsx` 還沒有 reducer 可派（票 05）。看板這一側的責任
@@ -35,7 +35,7 @@ export interface BoardProps {
    */
   readonly onGrab?: (id: string) => void;
   /**
-   * 放開了，而且**沒有**造成移動（取消、放回原欄、或在 blocked 閘門前反悔）。
+   * 放開了，而且**沒有**造成移動（取消、放回原本的 Status、或在 blocked 閘門前反悔）。
    * 對應 `RELEASE`。有移動時只送 `onMove`：reducer 的 `DROP` 本身就結束拖曳，
    * 再補一次 `RELEASE` 會把押後的快照套兩次。
    */
@@ -71,7 +71,7 @@ export function Board({
   );
 
   const archivedCount = issues.filter((i) => i.archived).length;
-  // archived 是可見性欄位而不是第九個 Status（ADR-0003）：它不佔一欄，而是
+  // archived 是可見性欄位而不是第九個 Status（ADR-0003）：它不多佔一欄，而是
   // 從八欄裡隱藏起來，預設不顯示。
   const visible = showArchived ? issues : issues.filter((i) => !i.archived);
   const byStatus = groupByStatus(visible);
@@ -80,19 +80,19 @@ export function Board({
   const announcements = useMemo<Announcements>(
     () => ({
       onDragStart: ({ active }) => {
-        const data = cardData(active);
+        const data = draggedIssue(active);
         return data === null ? undefined : announceGrab(data.title, data.status);
       },
       onDragOver: ({ active, over }) => {
-        const data = cardData(active);
+        const data = draggedIssue(active);
         return data === null ? undefined : announceOver(data.title, data.status, statusOf(over));
       },
       onDragEnd: ({ active, over }) => {
-        const data = cardData(active);
+        const data = draggedIssue(active);
         return data === null ? undefined : announceDrop(data.title, data.status, statusOf(over));
       },
       onDragCancel: ({ active }) => {
-        const data = cardData(active);
+        const data = draggedIssue(active);
         return data === null ? undefined : announceCancel(data.title, data.status);
       },
     }),
@@ -100,7 +100,7 @@ export function Board({
   );
 
   function handleDragStart(event: DragStartEvent): void {
-    const data = cardData(event.active);
+    const data = draggedIssue(event.active);
     if (data === null) return;
     const id = String(event.active.id);
     setDragging({ id, ...data });
@@ -122,7 +122,7 @@ export function Board({
         onRelease?.();
         return;
       case 'needs-reason':
-        // 還沒決定，所以還沒 RELEASE：閘門開著的時候這張卡片不該被伺服器抽走。
+        // 還沒決定，所以還沒 RELEASE：閘門開著的時候這張 Issue 不該被伺服器抽走。
         setGate({ id: drag.id, title: drag.title });
         return;
       case 'authorize':
@@ -162,12 +162,12 @@ export function Board({
         onDragCancel={handleDragCancel}
       >
         <div className="flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto pb-2">
-          {COLUMNS.map((column) => (
-            <Fragment key={column.status}>
-              {column.opensLane && <LaneBoundary />}
+          {STATUS_LANES.map(({ status, opensLane }) => (
+            <Fragment key={status}>
+              {opensLane && <LaneBoundary />}
               <Column
-                column={column}
-                issues={byStatus.get(column.status) ?? []}
+                status={status}
+                issues={byStatus.get(status) ?? []}
                 selectedId={selectedId}
                 onSelect={onSelect}
                 dragging={dragging}
@@ -176,7 +176,7 @@ export function Board({
           ))}
         </div>
 
-        {/* 欄位會 overflow-y-auto，被拖的卡片放在 overlay 上才不會被裁掉。 */}
+        {/* 欄位會 overflow-y-auto，被拖的那張放在 overlay 上才不會被裁掉。 */}
         <DragOverlay dropAnimation={null}>
           {activeIssue !== null && <CardFace issue={activeIssue} className="rotate-1 shadow-lg" />}
         </DragOverlay>
