@@ -29,7 +29,7 @@ Issues are plain text files in the repo. They travel with the branch, merge with
 | `nook comment <ref> <body\|->` | append a comment |
 | `nook label <ref> +bug -ui` | add and remove labels |
 | `nook doctor [--fix]` | data health; `--fix` repairs glued lines |
-| `nook studio [--port <n>]` | localhost read-only board for meetings |
+| `nook studio [--port <n>]` | localhost board for a human: drag, edit, comment |
 
 `<value>` and `<body>` accept `-` to read stdin — **use this for anything multi-line**. Shell-escaping a markdown body is a bug source; piping is not.
 
@@ -91,9 +91,20 @@ Data goes to **stdout**, errors and warnings to **stderr**.
 
 ## What nook deliberately refuses
 
-There is no assignee, priority, milestone, due date, estimate, sub-task, custom status, search UI, or editable GUI. **Do not simulate them.** Priority is expressed with labels (`+p1`). Ownership is in `git log`. Refusing to become a project-management tool is the design, not a gap — if the user wants one of these, say so rather than inventing a convention.
+There is no assignee, priority, milestone, due date, estimate, sub-task, custom status, or search UI. **Do not simulate them.** Priority is expressed with labels (`+p1`). Ownership is in `git log`. Refusing to become a project-management tool is the design, not a gap — if the user wants one of these, say so rather than inventing a convention.
 
 Checkboxes inside a description are plain text. They are not sub-tasks and nothing tracks them.
+
+## studio is the human's interface
+
+`nook studio` opens a board on `127.0.0.1` where a person drags issues between the eight columns and edits them in a drawer. It writes into the same op-log the CLI writes, so both can be open at once — but it is **the human's lane**, not yours. Keep using the CLI.
+
+It binds loopback only. It has no authentication, so reachability *is* write access; `--host` will never exist. Every op it writes is attributed to whoever's `git config user.email` is running it, so it must never be shared between people.
+
+**If you are changing nook itself, two rules that break silently:**
+
+- **The studio bundle must never be imported by the CLI entry point.** `dist/studio/studio.js` is ~380 KB. It is a static file on disk, read at request time by the server, and nothing on `src/cli/run.ts`'s import chain may reach it — not as a module, not as an inlined string. Import it and every single `nook list` pays to parse 380 KB it will never use, which is the whole cold-start budget (ADR-0008). `npm run bench` counts `react` / `createRoot` / `radix` / `tailwind` in the built `dist/cli/run.js` and must find zero.
+- **Build with `npm run build`, never `npx tsup` alone.** tsup cleans the whole of `dist/`, including `dist/studio/`, which only `vite build` writes. Alone, it leaves a build that looks fine and a server with no assets to serve.
 
 ## When something is wrong
 

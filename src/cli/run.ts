@@ -215,7 +215,7 @@ mv <ref> <status>
 comment <ref> <body|->
 label <ref> +bug -ui                   加減 Label（無優先級欄位，用 Label）
 doctor [--fix]                         資料健康檢查，--fix 修復黏合行
-studio [--port <n>]                    localhost 唯讀看板
+studio [--port <n>]                    localhost 看板，可拖拉與編輯
 
 status: backlog todo queued in_progress review blocked done cancelled
 <ref> 與 status 都接受無歧義前綴。<value> 用 - 從 stdin 讀。

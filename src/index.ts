@@ -9,7 +9,8 @@
  * `import { renderTable } from './render/table.js'`，那條路不必經過公開面。
  *
  * 刻意**不**在此的東西：
- * - 三個渲染函式。它們是呈現，不是領域；`renderTable` 的欄位配置正被 token
+ * - 兩個渲染函式（`renderTable`、`renderJson`），以及 server 端的
+ *   `renderMarkdown`。它們是呈現，不是領域；`renderTable` 的欄位配置正被 token
  *   預算閘門（ADR-0005）盯著，公開它等於把那個版面凍結成相容承諾。
  * - `handleRequest` 與 `boardHash`。它們是 `serve()` 的內部零件；公開它們會
  *   一併凍結 StudioRequest / StudioResponse 的形狀。
