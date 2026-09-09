@@ -2,3 +2,5 @@
 {"id":"01M22EFD469F3TKVT1H19T37DA","t":2,"a":"83a1","op":"set","k":"description","v":"票 02 的 worker 發現、且刻意沒有自作主張修掉的角落。\n\nDROP(seq1) → DROP(seq2) → ACK(seq2) → ACK(seq1)：seq2 先被移出 pending 之後，project() 會落回 seq1 的舊值，卡片被拉回舊欄位一瞬間，直到 ACK(seq1) 到達。\n\n它判斷同一條連線不會亂序所以沒動 —— 但票 06 的「快速連拖兩次同一張卡片」正是會送出兩筆並行寫入的情境，所以這條路徑是可達的，而且症狀是使用者看得見的閃動。\n\n修法（worker 已給出）：ACK 時連同所有 seq <= action.seq 的 pending 一起移除，而不是只移除 action.seq 那一筆。\n\n需要一個紅燈測試釘住這個序列。寫入範圍只有 src/studio/reconcile.ts 與 test/studio/reconcile.test.ts，不改公開簽章，因此可與票 06 同批。"}
 {"id":"01M22EFD46QFQCPY26Y1XZTCFS","t":3,"a":"83a1","op":"label.add","v":"studio"}
 {"id":"01M22EFD46CQSB7VYA48G8A90Z","t":4,"a":"83a1","op":"label.add","v":"bug"}
+{"id":"01M22K4QGZ068YWTN42XYMWH2Q","t":5,"a":"83a1","op":"comment","body":"併入 01M22K4QDJZW4Y48Y9XHJZSZE8 一起做 —— 同一個檔案，擴 Change 形狀時一併修掉。"}
+{"id":"01M22K4QJ3X0M1YZK6BVEE1338","t":6,"a":"83a1","op":"set","k":"archived","v":true}
