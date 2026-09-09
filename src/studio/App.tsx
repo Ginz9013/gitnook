@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Board } from '@/board/Board';
+import { BoardSkeleton } from '@/board/BoardSkeleton';
+import { EmptyBoard } from '@/board/EmptyBoard';
 import { focusIssue } from '@/board/focus';
 import { IssueDrawer } from '@/drawer/IssueDrawer';
 import type { DrawerChange } from '@/drawer/changes';
@@ -8,7 +10,7 @@ import { createIssue, fetchBoard, fetchBoardInfo, postChange } from '@/api';
 import type { BoardInfo, IssueView, Status } from '@/api';
 import { clientReduce, initialClient, project } from '@/reconcile';
 import type { ClientAction, ClientState } from '@/reconcile';
-import { startPolling } from '@/poll';
+import { classifyFailure, startPolling } from '@/poll';
 import type { ConnectionFault } from '@/poll';
 
 type Client = ClientState<IssueView>;
@@ -30,7 +32,16 @@ type Client = ClientState<IssueView>;
  */
 export function App(): React.JSX.Element {
   const [state, setState] = useState<Client | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * 開場那份快照抓不到 —— 這時候整個畫面沒有東西可以畫。
+   *
+   * **存的是那次失敗本身而不是 `err.message`**，走的是輪詢那邊已經論證過的
+   * 同一條路（`poll.ts` 的 `ConnectionFault`）：`handler.ts` 的 `serverError`
+   * 刻意在 body 裡送一則可行動的訊息（「不是一個 Nook board：/path…」），而
+   * `HttpError.message` 只有 `/api/board 回了 500`——**那句可行動的話掛在
+   * `detail` 上**，存 message 等於在讀的人最需要它的時候把它丟掉。
+   */
+  const [error, setError] = useState<ConnectionFault | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // null = 連得上。非 null 時它同時是「中斷了」、「哪一種中斷」與「伺服器就這件
   // 事說了什麼」—— 三者是同一個事實，分成幾格遲早會出現「中斷但說不出話」或
@@ -113,7 +124,10 @@ export function App(): React.JSX.Element {
         setHash(snapshot.hash);
       },
       (err: unknown) => {
-        if (!abort.signal.aborted) setError(err instanceof Error ? err.message : String(err));
+        // 分類的規則只有一份，而且有測試（`poll.ts` 的 `classifyFailure`）——
+        // 「伺服器到底有沒有回應、它說了什麼」在開場與在輪詢裡是同一個問題，
+        // 在這裡自己 `instanceof` 一次就是第二份定義，而兩份遲早分岔。
+        if (!abort.signal.aborted) setError(classifyFailure(err));
       },
     );
     return () => abort.abort();
@@ -247,21 +261,11 @@ export function App(): React.JSX.Element {
     [send],
   );
 
-  if (error !== null) {
-    return (
-      <main className="p-4">
-        <p className="text-destructive text-sm">讀不到 board：{error}</p>
-      </main>
-    );
-  }
+  if (error !== null) return <LoadFailure fault={error} />;
 
-  if (state === null) {
-    return (
-      <main className="p-4">
-        <p className="text-muted-foreground text-sm">載入中…</p>
-      </main>
-    );
-  }
+  // 第一份快照還沒到。**骨架而不是一行「載入中…」** —— 版面不跳是它唯一的
+  // 理由（`board/BoardSkeleton.tsx`）。
+  if (state === null) return <BoardSkeleton />;
 
   const selected = projected.find((p) => p.id === selectedId) ?? null;
 
@@ -285,6 +289,13 @@ export function App(): React.JSX.Element {
         onRelease={onRelease}
         onCreate={onCreate}
       />
+      {/*
+        一張都沒有的看板。**條件是整份投影是空的**，不是「某一欄是空的」——
+        被封存或被篩掉而看不見的那些不算沒有，那種情況 header 自己會說
+        「顯示已封存（N）」。疊在看板上而不是取代它，八欄照樣在
+        （`board/EmptyBoard.tsx`）。
+      */}
+      {projected.length === 0 && <EmptyBoard />}
       <IssueDrawer
         issue={selected}
         onClose={() => setSelectedId(null)}
@@ -295,6 +306,62 @@ export function App(): React.JSX.Element {
       />
       <StatusBanner fault={fault} failed={failed} onDismiss={() => setFailed(null)} />
     </>
+  );
+}
+
+/**
+ * 開場那份快照抓不到 —— 整個畫面上沒有東西可以畫的那一種失敗。
+ *
+ * **伺服器自己說的話優先於這裡寫的任何一句**，同 `StatusBanner` 已經論證過的
+ * 模型：`handler.ts` 的 `serverError` 送的是「不是一個 Nook board：/path…」
+ * 這種可行動的訊息，它比這裡猜的「最常見的原因是……」精確，而猜的時候使用者
+ * 手上明明就有正確答案。沒有話可引用時才退回猜測，因為那時它是現場最好的線索。
+ *
+ * **下一步要講。** 一句「讀不到 board」把人留在原地：這個畫面最常見的來源是
+ * 在一個沒有 `.issues/` 的目錄底下（或 board 目錄被移走之後）開 studio，而那
+ * 件事的解法就是一行 `nook init`，而且**得在 repo 根目錄跑**（AGENT.md：它在
+ * 子目錄會拒絕）。`malformed` 那一種不講這句 —— 那時 board 沒有問題，有問題的
+ * 是這個 port 上跑的東西，叫人去 `nook init` 只會讓他改壞一塊好的 board。
+ */
+function LoadFailure({ fault }: { readonly fault: ConnectionFault }): React.JSX.Element {
+  return (
+    // `<main>` 加名字：這一頁上只有這一塊，而它是使用者現在唯一讀得到的東西。
+    <main className="flex h-dvh items-center justify-center p-6" aria-label="Nook 看板">
+      <div className="bg-card text-card-foreground max-w-lg rounded-lg border p-6 shadow-lg">
+        <p className="text-destructive text-sm font-semibold">讀不到 board</p>
+
+        <p className="mt-2 text-sm leading-relaxed">
+          {fault.detail !== null ? (
+            <>
+              伺服器說：「<span className="font-mono">{fault.detail}</span>」
+            </>
+          ) : fault.kind === 'failed' ? (
+            <>
+              伺服器沒有回應。跑 <code className="font-mono">nook studio</code> 的那個終端機
+              還開著嗎？
+            </>
+          ) : fault.kind === 'malformed' ? (
+            <>
+              伺服器答了，但回的不是 nook 的資料 —— 這個位址上跑的東西不是{' '}
+              <code className="font-mono">nook studio</code>（前面擋著別的服務，或那個 port
+              換人跑了）。
+            </>
+          ) : (
+            <>最常見的原因是 board 目錄（<code className="font-mono">.issues/</code>）被移走或改名了。</>
+          )}
+        </p>
+
+        {fault.kind !== 'malformed' && (
+          <p className="text-muted-foreground mt-3 text-sm leading-relaxed">
+            下一步：確認 <code className="font-mono">.issues/</code> 還在原處；不在的話
+            <strong className="font-medium">在 repo 根目錄</strong>跑{' '}
+            <code className="text-foreground font-mono font-semibold">nook init</code>
+            （它在子目錄會拒絕）。修好之後重開{' '}
+            <code className="font-mono">nook studio</code>。
+          </p>
+        )}
+      </div>
+    </main>
   );
 }
 

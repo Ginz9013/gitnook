@@ -6,7 +6,7 @@ import type {
   IssueView,
   WriteView,
 } from '../server/handler.js';
-import type { Change, Status } from '../core/types.js';
+import type { Change, Diagnostic, DiagnosticKind, Status } from '../core/types.js';
 
 /**
  * SPA 與 server 之間的那一面 —— 讀取與寫入都在這裡，**只有這裡**。
@@ -21,6 +21,8 @@ export type {
   BoardSnapshot,
   Change,
   CommentView,
+  Diagnostic,
+  DiagnosticKind,
   IssueHistory,
   IssueView,
   Status,

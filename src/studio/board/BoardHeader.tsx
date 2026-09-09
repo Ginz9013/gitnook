@@ -1,8 +1,12 @@
+import { TriangleAlert } from 'lucide-react';
+
 import type { BoardInfo, Status } from '@/api';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
 
 import { NewIssueForm, useNewIssueEntry } from './NewIssueForm';
+import { boardAlerts } from './health';
+import type { BoardAlert } from './health';
 import { shortenPath } from './path';
 
 /**
@@ -14,8 +18,10 @@ import { shortenPath } from './path';
  * 的人就得先讀完另一邊。
  *
  * **這裡沒有自動化測試**（spec.md 的測試策略：React 組件不寫測試、不引入
- * jsdom／@testing-library／playwright）。這個檔案裡唯一可判定的規則 ——「路徑太長
- * 時怎麼縮」—— 被推進 `board/path.ts`，那一份有測試（`test/studio/header.test.ts`）。
+ * jsdom／@testing-library／playwright）。這個檔案裡可判定的規則都被推出去了 ——
+ * 「路徑太長時怎麼縮」在 `board/path.ts`、「一條 `Diagnostic` 該不該講、講什麼、
+ * 下一步打哪個指令」在 `board/health.ts`，兩份都有測試
+ * （`test/studio/header.test.ts`、`test/studio/health.test.ts`）。
  * 剩下的是版面與接線，用看的就對得完。
  *
  * **不放連線狀態。** 它是 `App.tsx` 的 `StatusBanner`：出事才講話的底部橫幅。
@@ -67,6 +73,11 @@ export function BoardHeader({
   // 新增入口的開關與焦點。**住在這裡而不是 `Board.tsx`**：八欄各自還有一個，
   // 各自獨立開合，而這一個屬於 header（`NewIssueForm.tsx` 的 `useNewIssueEntry`）。
   const entry = useNewIssueEntry();
+
+  // 這塊 board 的資料健康 —— `/api/board-info` 已經把 `diagnostics` 送來了
+  // （票 B1），這裡只是把它翻成人讀得懂的話（`board/health.ts`）。
+  // `info` 還沒到就是空的，健康的 board 也是空的：**沒事就一個字都不畫**。
+  const alerts = boardAlerts(info?.diagnostics ?? []);
 
   return (
     // `<header>` 而已 —— **不要再包一層 landmark**。`Board.tsx` 的 `<main>` 已經
@@ -170,7 +181,57 @@ export function BoardHeader({
       {entry.open && (
         <NewIssueForm onCreate={onCreate} onCancel={entry.close} className="w-72 self-end" />
       )}
+
+      {/*
+        資料健康的警示條。**只在有問題時出現** —— 一個永遠在那裡的健康指示器
+        99% 的時間都是綠的，於是沒有人會讀它，包括真的紅起來的那一次
+        （同一個理由讓連線狀態留在 `App.tsx` 的底部橫幅，見上面的註解）。
+
+        排在整條 header 的最下面：它出現時會把看板往下推，而那正是要的效果 ——
+        `.gitattributes` 少了 `merge=union` 是整個系統的唯一單點失效（ADR-0001），
+        資料正在靜默地走向衝突，那件事比再多看兩張卡片重要。
+      */}
+      {alerts.map((alert) => (
+        <AlertBar key={alert.kind} alert={alert} />
+      ))}
     </header>
+  );
+}
+
+/**
+ * 一條警示 —— 我們的一句話、`diagnose()` 的原話、以及下一步那個指令。
+ *
+ * 三件事分三行而不是併成一句：**下一步是使用者要打的字**，它得看得出來是一段
+ * 指令而不是散文的一部分。`said` 用 mono，因為它裡面帶著檔名、行號與
+ * `.issues/issues/*.ndjson merge=union` 那一行 —— 那些是原文，不是描述。
+ *
+ * `role="alert"`：這件事不能等到使用者剛好往上看才發現。dnd-kit 的拖曳播報有
+ * 自己的 live region，而這一條只在開場那份 `/api/board-info` 到達時出現一次
+ * （`App.tsx` 不把它放進輪詢迴圈），插不到拖曳的隊。
+ */
+function AlertBar({ alert }: { readonly alert: BoardAlert }): React.JSX.Element {
+  return (
+    <div
+      role="alert"
+      className="bg-destructive text-destructive-foreground flex items-start gap-2 rounded-md px-3 py-2 text-sm"
+    >
+      <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="font-medium">{alert.headline}</span>
+        <span className="font-mono text-xs [overflow-wrap:anywhere] opacity-90">
+          {alert.where !== null && `${alert.where}　`}
+          {alert.said}
+          {/*
+            同一種問題只列第一條（`health.ts`）。剩下幾條要說出來，否則修完
+            第一條的人會以為修完了 —— `nook doctor` 印的是全部。
+          */}
+          {alert.more > 0 && `（另外還有 ${alert.more} 條同樣的問題）`}
+        </span>
+        <span className="text-xs">
+          下一步：在 repo 根目錄跑 <code className="font-mono font-semibold">{alert.fix}</code>
+        </span>
+      </div>
+    </div>
   );
 }
 
