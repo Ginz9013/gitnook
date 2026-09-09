@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { shortIdLength } from '../core/ids.js';
 import type { Board, Change, Issue, Status } from '../core/types.js';
-import { AmbiguousRef, InvalidStatus, RefNotFound } from '../core/types.js';
+import { AmbiguousRef, InvalidStatus, IssueDeleted, RefNotFound } from '../core/types.js';
 import { escapeHtml, renderMarkdown } from '../render/html.js';
 
 /**
@@ -29,6 +29,7 @@ const TEXT = 'text/plain; charset=utf-8';
 const JSON_TYPE = 'application/json; charset=utf-8';
 const HASH_PATH = '/hash';
 const API_BOARD_PATH = '/api/board';
+const API_ISSUES_PATH = '/api/issues';
 const ASSETS_PREFIX = '/assets/';
 const ISSUE_PREFIX = '/i/';
 
@@ -40,12 +41,31 @@ function json(payload: unknown): StudioResponse {
   return { status: 200, headers: { 'content-type': JSON_TYPE }, body: JSON.stringify(payload) };
 }
 
+/** 201：這次請求造出了一個之前不存在的資源（RFC 9110）。 */
+function created(payload: unknown): StudioResponse {
+  return { status: 201, headers: { 'content-type': JSON_TYPE }, body: JSON.stringify(payload) };
+}
+
 function notFound(message = 'not found'): StudioResponse {
   return { status: 404, headers: { 'content-type': TEXT }, body: `${message}\n` };
 }
 
+/** 405 的唯一形狀。Allow 講的是這個資源支援什麼（RFC 9110）。 */
+function methodNotAllowed(path: string, allow: string): StudioResponse {
+  return { status: 405, headers: { 'content-type': TEXT, allow }, body: `${path} 只接受 ${allow}\n` };
+}
+
 function badRequest(message: string): StudioResponse {
   return { status: 400, headers: { 'content-type': TEXT }, body: `${message}\n` };
+}
+
+/**
+ * 那張 Issue 曾經在，現在被刪了。**410 而不是 404** —— 兩者對 client 是不同的
+ * 下一步：404 說的是「你的 ref 打錯了」，410 說的是「ref 沒錯，這張沒了」，
+ * 而後者正是 SPA 要用來把卡片從畫面上收掉的訊號（ADR-0009）。
+ */
+function gone(message: string): StudioResponse {
+  return { status: 410, headers: { 'content-type': TEXT }, body: `${message}\n` };
 }
 
 /**
@@ -209,6 +229,12 @@ export interface IssueView {
   readonly status: Status;
   readonly labels: readonly string[];
   readonly archived: boolean;
+  /**
+   * 已被刪除。`board.list()` 從來不交出這種 Issue，所以快照裡它一律是 false ——
+   * 這一格是為了寫入的回印：client 收到 `deleted: true` 的 ACK 才知道要把那張
+   * 從快照上拿掉，而不是拿回應蓋回那一格（ADR-0009）。
+   */
+  readonly deleted: boolean;
   /** 原文，供編輯用。 */
   readonly description: string;
   /** renderMarkdown 的產物，已安全。 */
@@ -240,6 +266,7 @@ function toIssueView(issue: Issue, shortIdLen: number): IssueView {
     status: issue.status,
     labels: issue.labels,
     archived: issue.archived,
+    deleted: issue.deleted,
     description: issue.description,
     descriptionHtml: renderMarkdown(issue.description),
     // 不重排：Issue.comments 已由 reduce() 以 (t, a, id) 全序產出。
@@ -303,6 +330,7 @@ const CHANGE_SHAPE: Readonly<Record<string, (value: unknown) => boolean>> = {
   description: (v) => typeof v === 'string',
   status: (v) => typeof v === 'string',
   archived: (v) => typeof v === 'boolean',
+  deleted: (v) => typeof v === 'boolean',
   labels: isLabelEdit,
   comment: (v) => typeof v === 'string',
 };
@@ -354,6 +382,61 @@ function applyChange(board: Board, ref: string, body: string): StudioResponse {
     if (err instanceof RefNotFound || err instanceof AmbiguousRef) return notFound(err.message);
     // 呼叫端送了一個不是 Status 的值 —— 這是請求的問題，不是找不到東西。
     if (err instanceof InvalidStatus) return badRequest(err.message);
+    // 已刪的 Issue 上的寫入被 core 擋下（復原除外）。這不是找不到，也不是
+    // 請求寫錯 —— 是那張 Issue 不再接受寫入。
+    if (err instanceof IssueDeleted) return gone(err.message);
+    throw err;
+  }
+}
+
+/**
+ * `POST /api/issues` 收得的欄位。**`description` 與 `labels` 刻意不收** ——
+ * 表單只填標題，端點不該提供一個沒有呼叫端的能力；要補描述就是接著一次
+ * `POST /i/<ref>`。
+ */
+const CREATE_FIELDS: ReadonlySet<string> = new Set(['title', 'status']);
+
+/**
+ * 一次新增。新增是這一批唯一新增的端點 —— 建立的時候還沒有 ref 可以放進 URL，
+ * 所以它不可能走 `POST /i/<ref>`。
+ */
+function createIssue(board: Board, body: string): StudioResponse {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return badRequest('body 必須是一份 JSON 物件');
+  }
+  if (!isRecord(parsed)) return badRequest('body 必須是一份 JSON 物件');
+
+  // 不認得的欄位一律拒絕，而不是忽略 —— 同 parseChange。被靜靜吃掉的欄位換來
+  // 的是 201 加上一張少了東西的 Issue，而 append-only 之下沒有「被拒絕的寫入」
+  // 可以事後翻查（ADR-0007）。
+  for (const key of Object.keys(parsed)) {
+    if (!CREATE_FIELDS.has(key)) return badRequest(`不認得的欄位：${key}（只收 title 與 status）`);
+  }
+
+  // 標題是唯一的必填欄位，而且空白不算：一張沒有標題的卡片在板上是看不懂的
+  // 白卡，而 append-only 之下它刪不掉，只能再寫一次 op 蓋過去。
+  const title = parsed['title'];
+  if (typeof title !== 'string' || title.trim() === '') {
+    return badRequest('title 必須是非空字串');
+  }
+
+  // status 原樣交給 core：前綴解析（`rev` → `review`）與合法性只有一份實作，
+  // 就是 resolveStatus 那一份。這裡只確認它是個字串。
+  const status = parsed['status'];
+  if (status !== undefined && typeof status !== 'string') {
+    return badRequest('status 必須是字串');
+  }
+
+  try {
+    const issue = board.create(status === undefined ? { title } : { title, status });
+    return created(toIssueView(issue, displayLength(board)));
+  } catch (err) {
+    // 呼叫端送了一個不是 Status 的值 —— 這是請求的問題，不是伺服器錯誤。
+    // 同 applyChange 的對應：狀態碼的決定權集中在這個檔案裡。
+    if (err instanceof InvalidStatus) return badRequest(err.message);
     throw err;
   }
 }
@@ -397,22 +480,26 @@ function route(board: Board, req: StudioRequest, opts: HandlerOptions): StudioRe
   const path = req.url.split('?')[0]!;
 
   // ADR-0007 解除了「無任何寫入路徑」的契約，但白名單是**收窄而非移除**：
-  // 多出來的只有 `POST /i/<ref>`。方法檢查仍然放在路由之前 —— 「哪些路徑
-  // 存在」不該決定「能不能寫」，所以 POST 到一個不存在的路徑是 405 而不是
-  // 404：不存在的路徑不會因為不存在就變得可寫。
-  const writable = path.startsWith(ISSUE_PREFIX);
+  // 多出來的只有 `POST /i/<ref>` 與 `POST /api/issues` 兩條。方法檢查仍然放在
+  // 路由之前 —— 「哪些路徑存在」不該決定「能不能寫」，所以 POST 到一個不存在
+  // 的路徑是 405 而不是 404：不存在的路徑不會因為不存在就變得可寫。
+  //
+  // `/api/issues` 用**完全相等**比對，不是 startsWith：白名單只有短而精確才
+  // 守得住上面那條性質，前綴比對會讓 `/api/issues/foo` 一併變成可寫。
+  const writable = path.startsWith(ISSUE_PREFIX) || path === API_ISSUES_PATH;
   if (req.method !== 'GET' && !(req.method === 'POST' && writable)) {
-    // Allow 講的是這個資源支援什麼（RFC 9110），所以兩條路徑答案不同：
-    // `/i/<ref>` 只收 POST（伺服器渲染的詳情頁在票 01 就沒了），其餘只收 GET。
-    const allow = writable ? 'POST' : 'GET';
-    return {
-      status: 405,
-      headers: { 'content-type': TEXT, allow },
-      body: `${path} 只接受 ${allow}\n`,
-    };
+    // 兩條路徑答案不同：可寫的那些只收 POST（`/i/<ref>` 伺服器渲染的詳情頁在
+    // 票 01 就沒了），其餘只收 GET。
+    return methodNotAllowed(path, writable ? 'POST' : 'GET');
   }
 
+  // `/api/issues` 是一條**只收 POST** 的路徑，GET 它因此是 405 而不是 404 ——
+  // 那條路徑存在，只是不收這個方法。`/i/<ref>` 不走這條：它的 GET 是一個曾經
+  // 存在、票 01 移除掉的讀取面，仍然回 404。
+  if (req.method === 'GET' && path === API_ISSUES_PATH) return methodNotAllowed(path, 'POST');
+
   if (req.method === 'POST') {
+    if (path === API_ISSUES_PATH) return createIssue(board, req.body ?? '');
     return applyChange(board, path.slice(ISSUE_PREFIX.length), req.body ?? '');
   }
 

@@ -263,6 +263,73 @@ describe('「哪些路徑存在」不能決定「能不能寫」', () => {
   });
 });
 
+/**
+ * `POST /api/issues`（票 A4）是白名單上第二條、也是唯一新增的可寫路徑。**它用
+ * 完全相等比對，不是 startsWith** —— 前綴比對會讓 `/api/issues/foo` 這種根本
+ * 不存在的路徑一併變成可寫，而「哪些路徑存在」不能決定「能不能寫」的那條性質
+ * 正是靠白名單短而精確才守得住。
+ */
+describe('新增端點沒有讓 405 白名單鬆動', () => {
+  const STILL_NOT_WRITABLE = [
+    '/',
+    '/hash',
+    '/api/board',
+    // 前綴像 `/api/issues`，但都不是它。
+    '/api/issues/',
+    '/api/issues/foo',
+    '/api/issues/01JBXA',
+    '/api/issuesss',
+    '/api/issue',
+  ];
+
+  it('POST 到這些路徑仍然 405、Allow 仍然是 GET，且一張 Issue 都沒被造出來', () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+    const before = board().list({ all: true });
+
+    for (const url of STILL_NOT_WRITABLE) {
+      const res = post(url, { title: 'should never land' });
+      // 404 在這裡是錯的答案：那表示請求已經進到路由，也就是白名單放它過了。
+      expect(res.status, `POST ${url}`).toBe(405);
+      expect(res.headers['allow'], `POST ${url}`).toBe('GET');
+    }
+
+    expect(board().list({ all: true })).toEqual(before);
+    expect(board().refs()).toHaveLength(1);
+  });
+
+  it('/api/issues 上的 PUT / DELETE / PATCH 是 405，Allow 說 POST', () => {
+    for (const method of ['PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']) {
+      const res = handleRequest(board(), {
+        method,
+        url: '/api/issues',
+        body: JSON.stringify({ title: 'should never land' }),
+      });
+      expect(res.status, method).toBe(405);
+      expect(res.headers['allow'], method).toBe('POST');
+    }
+
+    expect(board().refs()).toHaveLength(0);
+  });
+
+  /**
+   * `/api/issues` 是一條**只收 POST** 的路徑，所以 GET 它是 405 而不是 404：
+   * 那條路徑存在，只是不收這個方法，而 Allow 要說得出還剩什麼可用（RFC 9110）。
+   *
+   * 這跟 `/i/<ref>` 不同 —— 那條的 GET 曾經是伺服器渲染的詳情頁，票 01 移除之後
+   * 回 404，而那個 404 是既有測試釘住的。
+   */
+  it('GET /api/issues → 405，Allow 說 POST，且沒有一份 board 資料漏出去', () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+
+    const res = get('/api/issues');
+
+    expect(res.status).toBe(405);
+    expect(res.headers['allow']).toBe('POST');
+    // 它不是一個讀取面：不得順手回一份清單。
+    expect(res.body).not.toContain('Fix login redirect');
+  });
+});
+
 /** 一次寫入。body 是 `Change` 的 JSON —— 端點直接鏡射 `board.apply(ref, change)`。 */
 const post = (url: string, body: unknown) =>
   handleRequest(
@@ -511,6 +578,193 @@ describe('POST /i/<ref> 的錯誤對應', () => {
 });
 
 
+/**
+ * 刪除**不新增任何端點**：`Change` 多了 `deleted`，既有的 `POST /i/<ref>` 就通了
+ * （ADR-0009）。這裡釘的是那條既有路徑現在載得動 deleted，以及回印說得出結果。
+ */
+describe('POST /i/<ref> 的 deleted', () => {
+  it('deleted: true → 200，且回印的 IssueView 說得出它已被刪除', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+
+    const res = post(`/i/${id}`, { deleted: true });
+
+    expect(res.status).toBe(200);
+    const view = JSON.parse(res.body) as IssueView;
+    expect(view.deleted).toBe(true);
+    // 回應說寫成功了不算數，磁碟上有那一筆 set 才算。
+    const ops = opsOnDisk(id);
+    expect(ops.some((o) => o['op'] === 'set' && o['k'] === 'deleted' && o['v'] === true)).toBe(true);
+  });
+
+  /**
+   * 寫入安全的唯一決定點在 `board.apply`（ADR-0009），端點只負責把它翻成一個
+   * 說得出「不是找不到，是它曾經在」的狀態碼 —— 404 會讓 client 以為自己的
+   * ref 打錯了。
+   */
+  it('對已刪的 Issue 再寫 → 410 Gone，內文說得出原因，且一個 op 都沒多寫', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    post(`/i/${id}`, { deleted: true });
+    const before = opsOnDisk(id).length;
+
+    const res = post(`/i/${id}`, { comment: 'x' });
+
+    expect(res.status).toBe(410);
+    expect(res.body).toContain('已被刪除');
+    // 500 的兜底會外洩堆疊；這條是被對應過的例外，不得走到那裡。
+    expect(res.body).not.toContain('at Object');
+    expect(opsOnDisk(id)).toHaveLength(before);
+  });
+
+  /**
+   * 復原是一次普通的寫入，這正是選 LWW 而不是吸收語意換到的東西（ADR-0009）。
+   * 端點因此不得自己先問一句「這張刪了嗎」就回 410 —— 那會把復原一起擋掉。
+   */
+  it('deleted: false 對已刪的 Issue → 200，回印說它回來了', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    post(`/i/${id}`, { deleted: true });
+
+    const res = post(`/i/${id}`, { deleted: false });
+
+    expect(res.status).toBe(200);
+    expect((JSON.parse(res.body) as IssueView).deleted).toBe(false);
+    // 復原之後它是一張普通的 Issue：寫得動，也回到 board 上。
+    expect(post(`/i/${id}`, { comment: 'back' }).status).toBe(200);
+    expect(board().list({ all: true }).map((i) => i.id)).toContain(id);
+  });
+
+  /**
+   * `deleted` 跟其他每一格一樣要逐欄驗形狀，不是「交給 core 去擋」。
+   * `"true"` 這個字串是 JS 裡最會騙人的一個值：真的讓它落進 op-log，摺疊出來
+   * 的 deleted 會是 truthy，那張 Issue 就從 board 上安靜地消失了。
+   */
+  it('deleted 不是 boolean → 400，而且一個 op 都沒寫', () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const before = opsOnDisk(id).length;
+
+    for (const deleted of ['true', 1, 0, null, {}]) {
+      const res = post(`/i/${id}`, { deleted });
+      expect(res.status, JSON.stringify(deleted)).toBe(400);
+    }
+
+    expect(opsOnDisk(id)).toHaveLength(before);
+    expect(board().list({ all: true }).map((i) => i.id)).toContain(id);
+  });
+});
+
+/**
+ * 新增是這一批唯一新增的端點。**刪除沒有端點**（走既有的 `POST /i/<ref>`），
+ * 新增有，因為建立一張 Issue 的時候還沒有 ref 可以放進 URL。
+ */
+describe('POST /api/issues', () => {
+  it('建立一張 Issue：201 + IssueView，而且下一次 /api/board 就有它', () => {
+    const res = post('/api/issues', { title: 'Fix login redirect' });
+
+    // 201 而不是 200：這次請求造出了一個之前不存在的資源（RFC 9110）。
+    expect(res.status).toBe(201);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+
+    const view = JSON.parse(res.body) as IssueView;
+    expect(view.title).toBe('Fix login redirect');
+    // server 產生 ULID —— client 沒有 id 可以先畫，這正是新增不做樂觀更新的原因。
+    expect(view.id).toMatch(/^[0-9A-Z]{26}$/);
+    expect(view.status).toBe('backlog');
+    expect(view.deleted).toBe(false);
+
+    // 回應說建立成功了不算數，下一次全量讀取看得到它才算。
+    const issues = JSON.parse(get('/api/board').body).issues as IssueView[];
+    expect(issues.map((i) => i.id)).toContain(view.id);
+    expect(board().get(view.id).title).toBe('Fix login redirect');
+  });
+
+  /**
+   * 表單只填標題（沒有標題的卡片在板上是一張看不懂的白卡），所以標題是
+   * 這個端點唯一的必填欄位，而且空白不算 —— append-only 之下造出來的空卡片
+   * 沒有辦法刪掉重來，只能再寫一次 op 蓋掉。
+   */
+  it('沒有 title、title 不是字串、或 trim 後是空的 → 400，且不造出任何 Issue', () => {
+    const rejected: unknown[] = [{}, { title: '' }, { title: '   ' }, { title: '\n\t' }, { title: 1 }, { title: null }, { title: ['x'] }];
+
+    for (const body of rejected) {
+      const res = post('/api/issues', body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    // 一張都不該存在 —— 半成品的 Issue 檔比一個錯誤訊息貴得多。
+    expect(board().refs()).toHaveLength(0);
+  });
+
+  /**
+   * 收 `status` 的理由：看板每一欄的欄頂各有一個 `+`，而那個 `+` 唯一比 CLI
+   * 好的地方就是「按哪一欄就開在哪一欄」。一個按了 review 卻掉進 backlog 的
+   * 按鈕比沒有按鈕糟。`board.create()` 本來就收 status —— 這裡不是新增能力，
+   * 是不要在端點上把它擋掉。
+   */
+  it('status 一起送 → 201，且那張真的開在那一欄', () => {
+    const res = post('/api/issues', { title: 'Fix login redirect', status: 'review' });
+
+    expect(res.status).toBe(201);
+    const view = JSON.parse(res.body) as IssueView;
+    expect(view.status).toBe('review');
+    expect(board().get(view.id).status).toBe('review');
+  });
+
+  /**
+   * 不合法的 status 是請求的問題，不是伺服器的問題 —— 沿用 `POST /i/<ref>` 上
+   * 既有的 InvalidStatus → 400，而不是讓它掉進 500 的兜底。
+   */
+  it('status 不合法 → 400，不是 500，且不造出任何 Issue', () => {
+    // 不存在的值、對應到多個 Status 的前綴（backlog / blocked）、空字串、非字串。
+    for (const status of ['nope', 'b', '', 5, null, ['review']]) {
+      const res = post('/api/issues', { title: 'Fix login redirect', status });
+      expect(res.status, JSON.stringify(status)).toBe(400);
+      expect(res.body, JSON.stringify(status)).not.toContain('at Object');
+    }
+
+    // 驗證先於任何寫入：被拒絕的輸入不得留下一個半成品的檔案。
+    expect(board().refs()).toHaveLength(0);
+  });
+
+  /**
+   * 沿用寫入面既有的「不認得的欄位一律拒絕」（票 03）：append-only 之下沒有
+   * 「被拒絕的寫入」可以事後翻查，一個被靜靜吃掉的欄位換來的是 201 加上一張
+   * 少了東西的 Issue —— 那是最難查的一種失敗。
+   *
+   * `description` 與 `labels` 刻意不收：表單只填標題，端點不該提供沒有呼叫端
+   * 的東西。它們因此跟打錯的欄位名走同一條路。
+   */
+  it('title / status 以外的鍵 → 400，且不造出任何 Issue', () => {
+    const rejected: unknown[] = [
+      { title: 'x', description: 'd' },
+      { title: 'x', labels: ['bug'] },
+      { title: 'x', archived: true },
+      { title: 'x', deleted: true },
+      { title: 'x', id: fullId('01JBXA') },
+      // 打錯的欄位名：靜靜地少一格，比一次 400 難查得多。
+      { title: 'x', statuss: 'review' },
+    ];
+
+    for (const body of rejected) {
+      const res = post('/api/issues', body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    expect(board().refs()).toHaveLength(0);
+  });
+
+  it('body 不是 JSON 物件 → 400，不是 500', () => {
+    for (const body of ['', '{', 'not json', 'null', '42', '"x"', '["x"]']) {
+      const res = post('/api/issues', body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    expect(board().refs()).toHaveLength(0);
+  });
+});
+
 describe('GET /hash', () => {
   it('回傳當前 board 狀態的雜湊，200，text/plain', () => {
     createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
@@ -643,6 +897,31 @@ describe('/api/board 的 IssueView', () => {
     // 而且它要真的解析得回同一張 —— 這才是短 ID 的用途。
     expect(board().get(a.shortId).id).toBe(a.id);
     expect(board().get(b.shortId).id).toBe(b.id);
+  });
+});
+
+/**
+ * board 成員資格的唯一決定點是 `board.list()`（ADR-0009），快照因此不必自己
+ * 再濾一次。這條測試釘的是「這條讀取路徑真的走那個決定點」—— 繞過 list()
+ * 直接讀檔的症狀是一張刪掉的 Issue 又出現在畫面上：安靜、局部、不會讓
+ * 別的測試變紅。
+ */
+describe('/api/board 不含已刪的 Issue', () => {
+  it('刪掉的那張從快照上消失，但它的檔案還在，短 Ref 也不因此縮短', () => {
+    const kept = fullId('01JBXAB');
+    const removed = fullId('01JBXAC');
+    createWith(kept, { title: 'Union merge spike' });
+    createWith(removed, { title: 'Fix login redirect' });
+
+    post(`/i/${removed}`, { deleted: true });
+
+    const issues = JSON.parse(get('/api/board').body).issues as IssueView[];
+    expect(issues.map((i) => i.id)).toEqual([kept]);
+    expect(issues.map((i) => i.title)).not.toContain('Fix login redirect');
+
+    // 永不 unlink（ADR-0009）：檔案還在，refs() 因此仍然是兩張，短 Ref 要 7 碼。
+    expect(existsSync(join(dir, '.issues', 'issues', `${removed}.ndjson`))).toBe(true);
+    expect(issues[0]!.shortId).toBe('01JBXAB');
   });
 });
 
