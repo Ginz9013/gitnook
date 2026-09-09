@@ -31,8 +31,9 @@ export function App(): React.JSX.Element {
   const [state, setState] = useState<Client | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // null = 連得上。非 null 時它同時是「中斷了」與「哪一種中斷」——
-  // 兩者是同一個事實，分成兩格遲早會出現「中斷但沒有種類」這種說不出話的狀態。
+  // null = 連得上。非 null 時它同時是「中斷了」、「哪一種中斷」與「伺服器就這件
+  // 事說了什麼」—— 三者是同一個事實，分成幾格遲早會出現「中斷但說不出話」或
+  // 「掛著上一次中斷留下的訊息」這種狀態。
   const [fault, setFault] = useState<ConnectionFault | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   // 開場那份快照的 hash。設定它同時也是「第一份快照到了」的訊號 —— 輪詢的
@@ -259,11 +260,15 @@ export function App(): React.JSX.Element {
  * 不會讓它變成沒發生。所以它不自動消失，由人按掉：下一次成功的寫入會清掉它，
  * 沒有下一次寫入時就留在那裡，等人讀到。
  *
- * **中斷有兩句話，因為下一步不同**（票 02）。伺服器沒有回應時該去看跑
+ * **中斷有三句話，因為下一步不同**（票 02）。伺服器沒有回應時該去看跑
  * `nook studio` 的那個終端機還在不在；伺服器回了錯誤時它明明活著，去查網路
- * 是白費工 —— 這種 500 最常見的來源是 session 進行中 board 目錄被移走
- * （`server/handler.ts` 的兜底）。哪一句由 `poll.ts` 的 `connectionFault` 決定，
- * 這裡只負責把它說出來。
+ * 是白費工；答了但回的不是 JSON，代表那個位址上的東西根本不是 nook studio。
+ * 哪一種由 `poll.ts` 的 `connectionFault` 決定，這裡只負責把它說出來。
+ *
+ * **伺服器自己說的話優先於這裡寫的任何一句。** `handler.ts` 的 `serverError`
+ * 刻意送一則可行動的訊息（「不是一個 Nook board：/path…」），它比「最常見的
+ * 原因是……」精確 —— 後者是猜，而猜的時候使用者手上明明就有正確答案。沒有話
+ * 可引用時（`detail` 是 null）才退回那句猜測，因為那時它是現場最好的線索。
  */
 function StatusBanner({
   fault,
@@ -282,16 +287,30 @@ function StatusBanner({
       aria-live="polite"
       className="bg-destructive text-destructive-foreground fixed bottom-4 left-1/2 z-50 flex max-w-[min(36rem,90vw)] -translate-x-1/2 items-start gap-3 rounded-md px-3 py-2 text-sm shadow-lg"
     >
-      {fault === 'failed' ? (
+      {fault?.kind === 'failed' ? (
         <span>
           連線中斷 —— 伺服器沒有回應，現在做的變更送不出去。跑 <code>nook studio</code>{' '}
           的那個終端機還開著嗎？
         </span>
-      ) : fault === 'server-error' ? (
+      ) : fault?.kind === 'server-error' ? (
         <span>
           伺服器回了錯誤 —— 它還活著，所以不是網路的問題，但現在做的變更一樣送不出去。
-          最常見的原因是 board 目錄（<code>.issues/</code>）被移走或改名了；確認它還在原處，
-          再重開 <code>nook studio</code>。
+          {fault.detail === null ? (
+            <>
+              最常見的原因是 board 目錄（<code>.issues/</code>）被移走或改名了；確認它還在原處，
+              再重開 <code>nook studio</code>。
+            </>
+          ) : (
+            <>
+              它說：「{fault.detail}」修好之後重開 <code>nook studio</code>。
+            </>
+          )}
+        </span>
+      ) : fault?.kind === 'malformed' ? (
+        <span>
+          伺服器答了，但回的不是 nook 的資料 —— 它活著，所以不是網路的問題，
+          可是這個位址上跑的東西不是 <code>nook studio</code>（前面擋著別的服務，
+          或那個 port 換人跑了）。確認它還在同一個 port 上，再重新整理這一頁。
         </span>
       ) : (
         <>

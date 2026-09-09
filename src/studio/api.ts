@@ -19,17 +19,57 @@ export type { BoardSnapshot, Change, CommentView, IssueView, Status };
  * `poll.ts` 的 `catch` 裡是同一個事件，於是 board 目錄被移走時，橫幅會說
  * 「伺服器沒有回應」——把讀的人送去查網路，而不是查 board。
  *
- * `status` 是**唯一**多出來的資訊，其餘（url、message）維持原本的字串形狀，
- * 因為 `postChange` 的失敗橫幅直接顯示 `err.message`（`App.tsx`），那句話不變。
+ * **`detail` 是伺服器在 body 裡實際說的那句話**，與 `message` 分開兩格。
+ * `handler.ts` 的 `serverError` 刻意送一則可行動的訊息（「不是一個 Nook board：
+ * /path…」），而中斷橫幅要引用的正是那一句 —— 它是使用者手上唯一精確的證據。
+ * 混進 `message` 就得從 `${url} 回了 ${status}：` 這個前綴裡把它切回來，而
+ * 切字串是猜；分成兩格則不必猜。空白 body = 沒有話可引用 = `null`，橫幅因此
+ * 分得出「伺服器說了什麼」與「它只回了一個狀態碼」。
+ *
+ * `message` 維持原本的字串形狀，因為 `postChange` 的失敗橫幅直接顯示
+ * `err.message`（`App.tsx`），那句話不變。
  */
 export class HttpError extends Error {
   constructor(
     readonly url: string,
     readonly status: number,
     message: string,
+    /** 伺服器在 body 裡說的那句話；沒有可引用的內容時是 null。 */
+    readonly detail: string | null = null,
   ) {
     super(message);
     this.name = 'HttpError';
+  }
+}
+
+/**
+ * 伺服器在 body 裡說的那句話 —— 空白的 body 沒有話可引用，回 null。
+ *
+ * 讀 body 自己失敗時同樣回 null，而不是讓那個例外逃出去：狀態碼已經證明伺服器
+ * 答了，讓讀 body 的失敗取代 `HttpError` 會使橫幅倒退回「連不上」，也就是這一層
+ * 存在的理由本身。
+ */
+async function said(res: Response): Promise<string | null> {
+  const body = await res.text().catch(() => '');
+  const text = body.trim();
+  return text === '' ? null : text;
+}
+
+/**
+ * 伺服器**答了 200**，但 body 不是承諾的那個形狀 —— `JSON.parse` 解不開。
+ *
+ * 具名，是因為 `poll.ts` 不准從例外的型別去猜這件事：`SyntaxError` 可能來自
+ * 任何一層，而猜錯的下場是橫幅說「連不上」，把讀的人送去查一個活得好好的
+ * 伺服器。知道「這是解析回應失敗」的地方只有這裡 —— 這一行 `catch` 兩側都是
+ * 我們自己的程式碼，中間只有一次 `JSON.parse`，沒有第二個嫌疑犯。
+ *
+ * **不帶 body 的內容。** 這種狀況下的 body 通常是別的服務的 HTML 錯誤頁，
+ * 貼進橫幅是噪音而不是線索；有可行動內容的那種 body 走的是 `HttpError.detail`。
+ */
+export class MalformedResponseError extends Error {
+  constructor(readonly url: string) {
+    super(`${url} 回了 200，但 body 不是 JSON`);
+    this.name = 'MalformedResponseError';
   }
 }
 
@@ -39,8 +79,15 @@ const ISSUE_PREFIX = '/i/';
 
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, signal === undefined ? {} : { signal });
-  if (!res.ok) throw new HttpError(url, res.status, `${url} 回了 ${res.status}`);
-  return (await res.json()) as T;
+  if (!res.ok) throw new HttpError(url, res.status, `${url} 回了 ${res.status}`, await said(res));
+  // `res.json()` 丟的是一個裸的 `SyntaxError`，而裸的例外在 `poll.ts` 那裡跟
+  // 「連不上」長得一模一樣。自己解，才有辦法丟一個說得出「伺服器答了」的錯誤。
+  const body = await res.text();
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw new MalformedResponseError(url);
+  }
 }
 
 /** 一次全量快照。ADR-0002：沒有快取也沒有增量 —— 全量掃描加摺疊就是實作。 */
@@ -54,7 +101,9 @@ export function fetchBoard(signal?: AbortSignal): Promise<BoardSnapshot> {
  */
 export async function fetchHash(signal?: AbortSignal): Promise<string> {
   const res = await fetch(HASH_URL, signal === undefined ? {} : { signal });
-  if (!res.ok) throw new HttpError(HASH_URL, res.status, `${HASH_URL} 回了 ${res.status}`);
+  if (!res.ok) {
+    throw new HttpError(HASH_URL, res.status, `${HASH_URL} 回了 ${res.status}`, await said(res));
+  }
   return await res.text();
 }
 
@@ -80,6 +129,17 @@ export async function postChange(ref: string, change: Change): Promise<IssueView
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(change),
   });
-  if (!res.ok) throw new HttpError(url, res.status, `${url} 回了 ${res.status}：${await res.text()}`);
+  if (!res.ok) {
+    // body 只讀得到一次，所以先取出來 —— 這句話同時進 `message`（寫入失敗的
+    // 橫幅直接顯示它，一個字不變）與 `detail`。
+    const body = await res.text();
+    const detail = body.trim();
+    throw new HttpError(
+      url,
+      res.status,
+      `${url} 回了 ${res.status}：${body}`,
+      detail === '' ? null : detail,
+    );
+  }
   return (await res.json()) as IssueView;
 }
