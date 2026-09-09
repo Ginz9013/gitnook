@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
-import type { Announcements, DragEndEvent, DragStartEvent } from '@dnd-kit/core';
+import type { Announcements, DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core';
 
 import type { BoardInfo, IssueView, Status } from '@/api';
+import { readCollapsed, writeCollapsed } from '@/prefs';
 import type { ProjectedIssue } from '@/reconcile';
 import { STATUS_ORDER, groupByStatus } from '@/statuses';
 
@@ -11,7 +12,15 @@ import { CardFace } from './Card';
 import { Column } from './Column';
 import type { DragState } from './Column';
 import { announceCancel, announceDrop, announceGrab, announceOver, dragInstructions } from './announce';
+import { collapsedNow, revealOver, toggleCollapsed } from './collapse';
 import { boardCollision, columnKeyboardCoordinates, draggedIssue, statusOf } from './dnd';
+
+/**
+ * 沒有任何欄位被拖曳掀開。**一個模組層級的常數而不是每次 `new Set()`** ——
+ * 每次拖曳結束都放一個新的空集合進 state，等於每次放手都重繪八欄，而
+ * 「掀開的是哪幾欄」根本沒變。
+ */
+const NONE: ReadonlySet<Status> = new Set();
 
 /**
  * 看板對外的那一面。`App` 是唯一的呼叫端 —— 它持有調和 state 與寫入面，看板
@@ -87,6 +96,20 @@ export function Board({
 }: BoardProps): React.JSX.Element {
   const [dragging, setDragging] = useState<DragState | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  /**
+   * 使用者折起來的欄位。**這一份是偏好，記在 `localStorage`**（D11：只影響這台
+   * 機器上這個人怎麼看，不進 op-log），開場讀一次，預設全展開。讀壞了退回空
+   * 集合而不是拋 —— 那條規則在 `@/prefs`，有測試。
+   */
+  const [collapsed, setCollapsed] = useState<ReadonlySet<Status>>(() =>
+    readCollapsed(window.localStorage),
+  );
+  /**
+   * 這次拖曳掀開的欄位。**與偏好分開的第二份**：折起來的欄位照樣收得下卡片，
+   * 但使用者得看得到自己放進去的東西掉在哪，所以拖曳指過去時要暫時展開 ——
+   * 而放開之後那一欄要照樣折回去，偏好一格都不能動。
+   */
+  const [revealed, setRevealed] = useState<ReadonlySet<Status>>(NONE);
 
   const sensors = useSensors(
     // 4px 的門檻讓「點一下開細節」與「拖走」分得開。
@@ -105,6 +128,8 @@ export function Board({
   // 從八欄裡隱藏起來，預設不顯示。
   const visible = showArchived ? issues : issues.filter((i) => !i.shown.archived);
   const byStatus = groupByStatus(visible, (i) => i.shown.status);
+  // 畫面上現在真的折著的是哪幾欄：偏好扣掉這次拖曳掀開的（`collapse.ts`）。
+  const foldedNow = collapsedNow(collapsed, revealed);
   const activeIssue = dragging === null ? null : (issues.find((i) => i.id === dragging.id) ?? null);
 
   const announcements = useMemo<Announcements>(
@@ -129,6 +154,27 @@ export function Board({
     [],
   );
 
+  /**
+   * 折疊一欄或把它打開。**寫進 `localStorage` 與更新 state 在同一個地方**，
+   * 走的是 `ThemeToggle` 的同一條路（`prefs.ts` 的另一個使用者）。
+   *
+   * 不在 `setCollapsed` 的 updater 裡寫 storage：那個 function 會被 React 呼叫
+   * 不只一次（StrictMode 會刻意重跑它），而 updater 應該是純的。
+   */
+  function toggleColumn(status: Status): void {
+    const next = toggleCollapsed(collapsed, status);
+    writeCollapsed(window.localStorage, next);
+    setCollapsed(next);
+  }
+
+  /**
+   * 拖曳指到的欄位換了。折起來的那一欄要**暫時掀開** —— 而且掀開之後在這次
+   * 拖曳結束之前不再收回（`collapse.ts` 的 `revealOver` 寫著為什麼）。
+   */
+  function handleDragOver(event: DragOverEvent): void {
+    setRevealed((r) => revealOver(r, statusOf(event.over)));
+  }
+
   function handleDragStart(event: DragStartEvent): void {
     const data = draggedIssue(event.active);
     if (data === null) return;
@@ -140,6 +186,8 @@ export function Board({
   function handleDragEnd(event: DragEndEvent): void {
     const drag = dragging;
     setDragging(null);
+    // 掀開的欄位全部收回去 —— 折疊偏好本身從頭到尾沒被碰過。
+    setRevealed(NONE);
     if (drag === null) return;
 
     // 換了 Status 才是一次移動。沒放進任何一欄、或放回原本那一欄，都只是放開 ——
@@ -156,6 +204,7 @@ export function Board({
 
   function handleDragCancel(): void {
     setDragging(null);
+    setRevealed(NONE);
     onRelease();
   }
 
@@ -189,6 +238,7 @@ export function Board({
         collisionDetection={boardCollision}
         accessibility={{ announcements, screenReaderInstructions: { draggable: dragInstructions } }}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
@@ -203,6 +253,8 @@ export function Board({
               selectedId={selectedId}
               onSelect={onSelect}
               dragging={dragging}
+              collapsed={foldedNow.has(status)}
+              onToggleCollapsed={() => toggleColumn(status)}
               onCreate={onCreate}
             />
           ))}
