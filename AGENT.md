@@ -24,6 +24,7 @@ Issues are plain text files in the repo. They travel with the branch, merge with
 | `nook new <title> [--description <text\|->] [--label <l>] [--editor]` | create; prints the **full 26-char ref** |
 | `nook list [--all] [--status <s>] [--label <l>] [--json]` | one line per issue |
 | `nook show <ref> [--json]` | title, description, comments |
+| `nook history <ref> [<field>]` | every write to a LWW field, with actor and lamport `t` — read-only |
 | `nook set <ref> <title\|description\|status\|archived> <value\|-> [--editor]` | update one field |
 | `nook mv <ref> <status>` | status transition (the common case) |
 | `nook comment <ref> <body\|->` | append a comment |

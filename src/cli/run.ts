@@ -212,6 +212,7 @@ init                                   建立 .issues/ 與 .gitattributes
 new <title> [--description <text|->] [--label <l>] [--editor]
 list [--all] [--status <s>] [--label <l>] [--json]
 show <ref> [--json]
+history <ref> [<field>]                看某個 LWW 欄位被寫過哪些值
 set <ref> <title|description|status|archived> <value|-> [--editor]
 mv <ref> <status>
 comment <ref> <body|->
