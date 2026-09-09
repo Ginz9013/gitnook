@@ -11,7 +11,7 @@
  * import 它，好讓兩邊對 `blocked` 說同一句話。那條規則整條拿掉了
  * （ADR-0003 已改寫）—— `blocked` 就只是一個 Status，狀態不該帶有額外效果，
  * 所以 drawer 與看板對它沒有任何要對齊的東西。看板那一側連檔案都不在了：
- * 它住的 `board/lanes.ts` 隨著車道解讀一起刪除（ADR-0010 / D5，commit 400e78b）。
+ * 它住的 `board/lanes.ts` 在 ADR-0010 一併刪除（commit 400e78b）。
  *
  * **樂觀模型不在這裡。** 這個檔案的前身 `pending.ts` 另外帶著一份 drawer 專用
  * 的 pending reducer；票 10 把 `reconcile.ts` 擴成 Change 的形狀之後，那一份就

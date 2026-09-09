@@ -18,7 +18,7 @@ builtin or a file inside the package.
 `npm i -D gitnook` installs **zero transitive packages**. `dependencies` is
 empty and stays empty: studio's frontend (React 19, Radix, Tailwind) is a set of
 `devDependencies` compiled ahead of time into two static files —
-`dist/studio/studio.js` and `studio.css`, 413 KB together — that ship inside the
+`dist/studio/studio.js` and `studio.css`, 421 KB together — that ship inside the
 tarball and are read from disk when a browser asks for them. Nothing resolves,
 downloads or executes at install time.
 
@@ -36,7 +36,7 @@ use the CLI, `nook studio` is the only thing that ever loads those bytes.
 | Linear / Jira + MCP | someone else's server | n/a | SaaS |
 | [git-bug](https://github.com/git-bug/git-bug) (10,023★) | `refs/bugs/*`, outside the working tree | yes | Go binary |
 | [backlog.md](https://github.com/MrLesk/Backlog.md) (6,668★) | markdown, `## Status` headings as database columns | **no** | 67.5 MB Bun binary, one per platform |
-| **nook** | `.issues/issues/*.ndjson`, in the working tree | **yes** | ~543 KB npm package, 413 KB of it studio's prebuilt frontend |
+| **nook** | `.issues/issues/*.ndjson`, in the working tree | **yes** | ~572 KB npm package, 421 KB of it studio's prebuilt frontend |
 
 git-bug's issues are not in the working tree, so GitHub's web UI does not show
 them, `grep` does not find them, and an agent cannot `cat` them. backlog.md's
@@ -77,7 +77,11 @@ Yjs, whose custom merge drivers cannot be enabled by a committed file alone.
 
 - **Actor identity** is derived from `git config user.email`; nothing is stored.
 - **Labels** are an add-wins OR-Set, so a concurrent `+bug` and `-bug` keep the label.
-- **Nothing is ever deleted** — modify/delete is the one conflict `union` cannot cover.
+- **Deleting never unlinks a file.** `nook rm` appends a `deleted` tombstone and
+  stops there: the issue leaves every listing, and its `.ndjson` stays on disk,
+  byte for byte, recoverable with `nook set <ref> deleted false`. Reclaiming the
+  bytes is a separate, unimplemented operation. modify/delete is the one conflict
+  `union` cannot cover, so nook never creates one (ADR-0009).
 - **Zero local state.** No cache, no index, no `config.json`, nothing to gitignore.
 
 There is no cache because there is nothing to cache: a full scan and fold of 100
@@ -91,10 +95,10 @@ structural rows below them — and exits non-zero if any is over budget.
 
 | Metric | Budget | Measured |
 |---|---|---|
-| Package size, unpacked | < 3 MB | **542,919 B** (17% of the gate) |
-| Cold start, `nook --version` from the packed tarball | < 500 ms | **≈26 ms** |
+| Package size, unpacked | < 3 MB | **571,512 B** (18% of the gate) |
+| Cold start, `nook --version` from the packed tarball | < 500 ms | **≈31 ms** |
 | Concurrent merge of one issue on two branches | zero conflicts | **0** |
-| Agent tokens, 40-issue scenario | < 4.5 KB | **4,065 B** |
+| Agent tokens, 40-issue scenario | < 4.5 KB | **4,026 B** |
 
 The size and cold-start numbers are measured against the tarball `npm pack`
 produces, not against `src/` — only the tarball reflects what you actually
@@ -111,7 +115,7 @@ Two more rows exist because those four cannot see what they need to see:
 
 | Row | Budget | Measured |
 |---|---|---|
-| studio assets, `dist/studio/` | < 768 KB | **412,686 B** |
+| studio assets, `dist/studio/` | < 768 KB | **421,310 B** |
 | React markers in `dist/cli/run.js` | 0 | **0** |
 
 studio is three quarters of the package, so it could grow by half and package
@@ -134,11 +138,9 @@ beside it. So, explicitly and permanently out of scope:
   what this project's statuses are before it can act
 - **sub-tasks** — `- [ ]` in a description is text, and stays text
 - **search / filter UI, a TUI** — `nook studio` is a GUI and it does edit
-  (ADR-0007), but it has no search, no filtering, and no terminal UI, and it
-  cannot create issues
+  (ADR-0007), but it has no search, no filtering, and no terminal UI
 - **an MCP server** — the CLI is the interface
 - **op-log compaction**
-- **issue deletion** — `git merge` cannot resolve modify/delete
 - **`nook next`** and other primitives shaped around one particular agent workflow
 
 Some teams will want a ninth status. The answer is a label. Saying no to that
@@ -175,12 +177,13 @@ init                                   create .issues/ and the .gitattributes li
 new <title> [--description <text|->] [--label <l>] [--editor]
 list [--all] [--status <s>] [--label <l>] [--json]
 show <ref> [--json]
-set <ref> <title|description|status|archived> <value|->  [--editor]
+set <ref> <title|description|status|archived|deleted> <value|->  [--editor]
 mv <ref> <status>
+rm <ref> [--yes]                       delete: writes a tombstone, never unlinks
 comment <ref> <body|->
 label <ref> +bug -ui
 doctor [--fix]                         data health check; --fix repairs glued lines
-studio [--port <n>]                    board on localhost; drag, edit, comment
+studio [--port <n>]                    board on localhost; create, drag, edit, comment
 ```
 
 `-` as a value reads the value from stdin.
@@ -198,6 +201,7 @@ Git-native issue tracker. Issues are plain text files in the repo.
 
 nook list [--all]          one line per issue: <ref> <status> <title> [labels]
 nook show <ref>            title line, description, comments
+nook history <ref>         every write to a field, with actor and lamport t
 nook new "<title>"         create an issue
 nook mv <ref> <status>     backlog todo queued in_progress review blocked done cancelled
 nook comment <ref> "<body>"
@@ -282,14 +286,25 @@ parseable, cheap in tokens. Dragging six issues into `todo` and ordering them is
 six `nook mv`s there and six seconds here (ADR-0007).
 
 Eight columns you drag issues between, and a drawer per issue for editing the
-title, the description, labels, status and comments. It **cannot create
-issues** — that stays in `nook new`. Writes go through `POST /i/<ref>` into the
-same append-only op-log the CLI writes, so the CLI and studio can be open at
-once. There is no rollback on failure and none is needed: an op that lands is
-permanent, and a card that ends up somewhere else lost a last-writer-wins tie to
-whoever wrote later. A two-second poll applies changes in place rather than
-reloading the page, and an issue you are holding the pointer on never moves
-underneath you.
+title, the description, labels, status and comments. **The eight columns are the
+eight statuses and nothing more** — no lanes, no gates, no column that means
+something the status does not (ADR-0010). What a column means is whatever you
+and your team grow it into.
+
+You can **create** an issue without going back to the terminal — a button in the
+header and a `+` on each of the eight columns, both asking for a title and
+nothing else. From the drawer you can **archive** and un-archive an issue, or
+**delete** it behind a confirmation; deleting writes the same tombstone `nook rm`
+writes, so the card leaves the board and the file stays on disk (ADR-0009). A
+**theme** switch offers light, dark and follow-the-system, remembered in
+`localStorage` — how you look at the board is a property of this machine, not of
+the op-log. Writes go through `POST /i/<ref>`, and creation through
+`POST /api/issues`, into the same append-only op-log the CLI writes, so the CLI
+and studio can be open at once. There is no rollback on failure and none is
+needed: an op that lands is permanent, and a card that ends up somewhere else
+lost a last-writer-wins tie to whoever wrote later. A two-second poll applies
+changes in place rather than reloading the page, and an issue you are holding
+the pointer on never moves underneath you.
 
 **Loopback-only is now the entire security model, not a conservative default.**
 studio has no authentication, so anything that can reach it can write to the
