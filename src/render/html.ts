@@ -10,8 +10,15 @@
  */
 
 /**
- * 文字進入 HTML 前一律逸出。這是本模組唯一的注入防線：
- * issue 內容可能是從外部 repo pull 來的，而產物會被 client 直接注入 DOM。
+ * 文字進入 HTML 前一律逸出。issue 內容可能是從外部 repo pull 來的，而產物會被
+ * client 直接注入 DOM。
+ *
+ * 這是「先逸出、再構造」的那個「先」：本模組的每一處插入標籤之前都先過它，
+ * 所以 raw HTML 天生無法通過，不需要一份危險標籤黑名單。`&` 必須最先替換，
+ * 否則已逸出的實體會被後續替換重新組回注入向量。
+ *
+ * server/handler.ts 的缺資產訊息頁也用同一份 —— 它原本各留一份位元組相同的
+ * 副本，而兩份逸出實作漂開的那一天不會有任何測試告訴我們。
  */
 export function escapeHtml(text: string): string {
   return text

@@ -184,7 +184,6 @@ function missingAssetsPage(assetsDir: string): string {
   );
 }
 
-
 export interface CommentView {
   readonly id: string;
   readonly actor: string;
