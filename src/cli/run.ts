@@ -54,8 +54,12 @@ export interface Io {
    * 互動確認讀一行 —— `rm` 的「真的要刪嗎」。
    *
    * 與 readStdin 是兩件事：那個讀到 EOF 為止（`-` 的用法就是餵一份東西
-   * 進來），拿它問問題會停在使用者按 Ctrl-D 才回來。可選的，因為它只有
-   * 一個呼叫端：沒有它的 adapter 就沒有確認可問，`rm` 於是要求 `--yes`。
+   * 進來），拿它問問題會停在使用者按 Ctrl-D 才回來。
+   *
+   * **選用是為了接縫外的呼叫端**：`test/agent-doc.test.ts` 用一個手工的 `Io`
+   * literal 跑 `--help`，它不在 `test/cli/run.test.ts` 的 `capture()` 裡，必填
+   * 就編不過。代價是 `rm` 要多擋一次 —— 沒有它的 adapter 沒有確認可問，於是
+   * 要求 `--yes`（見 `confirmed`）。
    */
   readLine?(): string;
   /**
@@ -83,6 +87,9 @@ export function processIo(signal?: AbortSignal): Io {
   };
 }
 
+/** 兩次探問之間的間隔。夠短到打字沒有延遲感，夠長到不算忙等。 */
+const POLL_MS = 20;
+
 /**
  * fd 0 讀到第一個換行為止。終端機在正常（canonical）模式下本來就是一行一
  * 送，所以這裡不必自己處理逐字元輸入；迴圈只是為了不假設一次 read 就拿得
@@ -90,7 +97,12 @@ export function processIo(signal?: AbortSignal): Io {
  */
 function readLineFromStdin(): string {
   const buffer = Buffer.alloc(256);
-  // Atomics.wait 是同步的睡眠。忙等在等一個人打字的那幾秒裡會把一顆核心燒滿。
+  // 下面那個 `Atomics.wait` 是一次同步的睡眠，而**它靠逾時返回**：`idle[0]` 永遠
+  // 是 0，也就是等待時要比對的那個期望值，所以它一定進入等待；而全程沒有任何地方
+  // 呼叫 `Atomics.notify`，於是喚醒它的只可能是 POLL_MS 到期。這個陣列從頭到尾不
+  // 存任何東西 —— `Atomics.wait` 需要一塊 shared memory 才等得起來，它就是那一塊。
+  //
+  // 被否決的替代方案是忙等：在等一個人打字的那幾秒裡會把一顆核心燒滿。
   const idle = new Int32Array(new SharedArrayBuffer(4));
   let answer = '';
   for (;;) {
@@ -112,9 +124,6 @@ function readLineFromStdin(): string {
     answer += chunk;
   }
 }
-
-/** 兩次探問之間的間隔。夠短到打字沒有延遲感，夠長到不算忙等。 */
-const POLL_MS = 20;
 
 /** CLI 自己發現的使用者錯誤（用法不對、欄位不存在）。與領域錯誤同樣是 exit 1。 */
 class UsageError extends Error {
@@ -407,6 +416,17 @@ function cmdList(args: Args, io: Io): number {
  * （`test/cli/run.test.ts` 的「單點失效的監看不該把整個 Board 掃一遍」守住）
  * 仍然成立：詳情這條路徑只會讀被點名的那一個 op-log。
  */
+/**
+ * 讀到一張已刪的 Issue 時該說的那句話。**前半段的字串歸 `IssueDeleted` 所有**
+ * —— 手抄一份，兩邊遲早各自漂移，而它們講的是同一件事。
+ *
+ * 後半段是出路：只說東西沒了，誤刪的人下一步無處可去。它不屬於那個錯誤型別
+ * （core 不知道有 CLI 這回事），所以接在這裡。
+ */
+function deletedMessage(ref: string): string {
+  return `${new IssueDeleted(ref).message}（nook history ${ref} 撈得回寫過的值，nook set ${ref} deleted false 復原）`;
+}
+
 function cmdShow(args: Args, io: Io): number {
   const board = openBoard({ dir: io.cwd });
   const ref = requireRef(args.positional[0] ?? '');
@@ -417,7 +437,7 @@ function cmdShow(args: Args, io: Io): number {
   // 的方法：只說東西沒了，誤刪的人下一步無處可去。
   // 擺在 warnIfUnguarded 之前 —— 一個問題就講一個問題（同尚未 init 的目錄）。
   if (issue.deleted) {
-    errLine(io, `issue 已被刪除：${ref}（nook history ${ref} 撈得回寫過的值，nook set ${ref} deleted false 復原）`);
+    errLine(io, deletedMessage(ref));
     return 1;
   }
 
@@ -551,12 +571,17 @@ function cmdSet(args: Args, io: Io): number {
  * 非 TTY 是 agent 的實際情境：掛在一個等不到輸入的確認上等於整條管線掛死，
  * 所以那裡拒絕而不是等待（同 --editor 的既有守門），出口是 `--yes`。
  *
+ * **兩個擋法各說各的話。** 沒有終端機，與這個 `Io` 交不出一行輸入，是兩件不同
+ * 的事 —— 合成一句，第二種處境會被告知一件與它無關而且是假的事（「非 TTY」），
+ * 而讀訊息的人會去查一個好好的終端機為什麼不算終端機。出口兩邊同樣是 `--yes`。
+ *
  * 問句帶著標題：前綴打錯而刪掉另一張，正是這道關卡存在的理由。它走 stderr，
  * 因為 stdout 是資料。
  */
 function confirmed(io: Io, title: string): boolean {
-  if (!io.isTty || io.readLine === undefined) {
-    throw new UsageError('rm 預設要互動確認；非 TTY 請加 --yes');
+  if (!io.isTty) throw new UsageError('rm 預設要互動確認；非 TTY 請加 --yes');
+  if (io.readLine === undefined) {
+    throw new UsageError('rm 預設要互動確認；這個 io 沒有 readLine，問不出問題，請加 --yes');
   }
 
   io.writeError(`刪除 ${title}？(y/N) `);
@@ -580,6 +605,18 @@ function cmdRm(args: Args, io: Io): number {
 
   const board = openBoard({ dir: io.cwd });
   const target = board.get(ref);
+
+  // 已經刪掉了。問「真的要刪嗎」是在為一次**不可能落地的寫入**要求一個決定 ——
+  // 答了 y 之後拿到的仍然是 `board.apply` 丟出來的 `IssueDeleted`。
+  //
+  // 這是**讀取側的呈現判斷**，與上面 `cmdShow` 的同一類：`board.get()` 對已刪的
+  // Issue 不拋（ADR-0009），CLI 因此讀得到這一格，決定的只是「要不要開口問」。
+  // **寫入安全那個決定點仍然只有 `board.apply` 一個**，這裡沒有第二份守門 ——
+  // 把它拿掉，刪除照樣擋得住，只是訊息回到那句不好的。
+  if (target.deleted) {
+    errLine(io, deletedMessage(ref));
+    return 1;
+  }
 
   // 守門在任何寫入之前。
   if (!args.has('--yes') && !confirmed(io, target.title)) return 1;

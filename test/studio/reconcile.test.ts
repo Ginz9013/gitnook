@@ -705,3 +705,42 @@ describe('ACK —— 回應帶 deleted: false', () => {
     expect(state.unmatchedAck).toBeNull();
   });
 });
+
+// 拖曳鎖指著一個已經不在快照裡的 id 時，`POLL` 會一直被押後，等一個永遠不會來的
+// `RELEASE` —— 卡片已經 unmount，指標放開時沒有東西送得出那個 action。實務上
+// dnd-kit 會在 unmount 時送 cancel 而自行解開，但**保證這件事的必須是 reducer**：
+// 它是有測試的那一層，而畫面停止更新是靠一個外部函式庫的善意在撐著。
+describe('ACK —— deleted: true 移除的正是被抓著的那張', () => {
+  it('拖曳鎖跟著解除，後續的 POLL 不再被押後', () => {
+    const state = reduceAll(
+      initialClient(snap(['a1', 'todo'], ['b2', 'backlog'])),
+      { type: 'GRAB', issueId: 'a1' },
+      { type: 'EDIT', issueId: 'a1', change: { deleted: true } }, // seq 1
+      { type: 'ACK', seq: 1, issue: full('a1', { deleted: true }) },
+    );
+
+    expect(state.snapshot.map((i) => i.id)).toEqual(['b2']);
+    expect(state.drag).toBeNull();
+
+    const polled = clientReduce(state, { type: 'POLL', issues: snap(['b2', 'review']) });
+    expect(polled.deferred).toBeNull();
+    expect(shown(polled, 'b2')).toBe('review');
+  });
+
+  it('移除的是別張時，拖曳鎖不動', () => {
+    const state = reduceAll(
+      initialClient(snap(['a1', 'todo'], ['b2', 'backlog'])),
+      { type: 'GRAB', issueId: 'a1' },
+      { type: 'EDIT', issueId: 'b2', change: { deleted: true } }, // seq 1
+      { type: 'ACK', seq: 1, issue: full('b2', { deleted: true }) },
+    );
+
+    expect(state.snapshot.map((i) => i.id)).toEqual(['a1']);
+    expect(state.drag).toEqual({ issueId: 'a1' });
+
+    // 手指還按著 a1，所以規則三照舊：這份快照押後，不上畫面。
+    const polled = clientReduce(state, { type: 'POLL', issues: snap(['a1', 'review']) });
+    expect(polled.deferred).not.toBeNull();
+    expect(shown(polled, 'a1')).toBe('todo');
+  });
+});

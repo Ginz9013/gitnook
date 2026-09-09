@@ -401,11 +401,14 @@ const CREATE_FIELDS: ReadonlySet<string> = new Set(['title', 'status']);
  * 所以它不可能走 `POST /i/<ref>`。
  */
 function createIssue(board: Board, body: string): StudioResponse {
+  // 不是 JSON，與是 JSON 但不是物件（`3`、`"x"`、`[]`），對呼叫端是同一件事，
+  // 所以它們回同一句話 —— 而那句話只寫一次：解析失敗收斂成一個接不住 isRecord
+  // 的值，兩條路在下一行匯合。手抄第二份的下場是有一天只改到其中一份。
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
   } catch {
-    return badRequest('body 必須是一份 JSON 物件');
+    parsed = undefined;
   }
   if (!isRecord(parsed)) return badRequest('body 必須是一份 JSON 物件');
 
@@ -416,8 +419,8 @@ function createIssue(board: Board, body: string): StudioResponse {
     if (!CREATE_FIELDS.has(key)) return badRequest(`不認得的欄位：${key}（只收 title 與 status）`);
   }
 
-  // 標題是唯一的必填欄位，而且空白不算：一張沒有標題的卡片在板上是看不懂的
-  // 白卡，而 append-only 之下它刪不掉，只能再寫一次 op 蓋過去。
+  // 標題是唯一的必填欄位，而且空白不算：一張沒有標題的 Issue 在板上是看不懂的
+  // 一列空白，而 append-only 之下它刪不掉，只能再寫一次 op 蓋過去。
   const title = parsed['title'];
   if (typeof title !== 'string' || title.trim() === '') {
     return badRequest('title 必須是非空字串');
@@ -488,14 +491,14 @@ function route(board: Board, req: StudioRequest, opts: HandlerOptions): StudioRe
   // 守得住上面那條性質，前綴比對會讓 `/api/issues/foo` 一併變成可寫。
   const writable = path.startsWith(ISSUE_PREFIX) || path === API_ISSUES_PATH;
   if (req.method !== 'GET' && !(req.method === 'POST' && writable)) {
-    // 兩條路徑答案不同：可寫的那些只收 POST（`/i/<ref>` 伺服器渲染的詳情頁在
-    // 票 01 就沒了），其餘只收 GET。
+    // 兩條路徑答案不同：可寫的那些只收 POST（`/i/<ref>` 伺服器渲染的詳情頁已經
+    // 移除，讀取一律走 `/api/board`），其餘只收 GET。
     return methodNotAllowed(path, writable ? 'POST' : 'GET');
   }
 
   // `/api/issues` 是一條**只收 POST** 的路徑，GET 它因此是 405 而不是 404 ——
   // 那條路徑存在，只是不收這個方法。`/i/<ref>` 不走這條：它的 GET 是一個曾經
-  // 存在、票 01 移除掉的讀取面，仍然回 404。
+  // 存在、後來移除掉的讀取面，仍然回 404。
   if (req.method === 'GET' && path === API_ISSUES_PATH) return methodNotAllowed(path, 'POST');
 
   if (req.method === 'POST') {

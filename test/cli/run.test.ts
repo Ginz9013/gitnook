@@ -1385,3 +1385,63 @@ describe('rm 的互動確認', () => {
     expect(openBoard({ dir }).get('01JBXA').deleted).toBe(true);
   });
 });
+
+/**
+ * 確認是為了守住一次**做得成**的刪除。對一張已經刪掉的 Issue 問「真的要刪嗎」，
+ * 使用者答了 y 之後拿到的仍然是 `board.apply` 丟出來的 `IssueDeleted` ——
+ * 那是為一次不可能落地的寫入要求一個決定。
+ *
+ * 這是**讀取側的呈現判斷**，與 `show` 已經在做的同一類：`board.get()` 對已刪的
+ * Issue 不拋（ADR-0009），所以 CLI 讀得到 `.deleted` 並自己決定要不要開口問。
+ * 寫入安全那個決定點仍然只有 `board.apply` 一個。
+ */
+describe('rm 對一張已刪的 Issue', () => {
+  it('直接說「已被刪除」並 exit 1，不先問一次不可能落地的確認', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    await run(['rm', '01JBXA', '--yes'], capture());
+
+    // 非 TTY 且沒有 --yes：現在這裡會被告知「請加 --yes」，而加了 --yes 之後
+    // 得到的是 IssueDeleted —— 那句話把人推向一條走不通的路。
+    const headless = capture();
+    expect(await run(['rm', '01JBXA'], headless)).toBe(1);
+    expect(headless.err).toContain('已被刪除');
+    expect(headless.err).not.toContain('--yes');
+    expect(headless.out).toBe('');
+
+    // TTY 上同樣不問：`readLine` 一旦被呼叫，就表示使用者被要求為一次不可能
+    // 落地的寫入做決定。
+    const tty = {
+      ...capture({ isTty: true }),
+      readLine: () => {
+        throw new Error('不該問確認：這張已經刪掉了');
+      },
+    };
+    expect(await run(['rm', '01JBXA'], tty)).toBe(1);
+    expect(tty.err).toContain('已被刪除');
+    expect(tty.out).toBe('');
+  });
+});
+
+/**
+ * 兩個條件擋的是兩件不同的事：**沒有終端機**（agent 的管線），與**這個 `Io` 交不出
+ * 一行輸入**（`readLine` 是選用的，`test/agent-doc.test.ts` 那個手工 literal 就
+ * 沒有它）。合成一句，第二種處境會被告知一件與它無關、而且是假的事。
+ */
+describe('rm 的確認在兩種擋法上各說各的話', () => {
+  it('是 TTY 但這個 Io 讀不到一行時，不會被告知它不是 TTY', async () => {
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+
+    const io = capture({ isTty: true });
+    expect(io.readLine).toBeUndefined();
+
+    expect(await run(['rm', '01JBXA'], io)).toBe(1);
+
+    expect(io.err).not.toContain('非 TTY');
+    expect(io.err).toContain('readLine');
+    // 出路兩邊一樣 —— 說得出擋住的是什麼，也要說得出怎麼過去。
+    expect(io.err).toContain('--yes');
+    expect(openBoard({ dir }).get('01JBXA').deleted).toBe(false);
+  });
+});

@@ -2,7 +2,11 @@
 
 studio 目前在八個固定的 Status 上疊了第二層意思：`backlog`、`todo` 是「人的車道」，`queued` 之後是「agent 的車道」，兩段之間畫一條線，`queued` 欄位常駐一個「授權閘門」的 Badge，拖進去時有一套跟別的欄位都不同的視覺與播報用字。**那層解讀是規劃時擅自加上的詮釋，不是使用者要的。**沒有人要求把板面切成兩半；它是從 CONTEXT.md 的一段散文長出來，然後被當成事實畫進了介面。
 
-拆掉的是四處，一次拆完：**車道線**（`LaneBoundary`）、**`queued` 的常駐閘門 Badge**、**拖入 `queued` 的特別視覺**（`dropEffect` 的 `'authorize'` 分支與那一格實心的 `ring-primary`）、以及**對應的播報用字**（`announceOver` / `announceDrop` 裡專講 queued 的那兩句）。`dropEffect` 之後只回答「有沒有換欄」，`board/lanes.ts` 整個模組消失 —— 它剩下的兩個函式（`isStatus`、`groupByStatus`）與車道無關，搬去 `@/statuses`。
+拆掉的是四處，一次拆完：**車道線**（`LaneBoundary`）、**`queued` 的常駐閘門 Badge**、**拖入 `queued` 的特別視覺**（`dropEffect` 的 `'authorize'` 分支與那一格實心的 `ring-primary`）、以及**對應的播報用字**（`announceOver` / `announceDrop` 裡專講 queued 的那兩句）。~~`dropEffect` 之後只回答「有沒有換欄」~~，`board/lanes.ts` 整個模組消失 —— 它剩下的兩個函式（`isStatus`、`groupByStatus`）與車道無關，搬去 `@/statuses`。
+
+**更正：`dropEffect` 不是收斂成兩個值，是整個不見了。**落地的程式碼裡沒有這個函式。`Column.tsx` 直接問 `dragging.status !== status`，兩個結果各自對到一個 class 常數（`TARGET_MOVE`、`TARGET_STAY`）——連那個 `'stay' | 'move'` 的字串聯集也一併沒了，它在函式消失之後沒有任何主人，只是在一行三元運算式與一次查表之間活了兩步。**這是這份決定的延伸而不是偏離**：`from === to` 是一次相等比較，不是領域規則，替它命名留下的是一個「這裡本來有意思」的空殼，正是上一段拒絕的那種半套。
+
+這句照實改寫而不是默默改掉，因為**一份描述著不存在的程式碼的 ADR 比沒有 ADR 更糟** —— 讀的人會拿著一個查無此物的名字去翻程式碼，翻不到時懷疑的是自己而不是這份文件。
 
 拆得乾淨而不是留一半，是因為半套的解讀比整套更糟：一條沒有 Badge 的車道線，或一個沒有線的閘門，都會變成「這裡本來有意思、現在說不出是什麼意思」的裝飾。
 

@@ -53,6 +53,16 @@ export interface ReconcileChange {
   readonly archived?: boolean;
   readonly labels?: { readonly add?: readonly string[]; readonly remove?: readonly string[] };
   readonly comment?: string;
+  /**
+   * 刪除（ADR-0009 的 `set deleted=<bool>`）。core 的 `Change` 一直有這一格，
+   * 這裡先前漏了 —— drawer 的刪除按鈕因此沒有樂觀路徑可走。
+   *
+   * **它不是一個樂觀覆蓋欄位**：`OptimisticField` 沒有 `deleted`，`project()`
+   * 也不套它。畫面上那張卡片消失的時機是 ACK 帶回 `deleted: true` 把它移出
+   * 快照（見 clientReduce 的 ACK），不是送出的那一刻 —— 移除是整格拿掉而不是
+   * 換一個值，回滾不回來，所以它等伺服器點頭。
+   */
+  readonly deleted?: boolean;
 }
 
 /**
@@ -225,9 +235,20 @@ export function clientReduce<I extends ReconcileIssue>(
       // 這不算落空：ACK 確實對上了快照裡的那一格，只是它做的是移除，所以 `lands`
       // 仍然是 true、`unmatchedAck` 不該被點亮。
       const removed = lands && action.issue.deleted;
+      // 移除掉的正是手指按著的那張時，拖曳鎖必須跟著走。留著它，`drag` 就指向一個
+      // 已經不在快照裡的 id，而 POLL 會一路押後，等一個**永遠不會來的 RELEASE**
+      // —— 那張卡片已經 unmount，指標放開時沒有東西送得出那個 action，畫面於是
+      // 停在被刪的那一刻。實務上 dnd-kit 會在 unmount 時送 cancel 而自行解開，
+      // 但那是外部函式庫的善意；保證它的必須是這一層。
+      //
+      // 走 `endDrag` 而不是把 `drag` 設成 null 就算：放開的完整意思包含「押後的
+      // 那份快照補上」，只清一半會把 `deferred` 留成孤兒，下一次真正的放開才把
+      // 一份過期的快照倒到畫面上。移除**接在補上之後**（下面讀的是 `base`），
+      // 所以那份快照即使還帶著這張，它照樣被濾掉。
+      const base = removed && state.drag?.issueId === action.issue.id ? endDrag(state) : state;
       return {
-        ...state,
-        unmatchedAck: lands ? state.unmatchedAck : { seq: action.seq, issueId: p.issueId },
+        ...base,
+        unmatchedAck: lands ? base.unmatchedAck : { seq: action.seq, issueId: p.issueId },
         // 同一張 issue 上，連同 `seq <= action.seq` 的一起退場，不只是 action.seq
         // 那一筆：兩次寫入的回應在網路上換了位置時，只拿掉 seq2 會讓 seq1 留在
         // pending 上，而它帶的是已經被 seq2 取代的舊值 —— 卡片當場閃回舊欄位。
@@ -236,14 +257,14 @@ export function clientReduce<I extends ReconcileIssue>(
         // 這張離開快照時，它身上**所有**還在飛的變更一併退場，不只是 `seq <=
         // action.seq` 那些：更晚送出的那些之後永遠不會上畫面（`project()` 只走
         // 快照，那張已經不在了），卻會在這張被復原、輪詢帶回來的那一刻整個冒出來。
-        pending: state.pending.filter(
+        pending: base.pending.filter(
           (x) => x.issueId !== p.issueId || (!removed && x.seq > action.seq),
         ),
         snapshot: removed
-          ? state.snapshot.filter((i) => i.id !== action.issue.id)
+          ? base.snapshot.filter((i) => i.id !== action.issue.id)
           : lands
-            ? state.snapshot.map((i) => (i.id === action.issue.id ? action.issue : i))
-            : state.snapshot,
+            ? base.snapshot.map((i) => (i.id === action.issue.id ? action.issue : i))
+            : base.snapshot,
       };
     }
 

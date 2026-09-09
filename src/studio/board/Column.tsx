@@ -36,7 +36,12 @@ export interface ColumnProps {
 
 /**
  * 被拖到這一欄上方時，這一欄長什麼樣。**只有兩種，而且與是哪一欄無關**：
- * 放下去會換 Status，或不會。
+ * 放下去會換 Status（`TARGET_MOVE`），或不會（`TARGET_STAY`）。
+ *
+ * 兩個常數而不是一個以 `'stay' | 'move'` 為鍵的表：那個聯集在 ADR-0010 把
+ * `dropEffect` 整個刪掉之後就沒有主人了 —— 沒有任何函式產出它、以它為型別，
+ * 它只是在一行三元運算式與一次查表之間活了兩步。`from === to` 不是領域規則，
+ * 是一次相等比較，替它的兩個結果命名是儀式。
  *
  * 沒有第三格。`queued` 曾經有（實心 ring 加 primary 底色，外加一行「放開＝授權
  * agent 不再詢問、直接動手」），`blocked` 更早之前也有（destructive 的 ring 加
@@ -44,10 +49,8 @@ export interface ColumnProps {
  * （ADR-0010），而 `blocked` 就只是八個 Status 之一（ADR-0003）。授權語意留在
  * CLI 與 AGENT.md，那是工作流的約定，不是這裡的一格 CSS。
  */
-const TARGET_STYLE = {
-  stay: 'border-muted-foreground/40 border-dashed',
-  move: 'border-primary/40 bg-accent',
-} as const;
+const TARGET_STAY = 'border-muted-foreground/40 border-dashed';
+const TARGET_MOVE = 'border-primary/40 bg-accent';
 
 /** 看板上的一個直排 —— 一個 Status 的全部 Issue。名字講的是版面，`status` 講的是內容。 */
 export function Column({
@@ -64,7 +67,7 @@ export function Column({
   const targeted = isOver && dragging !== null;
   // 放回原本那一欄不是一次移動（`Board.tsx` 的 `handleDragEnd` 送的是 `onRelease`），
   // 所以它也不該長得像一次移動。這是唯一的判斷，而它問的是這次拖曳，不是這一欄。
-  const effect = dragging !== null && dragging.status === status ? 'stay' : 'move';
+  const moves = dragging !== null && dragging.status !== status;
 
   return (
     <section
@@ -72,7 +75,7 @@ export function Column({
       aria-label={`${status}，${issues.length} 張 Issue`}
       className={cn(
         'bg-muted/40 flex w-64 shrink-0 flex-col rounded-lg border transition-colors',
-        targeted && TARGET_STYLE[effect],
+        targeted && (moves ? TARGET_MOVE : TARGET_STAY),
       )}
     >
       <header className="flex flex-col gap-2 border-b px-3 py-2">
