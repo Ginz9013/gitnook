@@ -7,7 +7,7 @@ import {
   sameFault,
 } from '../../src/studio/poll.js';
 import type { ConnectionFault, PollOutcome } from '../../src/studio/poll.js';
-import { HttpError, MalformedResponseError } from '../../src/studio/api.js';
+import { HttpError, MalformedResponseError, isBoardSnapshot } from '../../src/studio/api.js';
 
 // 純函式，environment: 'node'。輪詢迴圈本身（fetch / setInterval / AbortController）
 // 沒有自動化測試 —— 依 spec.md 的測試策略，不為了測它引入 jsdom 或假 Fetcher。
@@ -160,5 +160,60 @@ describe('答了，但 body 不是承諾的形狀', () => {
       kind: 'server-error',
       detail: '壞了',
     });
+  });
+});
+
+// —— 票 04：`/api/board` 的 body 是不是承諾的那個形狀 ——
+//
+// 檢查本身是純函式，所以測得動而不必假造 fetch（spec.md 的測試策略：不為了
+// 可 mock 而發明假接縫）。這裡放在 poll 的測試檔裡，是因為它釘的性質橫跨兩邊：
+// 形狀不對要跟「解不開」落在同一個 `'malformed'` 分類。
+describe('isBoardSnapshot — 合法的 JSON 不等於承諾的形狀', () => {
+  it('打錯 port，另一個 server 回了 JSON —— 解得開，但不是一塊 board', () => {
+    // 這是這個檢查唯一要擋的場景。放行的話 `as T` 會讓它一路活到某個看起來
+    // 無關的 TypeError 為止，而那時已經看不出問題出在回應上。
+    expect(isBoardSnapshot({ nope: 1 })).toBe(false);
+  });
+
+  it('真的是一塊 board 就放行 —— 空的 board 也是一塊 board', () => {
+    expect(isBoardSnapshot({ issues: [], hash: 'a3f' })).toBe(true);
+  });
+});
+
+describe('isBoardSnapshot — 頂層的兩格都要對', () => {
+  it('issues 在，但不是陣列 —— 輪詢會拿它去跑 map', () => {
+    expect(isBoardSnapshot({ issues: { 0: 'x' }, hash: 'a3f' })).toBe(false);
+  });
+
+  it('hash 不是字串 —— 輪詢拿它跟上一個指紋比，永遠不相等就是每 2 秒抓一次整塊 board', () => {
+    expect(isBoardSnapshot({ issues: [], hash: 42 })).toBe(false);
+  });
+
+  it('hash 整格不在 —— 缺一格就不是承諾的那份回應', () => {
+    expect(isBoardSnapshot({ issues: [] })).toBe(false);
+  });
+});
+
+describe('isBoardSnapshot — 不是物件的 body 同樣解得開', () => {
+  it('body 就是 null —— JSON.parse 解得開，而 null 的 typeof 是 object', () => {
+    // 這一格會炸的話，炸的是形狀檢查自己，而它丟的 TypeError 在 poll.ts 那裡
+    // 落進 `'failed'`：橫幅會說「連不上」，把讀的人送去查一台正在回應的伺服器。
+    expect(isBoardSnapshot(null)).toBe(false);
+  });
+
+  it('回的是一段 JSON 字串或一個陣列 —— 都不是一塊 board', () => {
+    expect(isBoardSnapshot('"ok"')).toBe(false);
+    expect(isBoardSnapshot([])).toBe(false);
+  });
+});
+
+describe('isBoardSnapshot — 只檢頂層是刻意的', () => {
+  // 這一條釘的是一個**決定**，不是一段新行為：形狀檢查到頂層為止。要擋的是
+  // 「打錯 port，另一個 server 回了 JSON」，而那種 body 頂層就不像了。逐張
+  // issue 驗是另一個成本層級 —— 每 2 秒一次、整塊 board 都跑一遍 —— 而且會把
+  // server 的欄位集釘進 client：`handler.ts` 加一個欄位就得同步改這裡，忘了改
+  // 的下場是整塊 board 被判成 malformed，畫面說「那個 port 上跑的不是 nook」。
+  it('issues 裡面裝了什麼不看 —— 頂層對了就放行', () => {
+    expect(isBoardSnapshot({ issues: [{ nope: 1 }], hash: 'a3f' })).toBe(true);
   });
 });

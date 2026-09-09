@@ -73,31 +73,77 @@ export class MalformedResponseError extends Error {
   }
 }
 
+/**
+ * 這塊 body 是不是一份 `BoardSnapshot` —— 只看頂層。
+ *
+ * 存在的理由是 `getJson` 以前解得開就 `as T`：合法但形狀不對的 JSON
+ * （`{"nope":1}`）會被放行，然後在某個離這裡很遠的地方炸成一個看起來無關的
+ * TypeError。要擋的是「打錯 port，另一個 server 在那裡回了 JSON」。
+ */
+export function isBoardSnapshot(value: unknown): value is BoardSnapshot {
+  // null 要先擋掉，不然讀 `.issues` 會丟 TypeError —— 而那個 TypeError 在
+  // `poll.ts` 那裡沒有名字可認，會落進 `'failed'`，橫幅於是說「連不上」。
+  if (value === null || typeof value !== 'object') return false;
+  const body = value as { issues?: unknown; hash?: unknown };
+  return Array.isArray(body.issues) && typeof body.hash === 'string';
+}
+
 const BOARD_URL = '/api/board';
 const HASH_URL = '/hash';
 const ISSUE_PREFIX = '/i/';
 
-async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+/**
+ * `isShape` 是必填而不是選填：這個位置以前是 `as T`，而 `as T` 對編譯器來說
+ * 就是「別問了」—— 解得開的任何東西都會被當成 T 交出去。寫成參數，之後多一個
+ * 端點的人就得在這裡回答「怎樣算是答對了」，而不是預設不必答。
+ */
+async function getJson<T>(
+  url: string,
+  isShape: (value: unknown) => value is T,
+  signal?: AbortSignal,
+): Promise<T> {
   const res = await fetch(url, signal === undefined ? {} : { signal });
   if (!res.ok) throw new HttpError(url, res.status, `${url} 回了 ${res.status}`, await said(res));
   // `res.json()` 丟的是一個裸的 `SyntaxError`，而裸的例外在 `poll.ts` 那裡跟
   // 「連不上」長得一模一樣。自己解，才有辦法丟一個說得出「伺服器答了」的錯誤。
   const body = await res.text();
+  let parsed: unknown;
   try {
-    return JSON.parse(body) as T;
+    parsed = JSON.parse(body);
   } catch {
     throw new MalformedResponseError(url);
   }
+  // 解得開但形狀不對，丟的是**同一個** `MalformedResponseError`：對呼叫端來說
+  // 兩者的正確反應一模一樣（去看那個 port 上跑的到底是不是 nook studio），
+  // 第二種錯誤只會逼 `classifyFailure` 長出兩個分支去回答同一句話。
+  if (!isShape(parsed)) throw new MalformedResponseError(url);
+  return parsed;
 }
 
 /** 一次全量快照。ADR-0002：沒有快取也沒有增量 —— 全量掃描加摺疊就是實作。 */
 export function fetchBoard(signal?: AbortSignal): Promise<BoardSnapshot> {
-  return getJson<BoardSnapshot>(BOARD_URL, signal);
+  return getJson(BOARD_URL, isBoardSnapshot, signal);
 }
 
 /**
  * 當前 board 的指紋。輪詢用它比對，值變了才去抓完整快照（票 05）——
  * 指紋是 64 字元，快照是整塊 board。
+ *
+ * **這裡刻意沒有形狀檢查 —— 這是想過的，不是漏掉的。**
+ *
+ * `fetchBoard` 那邊解得開但形狀不對會丟 `MalformedResponseError`；這裡不會，
+ * 因為**任何一段文字都是合法的 `/hash` 回應**。錯的 server 在那個 port 上回一頁
+ * 200 的 HTML，這個函式只會把整頁 HTML 當成一個指紋收下，然後因為它跟上一個值
+ * 不同而去抓 board —— 於是延遲最多**一個輪詢間隔（2 秒）**，`/api/board` 就會
+ * 說出「那個 port 上跑的不是 nook studio」。票 04 的頂層形狀檢查落地之後，
+ * 那一邊抓到它更是確定的事，不再只是「body 剛好解不開」的運氣。
+ *
+ * 補一個「像不像 64 個十六進位字元」的檢查換不到那 2 秒，代價卻是把 `boardHash`
+ * 的實作細節（sha256、十六進位、小寫）釘進 client：server 哪天換掉摘要演算法或
+ * 改成別的編碼，畫面會說「連線中斷」，而伺服器其實答得好好的 —— 一個猜出來的
+ * 形狀擋掉了一個正確的回應。ADR-0004 警告的正是這種東西：看起來像多了一層防護，
+ * 實際上是掩體。**指紋對 client 的意義只有一個 ——「跟上次一樣嗎」**，
+ * 而那件事不需要知道它長什麼樣。
  */
 export async function fetchHash(signal?: AbortSignal): Promise<string> {
   const res = await fetch(HASH_URL, signal === undefined ? {} : { signal });
