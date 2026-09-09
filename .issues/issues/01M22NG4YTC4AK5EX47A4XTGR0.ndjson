@@ -2,3 +2,5 @@
 {"id":"01M22NG4Z4EEAC9ACD5WRGHXV3","t":2,"a":"83a1","op":"set","k":"description","v":"票 10 與票 12 兩位 worker 各自獨立回報的同一件事。\n\nreconcile.ts 的 ACK 做的是 snapshot.map(...)，從不 append。所以 ACK 帶回一張不在當前快照裡的 issue 時，它被靜靜丟掉，樂觀值永遠留在畫面上，沒有錯誤訊息。\n\n今天不會發生，因為 /api/board 是 all: true 的全量快照，而 studio 不能建立 issue、nook 也沒有刪除。\n\n但只要有人給 /api/board 加上過濾（?status=、或拿掉 all: true），對一張被過濾掉的 issue 寫入就會踩到。這是一個潛伏的陷阱，值得在 reconcile.ts 裡至少變成一個看得見的失敗而不是靜默。"}
 {"id":"01M22NG4Z4F7EPG8688BP7X96V","t":3,"a":"83a1","op":"label.add","v":"studio"}
 {"id":"01M22QF8S87X3RT98AAF17Y8JA","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M22RFAQC9NR0QXVDG809BK66","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M22RFARGTB6598TXMPY1M9B8","t":6,"a":"83a1","op":"comment","body":"完成（23d1b92）。順帶更正票面前提：我轉述的「pending 會永遠留著、樂觀值會永遠留在畫面上」兩句都不成立，特徵測試證明了。真正的缺陷比較窄 —— 伺服器已確認的那份 issue 被丟掉且不留痕跡。"}

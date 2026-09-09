@@ -45,6 +45,15 @@ CONTEXT.md：「設為 `blocked` 時**必須**同時留下一則 Comment 說明�
 - [ ] `BoardProps` / `BlockedGateProps` 的放寬要能讓 App 送出帶 comment 的
       `Change`
 
+## 順帶要接的一條線（票 03 的產物）
+
+票 03 在 `ClientState` 上加了 `unmatchedAck`（ACK 落不到快照上時的標記），
+但**目前沒有消費者** —— `App.tsx` 那時屬於別的票。
+
+- [ ] `unmatchedAck !== null` 時重新抓一份 board。那正是這個欄位存在的用途：
+      它說的是「手上這份快照落後了」，而成員資格是 server 的決定，所以正確的
+      反應是重新問一次，不是自己補一張進去
+
 ## Test seam
 
 **本片段無自動化測試**（spec.md 的測試策略）。焦點行為在 jsdom 底下測等於
