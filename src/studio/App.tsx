@@ -9,6 +9,7 @@ import type { IssueView, Status } from '@/api';
 import { clientReduce, initialClient, project } from '@/reconcile';
 import type { ClientAction, ClientState } from '@/reconcile';
 import { startPolling } from '@/poll';
+import type { ConnectionFault } from '@/poll';
 
 type Client = ClientState<IssueView>;
 
@@ -30,7 +31,9 @@ export function App(): React.JSX.Element {
   const [state, setState] = useState<Client | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [disconnected, setDisconnected] = useState(false);
+  // null = 連得上。非 null 時它同時是「中斷了」與「哪一種中斷」——
+  // 兩者是同一個事實，分成兩格遲早會出現「中斷但沒有種類」這種說不出話的狀態。
+  const [fault, setFault] = useState<ConnectionFault | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   // 開場那份快照的 hash。設定它同時也是「第一份快照到了」的訊號 —— 輪詢的
   // effect 以它為 dep，因此不可能在快照之前就開始跑。
@@ -116,7 +119,7 @@ export function App(): React.JSX.Element {
   // 比對）。之後 hash 不再變 —— 迴圈自己記著最新的那個，不回報上來。
   useEffect(() => {
     if (hash === null) return;
-    return startPolling({ hash, dispatch: apply, onConnectionChange: setDisconnected });
+    return startPolling({ hash, dispatch: apply, onConnectionChange: setFault });
   }, [hash, apply]);
 
   /**
@@ -236,11 +239,7 @@ export function App(): React.JSX.Element {
         // 焦點交給不存在的 Trigger，等於交給 <body> —— 見 `board/focus.ts`。
         onCloseFocus={focusIssue}
       />
-      <StatusBanner
-        disconnected={disconnected}
-        failed={failed}
-        onDismiss={() => setFailed(null)}
-      />
+      <StatusBanner fault={fault} failed={failed} onDismiss={() => setFailed(null)} />
     </>
   );
 }
@@ -259,17 +258,23 @@ export function App(): React.JSX.Element {
  * 事** —— 那筆寫入永遠不會補送（append-only 之下沒有重試佇列），伺服器回來也
  * 不會讓它變成沒發生。所以它不自動消失，由人按掉：下一次成功的寫入會清掉它，
  * 沒有下一次寫入時就留在那裡，等人讀到。
+ *
+ * **中斷有兩句話，因為下一步不同**（票 02）。伺服器沒有回應時該去看跑
+ * `nook studio` 的那個終端機還在不在；伺服器回了錯誤時它明明活著，去查網路
+ * 是白費工 —— 這種 500 最常見的來源是 session 進行中 board 目錄被移走
+ * （`server/handler.ts` 的兜底）。哪一句由 `poll.ts` 的 `connectionFault` 決定，
+ * 這裡只負責把它說出來。
  */
 function StatusBanner({
-  disconnected,
+  fault,
   failed,
   onDismiss,
 }: {
-  readonly disconnected: boolean;
+  readonly fault: ConnectionFault | null;
   readonly failed: string | null;
   readonly onDismiss: () => void;
 }): React.JSX.Element | null {
-  if (!disconnected && failed === null) return null;
+  if (fault === null && failed === null) return null;
   return (
     <div
       role="status"
@@ -277,8 +282,17 @@ function StatusBanner({
       aria-live="polite"
       className="bg-destructive text-destructive-foreground fixed bottom-4 left-1/2 z-50 flex max-w-[min(36rem,90vw)] -translate-x-1/2 items-start gap-3 rounded-md px-3 py-2 text-sm shadow-lg"
     >
-      {disconnected ? (
-        <span>連線中斷 —— 伺服器沒有回應，現在做的變更送不出去。</span>
+      {fault === 'failed' ? (
+        <span>
+          連線中斷 —— 伺服器沒有回應，現在做的變更送不出去。跑 <code>nook studio</code>{' '}
+          的那個終端機還開著嗎？
+        </span>
+      ) : fault === 'server-error' ? (
+        <span>
+          伺服器回了錯誤 —— 它還活著，所以不是網路的問題，但現在做的變更一樣送不出去。
+          最常見的原因是 board 目錄（<code>.issues/</code>）被移走或改名了；確認它還在原處，
+          再重開 <code>nook studio</code>。
+        </span>
       ) : (
         <>
           <span>寫入沒送到，畫面已回到伺服器上的值：{failed}</span>

@@ -11,13 +11,35 @@ import type { Change, Status } from '../core/types.js';
  */
 export type { BoardSnapshot, Change, CommentView, IssueView, Status };
 
+/**
+ * 伺服器**答了**，但答的是一個錯誤狀態碼。
+ *
+ * 這個型別存在的唯一理由是讓呼叫端分得出兩件事：「連不上」（`fetch` 自己丟的
+ * `TypeError`，沒有狀態碼可讀）與「連上了，但伺服器說不」。票 02 之前兩者在
+ * `poll.ts` 的 `catch` 裡是同一個事件，於是 board 目錄被移走時，橫幅會說
+ * 「伺服器沒有回應」——把讀的人送去查網路，而不是查 board。
+ *
+ * `status` 是**唯一**多出來的資訊，其餘（url、message）維持原本的字串形狀，
+ * 因為 `postChange` 的失敗橫幅直接顯示 `err.message`（`App.tsx`），那句話不變。
+ */
+export class HttpError extends Error {
+  constructor(
+    readonly url: string,
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
 const BOARD_URL = '/api/board';
 const HASH_URL = '/hash';
 const ISSUE_PREFIX = '/i/';
 
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, signal === undefined ? {} : { signal });
-  if (!res.ok) throw new Error(`${url} 回了 ${res.status}`);
+  if (!res.ok) throw new HttpError(url, res.status, `${url} 回了 ${res.status}`);
   return (await res.json()) as T;
 }
 
@@ -32,7 +54,7 @@ export function fetchBoard(signal?: AbortSignal): Promise<BoardSnapshot> {
  */
 export async function fetchHash(signal?: AbortSignal): Promise<string> {
   const res = await fetch(HASH_URL, signal === undefined ? {} : { signal });
-  if (!res.ok) throw new Error(`${HASH_URL} 回了 ${res.status}`);
+  if (!res.ok) throw new HttpError(HASH_URL, res.status, `${HASH_URL} 回了 ${res.status}`);
   return await res.text();
 }
 
@@ -58,6 +80,6 @@ export async function postChange(ref: string, change: Change): Promise<IssueView
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(change),
   });
-  if (!res.ok) throw new Error(`${url} 回了 ${res.status}：${await res.text()}`);
+  if (!res.ok) throw new HttpError(url, res.status, `${url} 回了 ${res.status}：${await res.text()}`);
   return (await res.json()) as IssueView;
 }
