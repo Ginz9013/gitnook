@@ -121,6 +121,18 @@ export interface Board {
   refs(): readonly string[];
   list(filter?: Filter): Issue[];
   apply(ref: string, change: Change): Issue;
+  /**
+   * 這塊 board 的根目錄（含 `.issues/` 的那一層）的絕對路徑。
+   *
+   * 尋根是**向上**找，所以這個值與呼叫端交給 `openBoard({ dir })` 的目錄可以
+   * 不一樣 —— 從子目錄開的 board，根仍然是含 `.issues/` 的那一層。呼叫端因此
+   * 不必（也不該）自己再尋一次根：那會讓「這塊 board 在哪裡」有兩個真相來源，
+   * 而兩者只在剛好從根目錄開的時候才一致。
+   *
+   * 同其餘公開呼叫，board 目錄消失時拋 `BoardNotInitialized` 而不是回一個
+   * 過期的路徑。
+   */
+  root(): string;
   health(): Diagnostic[];
 }
 

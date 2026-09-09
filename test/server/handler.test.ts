@@ -1162,7 +1162,7 @@ describe('未預期的例外', () => {
  * 每次全量讀取都多一個子行程，而快照在 ACK 落空時還會被重抓。
  */
 const boardInfo = () =>
-  handleRequest(board(), { method: 'GET', url: '/api/board-info' }, { assetsDir: assets, dir });
+  handleRequest(board(), { method: 'GET', url: '/api/board-info' }, { assetsDir: assets });
 
 describe('GET /api/board-info', () => {
   it('回傳這塊 board 的絕對路徑', () => {
@@ -1263,9 +1263,33 @@ describe('/api/board-info 的 actor', () => {
   });
 });
 
+/**
+ * `root` 講的必須是**這個 `Board` 的**根目錄，不是 handler 自己另外問來的一個
+ * 目錄。尋根是向上找，所以從子目錄開的 board 兩者不同 —— 一個由呼叫端傳進來
+ * 的目錄在那裡會指到別的地方去，而畫面上那一行看起來完全正常（票 B8）。
+ */
+describe('/api/board-info 的 root 就是這個 Board 的根', () => {
+  it('board 從子目錄開起來時，回的仍然是含 .issues/ 的那一層', () => {
+    gitRepo('studio-gui-v2');
+    const deep = join(dir, 'src', 'deep');
+    mkdirSync(deep, { recursive: true });
+    const fromDeep = openBoard({ dir: deep, actor: 'test' });
+
+    const res = handleRequest(fromDeep, { method: 'GET', url: '/api/board-info' }, { assetsDir: assets });
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body) as { root: string; branch: string | null };
+    expect(body.root).toBe(dir);
+    expect(body.root).not.toBe(deep);
+    // branch 與 actor 都對 root 算，四個欄位因此必然描述同一個目錄 ——
+    // 指錯了 root 的話，這裡報的會是別的 repo 的分支。
+    expect(body.branch).toBe('studio-gui-v2');
+  });
+});
+
 /** 一張 Issue 的變更歷史。drawer 底部那塊折疊區塊的資料來源（票 B7）。 */
 const history = (ref: string) =>
-  handleRequest(board(), { method: 'GET', url: `/api/history/${ref}` }, { assetsDir: assets, dir });
+  handleRequest(board(), { method: 'GET', url: `/api/history/${ref}` }, { assetsDir: assets });
 
 interface WriteView {
   field: string;
@@ -1391,7 +1415,7 @@ describe('唯讀端點沒有讓 405 白名單鬆動', () => {
   it('PUT / DELETE / PATCH 也是 405，Allow 說 GET', () => {
     for (const url of READ_ONLY) {
       for (const method of ['PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']) {
-        const res = handleRequest(board(), { method, url }, { assetsDir: assets, dir });
+        const res = handleRequest(board(), { method, url }, { assetsDir: assets });
         expect(res.status, `${method} ${url}`).toBe(405);
         expect(res.headers['allow'], `${method} ${url}`).toBe('GET');
       }

@@ -159,3 +159,50 @@ describe('board 目錄在 Board 建立之後消失', () => {
     expect(() => board.list()).toThrow(BoardNotInitialized);
   });
 });
+
+/**
+ * `Board.root()` —— 這塊 board 在磁碟上的位置。
+ *
+ * 值本來就已經算好並 memoise 在 board.ts 的 rootDir() 裡；把它交出來是為了
+ * 讓「board 在哪裡」只有一個真相來源。在此之前唯一問得到路徑的方式是呼叫端
+ * 自己再尋一次根，而它與 openBoard() 拿到的那個目錄可以不一樣（票 B8）。
+ */
+describe('Board.root()', () => {
+  it('回傳這塊 board 的絕對路徑', () => {
+    initBoard(root);
+
+    expect(openBoard({ dir: root, actor: 'test' }).root()).toBe(root);
+  });
+});
+
+/**
+ * 尋根向上找，所以從子目錄開的 board 的根**不是**呼叫端傳進去的那個目錄 ——
+ * 這是 `root()` 與 `OpenBoardOptions.dir` 唯一會不同的地方，也是這張票存在的
+ * 理由：呼叫端拿 `dir` 當「board 在哪裡」用時，只有剛好從根目錄開才會對。
+ */
+describe('Board.root() 從子目錄開', () => {
+  it('回的是含 .issues/ 的那一層，不是 openBoard 收到的子目錄', () => {
+    initBoard(root);
+    const deep = under('src', 'deep', 'nested');
+
+    const board = openBoard({ dir: deep, actor: 'test' });
+
+    expect(board.root()).toBe(root);
+    expect(board.root()).not.toBe(deep);
+  });
+});
+
+describe('Board.root() 在 board 目錄消失之後', () => {
+  it('拋 BoardNotInitialized，而不是回一個過期的路徑', () => {
+    initBoard(root);
+    const board = openBoard({ dir: root, actor: 'test' });
+    // 先讓尋根的結果被 memoise —— 沒有快取的話這個測試證明不到東西。
+    board.create({ title: 'Fix login redirect' });
+
+    rmSync(join(root, '.issues'), { recursive: true });
+
+    // 一個仍然指著已經不是 board 的目錄的路徑，會被 header 原樣畫出來，
+    // 而使用者接著在那裡下的每一個判斷都是錯的。
+    expect(() => board.root()).toThrow(BoardNotInitialized);
+  });
+});

@@ -194,6 +194,13 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
 
       return reduce(id, [...existing, ...fresh]);
     },
+    root(): string {
+      // 值已經算好並 memoise 在 rootDir() 裡 —— 這裡交出來的就是 pathOf 用的
+      // 那一個，不是第二次尋根的結果。requireInitialized() 照既有慣例先跑：
+      // board 目錄在 Board 建立之後被移走時，該說的仍然是「不是一個 Nook board」。
+      requireInitialized();
+      return rootDir();
+    },
     health(): Diagnostic[] {
       // doctor 在還不是 board 的目錄也該答得出話（「缺少 merge=union」），
       // 所以尋根落空時就地診斷而不是拋錯。

@@ -4,7 +4,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deriveActor } from '../core/actor.js';
-import { findBoardRoot } from '../core/gitattributes.js';
 import { shortIdLength } from '../core/ids.js';
 import type { SetKey, SetOp } from '../core/ops.js';
 import type { Board, Change, Diagnostic, Issue, Status } from '../core/types.js';
@@ -350,11 +349,12 @@ function currentBranch(dir: string): string | null {
   }
 }
 
-function boardInfo(board: Board, dir: string): StudioResponse {
-  // 尋根落空時就地回報那個目錄，同 board.health() —— nook 在還不是 board 的
-  // 地方也答得出話，而「哪一個目錄」正是使用者接著要看的東西。
-  const found = findBoardRoot(dir);
-  const root = found.found ? found.root : dir;
+function boardInfo(board: Board): StudioResponse {
+  // 路徑向 `Board` 要，不在這裡另尋一次根 —— 尋根是向上找，所以 board 從子目錄
+  // 開起來的時候，「呼叫端給的目錄」與「這塊 board 的根」是兩個不同的答案，而
+  // 錯的那一個看起來完全正常。branch 與 actor 都對這個值算，四個欄位因此必然
+  // 描述同一個目錄（票 B8）。
+  const root = board.root();
   const info: BoardInfo = {
     root,
     branch: currentBranch(root),
@@ -412,18 +412,6 @@ export interface HandlerOptions {
    * 假目錄，因此不必先跑一次 vite build 才測得動。
    */
   readonly assetsDir?: string;
-  /**
-   * 這塊 board 是從哪個目錄開起來的 —— `/api/board-info` 的 `root` 由它向上
-   * 尋根得出，同 `board.health()` 自己的做法。預設 `process.cwd()`，也就是
-   * `cmdStudio` 交給 `openBoard({ dir: io.cwd })` 的同一個值。
-   *
-   * 之所以要重新問一次而不是跟 `Board` 要：`Board` 沒有交出根目錄的方法，
-   * 而為了畫面上的一行路徑去擴張 core 的公開面，是比一個 handler 選項貴的
-   * 決定。代價寫在這裡：呼叫端若把 board 開在 `process.cwd()` 以外的地方
-   * 又不傳這個值，`root` 會指錯 —— 生產路徑上只有 `cmdStudio` 一個呼叫端，
-   * 它兩邊給的是同一個目錄。
-   */
-  readonly dir?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -648,7 +636,7 @@ function route(board: Board, req: StudioRequest, opts: HandlerOptions): StudioRe
   // 變成可 POST 的。ref 也與 `/i/<ref>` 一樣原樣交給 core：形狀檢查與路徑
   // 穿越的防線只有 `board` 那一份。
   if (path === API_BOARD_INFO_PATH) {
-    return boardInfo(board, opts.dir ?? process.cwd());
+    return boardInfo(board);
   }
 
   if (path.startsWith(API_HISTORY_PREFIX)) {
