@@ -2,3 +2,4 @@
 {"id":"01M2307YKMN8ZW0N90EE3X41TV","t":2,"a":"83a1","op":"set","k":"description","v":"票 02 的 worker 回報。\n\nhandler.ts 的 serverError 刻意送一則可行動的訊息（「board 目錄不見了…」），但橫幅沒有引用它 —— 因為要帶著它就得讓 PollOutcome 變成帶 payload 的值，那會動到三條釘住門檻不對稱的既有測試。\n\n所以橫幅目前說的是「最可能的原因」，而不是伺服器實際說的那句。\n\n便宜的做法：讓 ConnectionFault 變成物件，同一次改動裡把那三條測試一起改名。"}
 {"id":"01M2307YKMMZ1HTXP718PCXVJ1","t":3,"a":"83a1","op":"label.add","v":"studio"}
 {"id":"01M2313JF76FSX9H2F4DM1MQ5H","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M231Y2ZYGQ70F8QXK05SZHGS","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
