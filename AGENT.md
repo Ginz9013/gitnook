@@ -94,10 +94,11 @@ Checkboxes inside a description are plain text. They are not sub-tasks and nothi
 
 It binds loopback only. It has no authentication, so reachability *is* write access; `--host` will never exist. Every op it writes is attributed to whoever's `git config user.email` is running it, so it must never be shared between people.
 
-**If you are changing nook itself, two rules that break silently:**
+**If you are changing nook itself, three rules that break silently:**
 
 - **The studio bundle must never be imported by the CLI entry point.** `dist/studio/studio.js` is ~380 KB. It is a static file on disk, read at request time by the server, and nothing on `src/cli/run.ts`'s import chain may reach it — not as a module, not as an inlined string. Import it and every single `nook list` pays to parse 380 KB it will never use, which is the whole cold-start budget (ADR-0008). `npm run bench` counts `react` / `createRoot` / `radix` / `tailwind` in the built `dist/cli/run.js` and must find zero.
 - **Build with `npm run build`, never `npx tsup` alone.** tsup cleans the whole of `dist/`, including `dist/studio/`, which only `vite build` writes. Alone, it leaves a build that looks fine and a server with no assets to serve.
+- **Dogfood nook with `node node_modules/gitnook/bin/nook.js`, never `npx nook`.** nook's own development is tracked on nook's own board, and the rule is that it uses the *published* version pinned in `devDependencies` — so the packaging path gets exercised too, not just the source. `npx nook` defeats that rule invisibly: npx prefers the bin **this project declares in its own `package.json`**, so `bin/nook.js`'s `import '../dist/cli/run.js'` resolves against the **working tree's** `dist/`, not `node_modules/gitnook/dist/`. The two `bin/nook.js` files are byte-identical and both outputs look plausible, so nothing signals the substitution — you exercise unreleased code while believing you are exercising the release. Run the two on a working tree that is ahead of the published version and they print different output; that difference is the whole reason the path is spelled out in full. The commands elsewhere in this guide are written as `nook …` for the general case — inside nook's own repo, run them through that full path. `npm run nook -- list --all` wraps it for convenience, but the rule is the path, not the script. An alias is deliberately not used: it adds a layer of indirection whose behaviour depends on the npm version.
 
 ## When something is wrong
 

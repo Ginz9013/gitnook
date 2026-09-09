@@ -48,6 +48,7 @@
     "build:studio": "vite build",
     "prepack": "npm run build",
     "bench": "node bench/index.ts",
+    "nook": "node node_modules/gitnook/bin/nook.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
