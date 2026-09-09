@@ -22,6 +22,11 @@ nook ref：`01M224SZA2S09YTQD0K8VNWBSQ`
       更新。對照仍然壓倒性有利，沒有理由不誠實
 - [ ] studio 一節更新：它不再是「唯讀的會議投影用檢視器」
 
+**src/index.ts 的公開面說明**
+
+- [ ] 第 12 行附近的 docstring 說「刻意**不**在此的東西：三個渲染函式」。
+      票 04 之後只剩兩個（`renderTable`、`renderJson`）。純文案，不改匯出
+
 **AGENT.md**
 
 - [ ] `studio` 的描述從「localhost read-only board」更新
@@ -50,6 +55,7 @@ nook ref：`01M224SZA2S09YTQD0K8VNWBSQ`
 - `AGENT.md`
 - `bench/index.ts` `bench/size.ts`
 - `test/` 底下釘住 AGENT.md 與 CLI 一致性的測試檔（若因文案改動而需要更新）
+- `src/index.ts` — **僅限**公開面 docstring 的文案
 - `src/cli/run.ts` — **僅限** 218 行附近的 help 文字（`studio [--port <n>]
   localhost 唯讀看板`）。studio 已經不是唯讀的。**不得**改該檔案的任何邏輯
 
