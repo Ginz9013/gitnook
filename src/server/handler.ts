@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { shortIdLength } from '../core/ids.js';
 import type { Board, Change, Issue, Status } from '../core/types.js';
 import { AmbiguousRef, InvalidStatus, RefNotFound } from '../core/types.js';
 import { renderMarkdown } from '../render/html.js';
@@ -196,6 +197,11 @@ export interface CommentView {
  */
 export interface IssueView {
   readonly id: string;
+  /**
+   * 顯示用的短 Ref。長度對**整塊 board** 算，且**整份快照共用一個** ——
+   * 見 displayLength()。client 拿不到 board.refs()，所以它算不出這個值。
+   */
+  readonly shortId: string;
   readonly title: string;
   readonly status: Status;
   readonly labels: readonly string[];
@@ -207,9 +213,26 @@ export interface IssueView {
   readonly comments: readonly CommentView[];
 }
 
-function toIssueView(issue: Issue): IssueView {
+/**
+ * 短 Ref 的顯示長度，對整塊 board 算一次（同 cli/run.ts 的 displayLength）。
+ *
+ * 不是對單張、也不是對正要送出的那個子集算：ULID 前綴編的是時間的高位，
+ * 前 6 碼每 17.5 分鐘才變一次（ADR-0006），`shortIdLength([issue.id])` 因此
+ * 一律回下限 6 —— 那個前綴在整塊 board 上可能對應到幾十張。而短 Ref 正是
+ * 使用者接著要拿去當 Ref 用的東西，解析是對整塊 board 做的，所以算短了
+ * 印出來的東西會被 `get` 判為有歧義。
+ *
+ * 來源是 `board.refs()`：它就是解析所看的那一串識別碼，而且只列目錄、不摺疊
+ * Op-log，所以一次寫入的回印也付得起。
+ */
+function displayLength(board: Board): number {
+  return shortIdLength(board.refs());
+}
+
+function toIssueView(issue: Issue, shortIdLen: number): IssueView {
   return {
     id: issue.id,
+    shortId: issue.id.slice(0, shortIdLen),
     title: issue.title,
     status: issue.status,
     labels: issue.labels,
@@ -239,7 +262,8 @@ export interface BoardSnapshot {
 function boardSnapshot(board: Board): BoardSnapshot {
   // all: true —— archived 是可見性欄位（ADR-0003），由 client 決定藏不藏；
   // done 與 cancelled 是看板上實際存在的兩欄，被預設過濾掉就永遠是空的。
-  return { issues: board.list({ all: true }).map(toIssueView), hash: boardHash(board) };
+  const len = displayLength(board);
+  return { issues: board.list({ all: true }).map((i) => toIssueView(i, len)), hash: boardHash(board) };
 }
 
 export interface HandlerOptions {
@@ -317,7 +341,7 @@ function applyChange(board: Board, ref: string, body: string): StudioResponse {
   if (change === undefined) return badRequest('body 必須是一份 Change 的 JSON 物件');
 
   try {
-    return json(toIssueView(board.apply(ref, change)));
+    return json(toIssueView(board.apply(ref, change), displayLength(board)));
   } catch (err) {
     // 解析不出來的 Ref 是「這個 URL 沒有對應的東西」，不是伺服器錯誤 ——
     // 沿用讀取面既有的對應。有歧義時把候選原樣送出去：猜一張來寫是

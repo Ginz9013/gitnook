@@ -279,6 +279,21 @@ const opsOnDisk = (id: string): Record<string, unknown>[] =>
     .map((l) => JSON.parse(l) as Record<string, unknown>);
 
 describe('POST /i/<ref>', () => {
+  /**
+   * 回印的那一張也是一個顯示用的 Ref，所以也要對整塊 board 算 —— 只拿手上
+   * 這一張去算會回下限 6，而那 6 碼在同一個時間窗口裡對應到好幾張（ADR-0006）。
+   */
+  it('回印的 shortId 對整塊 board 算，不是對回印的那一張算', () => {
+    createWith(fullId('01JBXAQ'), { title: 'Fix login redirect' });
+    createWith(fullId('01JBXAR'), { title: 'Add dark mode' });
+
+    const view = JSON.parse(post(`/i/${fullId('01JBXAQ')}`, { status: 'todo' }).body) as IssueView;
+
+    // 兩張只在第 7 碼分開，所以 6 碼不夠。
+    expect(view.shortId).toBe('01JBXAQ');
+    expect(board().get(view.shortId).id).toBe(fullId('01JBXAQ'));
+  });
+
   it('搬移 status：回 200 + IssueView，且 op 真的 append 到 .ndjson', () => {
     const id = fullId('01JBXA');
     createWith(id, { title: 'Fix login redirect' });
@@ -601,6 +616,33 @@ describe('/api/board 的 IssueView', () => {
     // done 與 cancelled 是看板上的兩欄；archived 是正交的可見性欄位。
     expect(issues.map((i) => i.title).sort()).toEqual(['Archived but present', 'Choose NDJSON layout']);
     expect(issues.find((i) => i.title === 'Archived but present')!.archived).toBe(true);
+  });
+
+  /**
+   * ADR-0006：短 Ref 只在它被印出來的那一刻成立，而使用者接著要拿它當 Ref 用。
+   * ULID 前 6 碼每 17.5 分鐘才變一次，所以同一個窗口裡建立的 Issue 必然共用前綴 ——
+   * 長度必須對整塊 board 算一次，不是每張自己跟自己算。
+   */
+  it('shortId 對整塊 board 算一次 —— 前綴相同的兩張不會撞號', () => {
+    createWith(fullId('01JBXAQ'), { title: 'Fix login redirect' });
+    createWith(fullId('01JBXAR'), { title: 'Add dark mode' });
+    // 自己一張算只需要 6 碼，但它跟前兩張同批，所以也得跟著長。
+    createWith(fullId('01JBXB'), { title: 'Choose NDJSON layout' });
+
+    const issues = JSON.parse(get('/api/board').body).issues as IssueView[];
+    const byId = new Map(issues.map((i) => [i.id, i]));
+    const a = byId.get(fullId('01JBXAQ'))!;
+    const b = byId.get(fullId('01JBXAR'))!;
+
+    expect(a.shortId).not.toBe(b.shortId);
+    // 長度是整份快照的性質，不是單張的：三張一樣長。
+    expect(new Set(issues.map((i) => i.shortId.length))).toEqual(new Set([7]));
+    // 印出來的東西必須真的是那張 Issue 的前綴，而不是另外編的。
+    expect(a.id.startsWith(a.shortId)).toBe(true);
+    expect(b.id.startsWith(b.shortId)).toBe(true);
+    // 而且它要真的解析得回同一張 —— 這才是短 ID 的用途。
+    expect(board().get(a.shortId).id).toBe(a.id);
+    expect(board().get(b.shortId).id).toBe(b.id);
   });
 });
 
