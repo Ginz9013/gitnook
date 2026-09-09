@@ -55,7 +55,9 @@ backlog  todo  queued  in_progress  review  blocked  done  cancelled
 
 Fixed; not configurable. Prefixes work (`que` → `queued`, `in_p` → `in_progress`).
 
-**`queued` is an authorization boundary, not a category.** `backlog` and `todo` are the human lane; `queued` onward is the agent lane. An issue in `queued` means requirements are settled and **the agent may act without asking**. Do not move an issue into `queued` on your own initiative — that is the human granting permission.
+**`queued` is an authorization boundary, not a category.** An issue in `queued` means requirements are settled and **the agent may act without asking**. Do not move an issue into `queued` on your own initiative — that is the human granting permission.
+
+That boundary lives in this convention and nowhere else. **The board draws nothing for it** — in `nook studio` the `queued` column looks and behaves exactly like the other seven, and moving a card into it is an ordinary drag. Columns carry no meaning beyond the one you and the human agree on (ADR-0010). So do not read a status as permission to do anything other than what this file says.
 
 `archived` is a separate boolean field, not a status — it is visibility, orthogonal to `done`/`cancelled`. Use `nook set <ref> archived true`.
 
@@ -91,7 +93,7 @@ Checkboxes inside a description are plain text. They are not sub-tasks and nothi
 
 ## studio is the human's interface
 
-`nook studio` opens a board on `127.0.0.1` where a person drags issues between the eight columns and edits them in a drawer. It writes into the same op-log the CLI writes, so both can be open at once — but it is **the human's lane**, not yours. Keep using the CLI.
+`nook studio` opens a board on `127.0.0.1` where a person drags issues between the eight columns and edits them in a drawer. The eight columns are the eight statuses and nothing more — no lanes, no gates, no column that means something the status does not (ADR-0010). It writes into the same op-log the CLI writes, so both can be open at once — but it is **the human's surface**, not yours. Keep using the CLI.
 
 It binds loopback only. It has no authentication, so reachability *is* write access; `--host` will never exist. Every op it writes is attributed to whoever's `git config user.email` is running it, so it must never be shared between people.
 

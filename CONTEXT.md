@@ -41,17 +41,21 @@ Issue 在工作流上的位置。八個固定值之一，不可自訂。
 _Avoid_: state, stage, column
 
 **Lane（車道）**:
-Status 序列被切成兩段：`backlog` 與 `todo` 是**人的車道**，`queued` 之後是 **agent 的車道**。這條線是 Board 上最重要的分界 —— 它回答「現在塞住的是哪一邊」。
+Status 序列被切成兩段：`backlog` 與 `todo` 是**人的車道**，`queued` 之後是 **agent 的車道**。這是**工作流上**的分界，回答「現在塞住的是哪一邊」—— **看板不畫它**（ADR-0010）。它是講事情時用的詞，不是介面上的一條線。
 
 **Queued**:
-人與 agent 之間的**交接閘門**。一張 Issue 進入 `queued` 表示需求已釐清、無阻擋，且**已授權 agent 不再詢問、直接動手**。這是授權邊界，不只是分類。
+人與 agent 之間的**交接閘門**。一張 Issue 進入 `queued` 表示需求已釐清、無阻擋，且**已授權 agent 不再詢問、直接動手**。這是授權邊界，不只是分類。那份語意由 CLI 與工作流的約定承擔：**在看板上它沒有任何特別待遇**，與其他七個 Status 長得一樣（ADR-0010）。
 _Avoid_: ready, ready to go, todo
 
 **Blocked**:
 工作已開始但無法推進。**它就只是八個 Status 之一，不帶任何額外規則。**「卡住前在做什麼」這項資訊在扁平 Status 中確實會遺失，而我們接受這個遺失（ADR-0003）—— 想交代原因的人照樣可以留一則 Comment，但那是選擇，不是規則。
 
 **Archived**:
-一張 Issue 是否從預設檢視隱藏。這是**可見性**，與 `done` / `cancelled` 所表達的**工作結果**正交，因此不是一個 Status。
+一張 Issue 是否從預設檢視隱藏。這是**可見性**，與 `done` / `cancelled` 所表達的**工作結果**正交，因此不是一個 Status。它仍然是 Board 的成員：`--all` 看得到，而且永遠不會被清除。
+
+**Deleted**:
+一張 Issue 是否已經不存在。與 `archived` 一組對照著讀 —— archived 是「先不要看到」，deleted 是「當它沒有」：`--all` 也看不到，寫入被拒絕，日後的 `gc` 會把位元組真的清掉。兩者在儲存層是同一種東西（都是 LWW boolean 欄位），差別全在讀取端（ADR-0009）。檔案本身永不 unlink，所以 Op-log 照樣撈得回來，`set deleted false` 就是復原。
+_Avoid_: removed, trashed, 廢棄
 
 **Label**:
 掛在 Issue 上的自由文字標記。Nook 沒有優先級欄位 —— 優先級用 Label 表達。
