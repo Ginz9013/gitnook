@@ -191,17 +191,36 @@ export function clientReduce<I extends ReconcileIssue>(
       //      server 手上。下一份快照套用時這個標記自動清掉（見 applySnapshot）。
       // pending 無論如何都要退場：伺服器已經回應過這筆寫入了，把它留在飛行中就是
       // 讓一個永遠不會再有下文的樂觀值掛在畫面上。
-      const known = state.snapshot.some((i) => i.id === p.issueId);
+      //
+      // 回應帶的 `issue.id` 與 pending 的 `issueId` 不一致時（票 01），走的也是
+      // 第三個形狀。原本選槽用 `p.issueId`、寫入用 `action.issue`：兩個 id 不同
+      // 時，伺服器的回應就落進**別張** issue 的格子 —— 快照冒出重複 id，被蓋掉
+      // 的那張當場消失。選槽與寫入因此一律以同一個 id 為準，而不一致時「同一個
+      // id」根本不存在，於是要決定信誰：
+      //   * `action.issue.id` 是伺服器的說法，`p.issueId` 是我們送出這筆寫入時
+      //     的說法。信任任何一邊，都是在斷定另一邊的帳壞掉了 —— 而這個 reducer
+      //     手上沒有任何東西能分辨。信伺服器，等於把一張我們沒送過的寫入結果當
+      //     成這一筆的確認；信自己，等於把伺服器的內容硬塞進我們挑的那一格。
+      //   * 兩者都是猜，而處境與「落空」其實同一種：伺服器回應了，但這則回應對
+      //     不上我們手上這份快照的任何一格。呼叫端該做的事也同一件 —— 重新輪詢
+      //     一份權威快照，讓 server 說了算。因此共用 `unmatchedAck` 而不另開一
+      //     格：兩個標記會逼呼叫端分兩條路處理，而那兩條路的正確反應完全一樣。
+      // `unmatchedAck.issueId` 記 `p.issueId`：那是呼叫端手上真正有的東西 ——
+      // 它送出的那張 issue，也就是畫面上還掛著樂觀值的那張。
+      const lands =
+        action.issue.id === p.issueId && state.snapshot.some((i) => i.id === action.issue.id);
       return {
         ...state,
-        unmatchedAck: known ? state.unmatchedAck : { seq: action.seq, issueId: p.issueId },
+        unmatchedAck: lands ? state.unmatchedAck : { seq: action.seq, issueId: p.issueId },
         // 同一張 issue 上，連同 `seq <= action.seq` 的一起退場，不只是 action.seq
         // 那一筆：兩次寫入的回應在網路上換了位置時，只拿掉 seq2 會讓 seq1 留在
         // pending 上，而它帶的是已經被 seq2 取代的舊值 —— 卡片當場閃回舊欄位。
         // 限縮在同一張 issue 是必要的：seq 是整塊 board 共用的流水號，掃掉別張
         // issue 還在飛的變更，就是把同一個閃動搬到另一張卡片上。
         pending: state.pending.filter((x) => x.seq > action.seq || x.issueId !== p.issueId),
-        snapshot: state.snapshot.map((i) => (i.id === p.issueId ? action.issue : i)),
+        snapshot: lands
+          ? state.snapshot.map((i) => (i.id === action.issue.id ? action.issue : i))
+          : state.snapshot,
       };
     }
 

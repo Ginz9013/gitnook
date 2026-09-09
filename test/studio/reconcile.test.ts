@@ -522,3 +522,46 @@ describe('unmatchedAck —— 由下一份套用的快照清掉', () => {
     expect(released.unmatchedAck).toBeNull();
   });
 });
+
+// ---- 票 01：ACK 帶的 issue.id 與 pending 的 issueId 不一致 ----
+
+// 選槽用 `p.issueId`、寫入用 `action.issue`，兩個 id 不同時回應就落進錯的槽：
+// 快照冒出重複 id，原本那張當場消失 —— 而重複 id 之後每一條「找那張 issue」的
+// 路徑（project、拖曳、drawer）都跟著錯。
+describe('ACK —— 回應帶的 issue.id 與 pending 的 issueId 不一致', () => {
+  /** 對 a1 送出一筆寫入（seq 1），快照裡 a1、b2 都在。 */
+  const inflight = (): ClientState =>
+    clientReduce(initialClient(snap(['a1', 'todo'], ['b2', 'backlog'])), {
+      type: 'EDIT',
+      issueId: 'a1',
+      change: { title: '我改的標題' },
+    });
+
+  it('不得寫進 pending 指的那一格 —— 快照不出現重複 id，原本那張也不消失', () => {
+    const state = inflight();
+
+    // 伺服器回的這張說自己是 b2，但這個 seq 我們送的是對 a1 的寫入。
+    const acked = clientReduce(state, {
+      type: 'ACK',
+      seq: 1,
+      issue: full('b2', { title: '別張的標題' }),
+    });
+
+    expect(acked.snapshot.map((i) => i.id)).toEqual(['a1', 'b2']);
+    expect(acked.snapshot).toEqual(state.snapshot);
+  });
+
+  // 不一致本身就是異常，而 reducer 沒有辦法從中判斷伺服器摺疊的是哪一張 ——
+  // 與票 03 的落空 ACK 同一種處理：payload 丟掉、記在 state 上、由呼叫端重新
+  // 輪詢一份權威快照。issueId 記 pending 那一個：那是呼叫端手上有的東西。
+  it('把不一致記成落空的 ACK，pending 照常退場', () => {
+    const acked = clientReduce(inflight(), {
+      type: 'ACK',
+      seq: 1,
+      issue: full('b2', { title: '別張的標題' }),
+    });
+
+    expect(acked.unmatchedAck).toEqual({ seq: 1, issueId: 'a1' });
+    expect(acked.pending).toEqual([]);
+  });
+});
