@@ -154,6 +154,24 @@ export function App(): React.JSX.Element {
 
   const projected = useMemo(() => (state === null ? [] : project(state)), [state]);
 
+  /**
+   * 開著的那張從快照上消失了 —— 放掉它。
+   *
+   * 唯一會發生這件事的路徑是刪除：ACK 帶回 `deleted: true` 時 `reconcile.ts`
+   * 把那張移出快照（ADR-0009），於是下面的 `selected` 變成 null、drawer 自己
+   * 關上。**封存不會走到這裡** —— `/api/board` 送的是 `all: true`，被封存的那張
+   * 仍然在快照裡，只是看板自己把它藏起來，所以封存之後 drawer 照樣開著，
+   * 那顆「取消封存」按得到。
+   *
+   * 光靠 `selected` 變 null 已經關得掉 drawer，這個 effect 要修的是**留在
+   * `selectedId` 裡的那個死 id**：`nook set <ref> deleted false` 復原之後，
+   * 輪詢會把那張帶回快照，而一個還記著它的 `selectedId` 會讓 drawer 在沒有人
+   * 碰它的情況下自己彈開。
+   */
+  useEffect(() => {
+    if (selectedId !== null && !projected.some((p) => p.id === selectedId)) setSelectedId(null);
+  }, [projected, selectedId]);
+
   const onMove = useCallback(
     (id: string, status: Status) => {
       // DROP 本身就結束拖曳（`reconcile.ts`），所以移動時不再補一次 RELEASE。

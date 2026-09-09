@@ -7,10 +7,11 @@
  * 留下痕跡。
  *
  * **這裡只剩「有沒有變化」這一類的判斷。** 曾經還有一條領域規則住在這裡
- * （`needsReason`：改成 `blocked` 要先問卡住的原因），`board/lanes.ts` 的
- * `dropEffect` 也 import 它。那條規則整條拿掉了（ADR-0003 已改寫）——
- * `blocked` 就只是一個 Status，狀態不該帶有額外效果，所以 drawer 與看板
- * 對它沒有任何要對齊的東西。
+ * （`needsReason`：改成 `blocked` 要先問卡住的原因），而看板放下卡片時也
+ * import 它，好讓兩邊對 `blocked` 說同一句話。那條規則整條拿掉了
+ * （ADR-0003 已改寫）—— `blocked` 就只是一個 Status，狀態不該帶有額外效果，
+ * 所以 drawer 與看板對它沒有任何要對齊的東西。看板那一側連檔案都不在了：
+ * 它住的 `board/lanes.ts` 隨著車道解讀一起刪除（ADR-0010 / D5，commit 400e78b）。
  *
  * **樂觀模型不在這裡。** 這個檔案的前身 `pending.ts` 另外帶著一份 drawer 專用
  * 的 pending reducer；票 10 把 `reconcile.ts` 擴成 Change 的形狀之後，那一份就
@@ -69,4 +70,25 @@ export function removeLabelChange(label: string): DrawerChange {
  */
 export function statusChange(next: Status, current: Status): DrawerChange | undefined {
   return next === current ? undefined : { status: next };
+}
+
+/**
+ * 封存／取消封存。`archived` 是可見性，不是 Status（ADR-0003）——
+ * 被封存的那張從看板上消失，但 `nook list --all` 還看得見。
+ *
+ * 沿用本檔的慣例：沒有變化就不送。
+ */
+export function archiveChange(next: boolean, current: boolean): DrawerChange | undefined {
+  return next === current ? undefined : { archived: next };
+}
+
+/**
+ * 刪除。**沒有參數，也沒有「沒有變化就不送」的那一半** —— 已刪的那張不在
+ * `board.list()` 裡，所以看板上畫不出它、drawer 也開不到，那顆按鈕按不到第二次。
+ *
+ * 復原（`{ deleted: false }`）不在這裡：它的入口不在 drawer 上（同上，那張
+ * 進不了看板），而是 `nook set <ref> deleted false`（ADR-0009）。
+ */
+export function deleteChange(): DrawerChange {
+  return { deleted: true };
 }

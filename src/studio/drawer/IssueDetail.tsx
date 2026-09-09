@@ -9,7 +9,18 @@ import type { ProjectedIssue } from '@/reconcile';
 import { CommentTimeline } from './CommentTimeline';
 import { LabelEditor } from './LabelEditor';
 import { StatusPicker } from './StatusPicker';
-import { descriptionChange, titleChange } from './changes';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { archiveChange, deleteChange, descriptionChange, titleChange } from './changes';
 import type { DrawerChange } from './changes';
 
 export interface IssueDetailProps {
@@ -81,6 +92,13 @@ export function IssueDetail({ projected, onSubmit }: IssueDetailProps): React.JS
           unconfirmed={projected.unconfirmed}
           onSubmit={submit}
         />
+
+        <IssueActions
+          shortId={shown.shortId}
+          archived={shown.archived}
+          pending={projected.optimistic.has('archived')}
+          onSubmit={submit}
+        />
       </div>
     </>
   );
@@ -89,6 +107,83 @@ export function IssueDetail({ projected, onSubmit }: IssueDetailProps): React.JS
 interface FieldProps {
   readonly pending: boolean;
   readonly onSubmit: (change: DrawerChange | undefined) => boolean;
+}
+
+/**
+ * 封存與刪除。**兩顆按鈕，因為它們是兩件事**（D4）：
+ *
+ * - **封存**是可見性（ADR-0003 說 `archived` 是欄位不是第九個 Status）——
+ *   那張從看板上收起來，但 `nook list --all` 還列得到。可以再按回來。
+ * - **刪除**是墓碑（ADR-0009 的 `set deleted=<bool>`）—— `--all` 也不再列它。
+ *
+ * `cancelled` 沒有按鈕：它是八個 Status 之一，拖過去就好（D4）。
+ *
+ * 這裡沒有「送出中」的刪除狀態，因為刪除不是樂觀欄位（`reconcile.ts` 的
+ * `OptimisticField` 不含 `deleted`）：卡片消失的時機是 ACK 帶回 `deleted: true`
+ * 把它移出快照，drawer 隨之關閉 —— `App` 那邊 `selectedId` 指的那張已經不在
+ * 投影裡，`selected` 於是是 null。
+ */
+function IssueActions({
+  shortId,
+  archived,
+  pending,
+  onSubmit,
+}: FieldProps & {
+  readonly shortId: string;
+  readonly archived: boolean;
+}): React.JSX.Element {
+  return (
+    <section className="flex items-center justify-between gap-2 border-t pt-4">
+      <Button
+        variant="outline"
+        size="sm"
+        aria-busy={pending}
+        // 切換：`next` 是現在那一格的相反，所以這一按一定有變化。
+        // `archiveChange` 仍然自己判一次 —— 那條「沒有變化就不送」是 changes.ts
+        // 對所有呼叫端的契約，不是這個呼叫端的義務。
+        onClick={() => onSubmit(archiveChange(!archived, archived))}
+      >
+        {archived ? '取消封存' : '封存'}
+      </Button>
+
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          {/* destructive —— 這一版裡該用到那個 token 的少數幾處之一（D9）。 */}
+          <Button variant="destructive" size="sm">
+            刪除
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>刪除這張 Issue？</AlertDialogTitle>
+            {/*
+              這段話說的是「刪除跟封存差在哪」與「按錯了怎麼辦」。它必須在框裡
+              而不是在文件裡：讀它的人正在猶豫要不要按，而那正是這兩件事唯一
+              有用的時刻。用字與 `nook rm` 的確認訊息一致（cli/run.ts 的
+              `deletedMessage`）—— 同一個決定在三個介面上說同一句話。
+            */}
+            <AlertDialogDescription>
+              封存只是把它從看板上收起來，<code className="font-mono">nook list --all</code>{' '}
+              還列得到；<strong className="text-foreground font-medium">刪除之後 --all 也不再列它</strong>。
+              檔案不會被刪掉：<code className="font-mono">nook history {shortId}</code>{' '}
+              仍然撈得回它寫過的每一個值，
+              <code className="font-mono">nook set {shortId} deleted false</code> 可以把它放回來。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {/* 取消是預設焦點（Radix），關掉之後焦點回到上面那顆刪除按鈕。 */}
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90 text-white"
+              onClick={() => onSubmit(deleteChange())}
+            >
+              刪除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </section>
+  );
 }
 
 /**
