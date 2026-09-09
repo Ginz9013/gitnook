@@ -1,9 +1,13 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { deriveActor } from '../core/actor.js';
+import { findBoardRoot } from '../core/gitattributes.js';
 import { shortIdLength } from '../core/ids.js';
-import type { Board, Change, Issue, Status } from '../core/types.js';
+import type { SetKey, SetOp } from '../core/ops.js';
+import type { Board, Change, Diagnostic, Issue, Status } from '../core/types.js';
 import { AmbiguousRef, InvalidStatus, IssueDeleted, RefNotFound } from '../core/types.js';
 import { escapeHtml, renderMarkdown } from '../render/html.js';
 
@@ -30,6 +34,8 @@ const JSON_TYPE = 'application/json; charset=utf-8';
 const HASH_PATH = '/hash';
 const API_BOARD_PATH = '/api/board';
 const API_ISSUES_PATH = '/api/issues';
+const API_BOARD_INFO_PATH = '/api/board-info';
+const API_HISTORY_PREFIX = '/api/history/';
 const ASSETS_PREFIX = '/assets/';
 const ISSUE_PREFIX = '/i/';
 
@@ -296,12 +302,128 @@ function boardSnapshot(board: Board): BoardSnapshot {
   return { issues: board.list({ all: true }).map((i) => toIssueView(i, len)), hash: boardHash(board) };
 }
 
+/**
+ * 開場抓一次的那份東西：這塊 board 在磁碟上的位置。
+ *
+ * **與快照分開，而且只在開場抓一次。** `board.health()` 會 spawn 一個
+ * `git rev-parse`（health.ts:167），摺進 `/api/board` 等於每次全量讀取都多一個
+ * 子行程 —— 而快照在 ACK 落空時還會被重抓。
+ */
+export interface BoardInfo {
+  /** board 的絕對路徑。同時開兩個 repo 的 studio 時，這是唯一分得出來的東西。 */
+  readonly root: string;
+  /**
+   * 目前的分支，**說不出來時是 `null` 而不是一個錯誤**：nook 不強制在 git repo
+   * 裡跑（`doctor` 只是把 `NotAGitRepo` 當成一條 Diagnostic 回報），detached HEAD
+   * 也是一個正常的工作狀態。兩者都只是「這一格沒有東西可寫」。
+   */
+  readonly branch: string | null;
+  /**
+   * 經由 studio 產生的每一個 op 都記在這個 Actor 身上（ADR-0007）。同一份
+   * 推導（`deriveActor`），不是第二份 —— 畫面上寫著的必須就是 op-log 上記著的。
+   */
+  readonly actor: string;
+  /**
+   * `board.health()` 的產物，原樣送出去。**這裡不做第二份判斷** —— 哪些東西
+   * 算 Diagnostic 只有 `diagnose()` 一份定義，header 只是把它畫出來（票 B4）。
+   */
+  readonly diagnostics: readonly Diagnostic[];
+}
+
+/**
+ * 目前的分支名。try/catch 包住整個子行程，比照 health.ts:167 既有的寫法 ——
+ * 不是 repo、git 不在 PATH、HEAD 還沒有第一次提交，對這一格都是同一件事。
+ *
+ * `--abbrev-ref` 在 detached HEAD 上印的是字面上的 `HEAD`，那不是分支名，
+ * 所以一併收成 `null`：畫面上寫著「分支：HEAD」比留白更難懂。
+ */
+function currentBranch(dir: string): string | null {
+  try {
+    const name = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: dir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return name === '' || name === 'HEAD' ? null : name;
+  } catch {
+    return null;
+  }
+}
+
+function boardInfo(board: Board, dir: string): StudioResponse {
+  // 尋根落空時就地回報那個目錄，同 board.health() —— nook 在還不是 board 的
+  // 地方也答得出話，而「哪一個目錄」正是使用者接著要看的東西。
+  const found = findBoardRoot(dir);
+  const root = found.found ? found.root : dir;
+  const info: BoardInfo = {
+    root,
+    branch: currentBranch(root),
+    actor: deriveActor(root),
+    diagnostics: board.health(),
+  };
+  return json(info);
+}
+
+/**
+ * 一次對 LWW 欄位的寫入。`Op` 本身不外送 —— 這是一個檢視模型，欄位名照
+ * studio 的說法（`field`／`value`）而不是儲存格式的 `k`／`v`。
+ */
+export interface WriteView {
+  readonly field: SetKey;
+  readonly value: string | boolean;
+  readonly actor: string;
+  readonly t: number;
+}
+
+export interface IssueHistory {
+  readonly writes: readonly WriteView[];
+}
+
+/**
+ * 一張 Issue 的變更歷史。`description` 是 LWW，兩個 Actor 並行編輯時摺疊只留
+ * 一份，敗方的文字仍然完整躺在 op-log 裡 —— 這條端點就是把它撈回來的路，
+ * 同 `nook history` 的那一份篩選（只留 `set`）。
+ *
+ * **不另寫一份排序**：`board.opLog()` 交出來的已經是 `orderOps` 的全序
+ * （board.ts:113），所以畫面上的順序必然與 Issue 被摺出來的順序一致。
+ *
+ * **已刪的 Issue 照樣讀得到**，而且是 200：`opLog` 對它照常（ADR-0009），
+ * 那正是誤刪的救生索 —— drawer 的刪除確認框就是這樣答應使用者的。
+ */
+function issueHistory(board: Board, ref: string): StudioResponse {
+  try {
+    const writes: WriteView[] = board
+      .opLog(ref)
+      .filter((op): op is SetOp => op.op === 'set')
+      .map((op) => ({ field: op.k, value: op.v, actor: op.a, t: op.t }));
+    const payload: IssueHistory = { writes };
+    return json(payload);
+  } catch (err) {
+    // 沿用 applyChange 既有的對應：解析不出來的 Ref 是「這個 URL 沒有對應的
+    // 東西」，不是伺服器錯誤；有歧義時把候選原樣送出去。
+    if (err instanceof RefNotFound || err instanceof AmbiguousRef) return notFound(err.message);
+    throw err;
+  }
+}
+
 export interface HandlerOptions {
   /**
    * 前端資產的所在目錄。預設是套件自己的 `dist/studio/`；測試傳入自己造的
    * 假目錄，因此不必先跑一次 vite build 才測得動。
    */
   readonly assetsDir?: string;
+  /**
+   * 這塊 board 是從哪個目錄開起來的 —— `/api/board-info` 的 `root` 由它向上
+   * 尋根得出，同 `board.health()` 自己的做法。預設 `process.cwd()`，也就是
+   * `cmdStudio` 交給 `openBoard({ dir: io.cwd })` 的同一個值。
+   *
+   * 之所以要重新問一次而不是跟 `Board` 要：`Board` 沒有交出根目錄的方法，
+   * 而為了畫面上的一行路徑去擴張 core 的公開面，是比一個 handler 選項貴的
+   * 決定。代價寫在這裡：呼叫端若把 board 開在 `process.cwd()` 以外的地方
+   * 又不傳這個值，`root` 會指錯 —— 生產路徑上只有 `cmdStudio` 一個呼叫端，
+   * 它兩邊給的是同一個目錄。
+   */
+  readonly dir?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -519,6 +641,18 @@ function route(board: Board, req: StudioRequest, opts: HandlerOptions): StudioRe
 
   if (path === API_BOARD_PATH) {
     return json(boardSnapshot(board));
+  }
+
+  // 兩條唯讀端點都住在 `/api/` 底下，**不借用 `/i/`** —— 那個前綴的意思就是
+  // 「寫入面」（上面的白名單字面上以它為判準），一條 GET 路徑掛上去就會連帶
+  // 變成可 POST 的。ref 也與 `/i/<ref>` 一樣原樣交給 core：形狀檢查與路徑
+  // 穿越的防線只有 `board` 那一份。
+  if (path === API_BOARD_INFO_PATH) {
+    return boardInfo(board, opts.dir ?? process.cwd());
+  }
+
+  if (path.startsWith(API_HISTORY_PREFIX)) {
+    return issueHistory(board, path.slice(API_HISTORY_PREFIX.length));
   }
 
   if (path === HASH_PATH) {
