@@ -182,7 +182,7 @@ const LINK = /(!?\[[^\]]*\]\([^)]*\))/;
 
 /**
  * URL 白名單。有 scheme 的一律只放行 http/https/mailto；
- * 沒有 scheme 的（相對路徑、錨點）放行。
+ * 沒有 scheme 的（相對路徑、錨點）放行，但 protocol-relative 除外。
  *
  * 用白名單而非「javascript: 黑名單」：黑名單少列一個 scheme 就是一個漏洞，
  * 白名單少列一個 scheme 只是少一個功能。
@@ -190,6 +190,19 @@ const LINK = /(!?\[[^\]]*\]\([^)]*\))/;
 function isSafeUrl(url: string): boolean {
   // 控制字元與空白會被瀏覽器忽略，因此比對前先剝掉（java\tscript: 這類繞法）。
   const normalized = url.replace(/[\u0000-\u0020]/g, '');
+
+  // protocol-relative（`//evil.com`）沒有 scheme，卻會沿用當前頁面的 scheme
+  // 指向外部站台 —— 必須在「沒有 scheme 就放行」之前擋下。
+  //
+  // v1 判斷這只是導覽困擾而非 XSS 路徑，在唯讀的 localhost 檢視器上這是對的。
+  // ADR-0007 之後 studio 成為寫入介面：issue 內容可能是外部 repo pull 來的，
+  // 而讀者在同一個頁面上做寫入，被騙走的代價比唯讀時期大。
+  //
+  // 反斜線也算：URL 解析器在 http(s) 這種 special scheme 下把 `\` 正規化成 `/`，
+  // 所以 `\\evil.com` 與 `/\evil.com` 跟 `//evil.com` 是同一件事。
+  // 只看前兩個字元，因此 `/i/01JBX7`、`#section`、`./x.md` 都不受影響。
+  if (/^[/\\]{2}/.test(normalized)) return false;
+
   const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(normalized);
   if (scheme === null) return true;
   return ['http', 'https', 'mailto'].includes(scheme[1]!.toLowerCase());

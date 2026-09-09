@@ -161,6 +161,17 @@ describe('description markdown: link', () => {
     expect(d).toContain('<a href="mailto:a@b.c">mail</a>');
   });
 
+  it('無 scheme 的站內連結成為連結：相對路徑、錨點、query', () => {
+    const d = renderMarkdown(
+      '[rel](/i/01JBX7) [anc](#section) [q](/i/01JBX7?lane=todo) [dot](./x.md)',
+    );
+
+    expect(d).toContain('<a href="/i/01JBX7">rel</a>');
+    expect(d).toContain('<a href="#section">anc</a>');
+    expect(d).toContain('<a href="/i/01JBX7?lane=todo">q</a>');
+    expect(d).toContain('<a href="./x.md">dot</a>');
+  });
+
   it('javascript: URL 不得成為連結，含大小寫混寫與夾雜控制字元', () => {
     const payloads = [
       '[a](javascript:alert(1))',
@@ -182,6 +193,41 @@ describe('description markdown: link', () => {
       const d = renderMarkdown(p);
       expect(d, p).not.toMatch(/<a\b/i);
       expect(d, p).not.toMatch(/href/i);
+    }
+  });
+
+  it('protocol-relative URL 不得成為連結', () => {
+    const d = renderMarkdown('[a](//evil.com)');
+
+    expect(d).not.toMatch(/<a\b/i);
+    expect(d).not.toMatch(/href/i);
+    expect(d).toContain('[a](//evil.com)');
+  });
+
+  it('夾雜控制字元與空白的 protocol-relative 變體同樣不得成為連結', () => {
+    const payloads = [
+      '[a](/\t/evil.com)',
+      '[a](/\n/evil.com)',
+      '[a](/ /evil.com)',
+      '[a](  //evil.com)',
+      '[a](\t//evil.com)',
+      '[a](/\u0000/evil.com)',
+    ];
+
+    for (const p of payloads) {
+      const d = renderMarkdown(p);
+      expect(d, JSON.stringify(p)).not.toMatch(/<a\b/i);
+      expect(d, JSON.stringify(p)).not.toMatch(/href/i);
+    }
+  });
+
+  it('反斜線寫法的 protocol-relative 同樣不得成為連結', () => {
+    // URL 解析器在 http(s) 這種 special scheme 下把 `\` 當成 `/`，
+    // 所以 `\\evil.com` 與 `/\evil.com` 都會解析成外部站台。
+    for (const p of ['[a](\\\\evil.com)', '[a](/\\evil.com)', '[a](\\/evil.com)']) {
+      const d = renderMarkdown(p);
+      expect(d, JSON.stringify(p)).not.toMatch(/<a\b/i);
+      expect(d, JSON.stringify(p)).not.toMatch(/href/i);
     }
   });
 
