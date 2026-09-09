@@ -1,5 +1,4 @@
 import type { Status } from '@/api';
-import { needsReason } from '@/drawer/changes';
 import { STATUS_ORDER } from '@/statuses';
 
 /**
@@ -63,19 +62,17 @@ export function isStatus(value: unknown): value is Status {
  * - `authorize` —— 進 `queued`。那不只是換一個 Status：它表示需求已釐清，**已授權
  *   agent 不再詢問、直接動手**（CONTEXT.md）。因此它不能跟 `todo → in_progress`
  *   長得一樣，也不能只用顏色講 —— 播報的字也要不一樣，否則鍵盤使用者收不到。
- * - `needs-reason` —— 進 `blocked`。ADR-0003 要求同時留下說明卡住原因的 Comment，
- *   所以放下的當下就要問，不能讓人拖完才發現。**這一條不在這裡判斷**：判斷式
- *   只有一份，在 `drawer/changes.ts` 的 `needsReason`，這裡問它。原本兩邊各寫
- *   一次 `to === 'blocked'`，而兩份的行為分歧過 —— drawer 那一份沒有理由就不
- *   送出，看板這一份只是把對話框叫出來然後照樣移動。同一條領域規則寫兩次的
- *   代價從來不是重複，是兩份會分頭演化。
+ *
+ * **`queued` 是唯一的特例，`blocked` 不是。** 曾經有第四個效果 `'needs-reason'`
+ * ——進 `blocked` 要先問卡住的原因。那條規則整條拿掉了（ADR-0003 已改寫）：
+ * `blocked` 就只是一個 Status，狀態不該帶有額外效果。`queued` 留著特例是因為
+ * 它表達的不是 Status 而是一次授權，那件事沒有別的地方講得出來。
  */
-export type DropEffect = 'none' | 'move' | 'authorize' | 'needs-reason';
+export type DropEffect = 'none' | 'move' | 'authorize';
 
 export function dropEffect(from: Status, to: Status): DropEffect {
   if (from === to) return 'none';
   if (to === 'queued') return 'authorize';
-  if (needsReason(to, from)) return 'needs-reason';
   return 'move';
 }
 

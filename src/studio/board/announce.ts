@@ -9,8 +9,9 @@ import { dropEffect } from './lanes';
  * 一張 Issue 上、Tab 過去就聽得到的敘述（`announceIssueState`）。
  *
  * ADR-0008 選 React 的唯一理由是 `@dnd-kit` 的鍵盤拖曳與播報，所以這裡的字不是
- * 裝飾：**看得見的那一套區別（`queued` 的授權邊界、`blocked` 要說明原因）
- * 必須在這裡同樣講出來**，否則鍵盤與 screen reader 使用者收到的是另一個看板。
+ * 裝飾：**看得見的那一套區別（`queued` 的授權邊界）必須在這裡同樣講出來**，
+ * 否則鍵盤與 screen reader 使用者收到的是另一個看板。反過來也一樣：`blocked`
+ * 沒有額外效果（ADR-0003），所以這裡也不能多講一句只有它才聽得到的話。
  */
 
 /**
@@ -36,8 +37,6 @@ export function announceOver(title: string, from: Status, to: Status | null): st
       return `「${title}」回到原本的 ${to}。`;
     case 'authorize':
       return `「${title}」停在 queued。queued 是人與 agent 的交接閘門：放下代表需求已釐清，授權 agent 不再詢問、直接動手。`;
-    case 'needs-reason':
-      return `「${title}」停在 blocked。放下之後會先要求你說明卡住的原因。`;
     case 'move':
       return `「${title}」停在 ${to}。`;
   }
@@ -50,8 +49,6 @@ export function announceDrop(title: string, from: Status, to: Status | null): st
       return `放回原處，「${title}」仍然在 ${from}。`;
     case 'authorize':
       return `已把「${title}」從 ${from} 移到 queued，agent 現在可以不再詢問、直接動手。`;
-    case 'needs-reason':
-      return `「${title}」要移到 blocked，請先說明卡住的原因。`;
     case 'move':
       return `已把「${title}」從 ${from} 移到 ${to}。`;
   }

@@ -593,8 +593,14 @@ describe('ref 是使用者輸入', () => {
   });
 });
 
-describe('blocked 必須留 Comment', () => {
-  it('轉成 blocked 而 Issue 上沒有任何 Comment 時提醒，但不擋下狀態本身', async () => {
+/**
+ * blocked 就只是八個 Status 裡的一個（ADR-0003）：它不帶任何額外效果。
+ * 曾經有一條「設為 blocked 必須同時留一則說明原因的 comment」的規則，`mv`
+ * 會為它印一句提醒 —— 整條拿掉了。這裡釘的是**沒有那句話**：一條只剩下
+ * 提醒的規則，等於每個 agent 每次都要讀一句不會發生任何事的輸出。
+ */
+describe('blocked 是一個普通的 Status', () => {
+  it('轉成 blocked 而 Issue 上沒有任何 Comment，也不多印一句話', async () => {
     await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect', status: 'in_progress' });
     createWith('01JBXB', { title: 'Add dark mode', status: 'in_progress' });
@@ -606,10 +612,9 @@ describe('blocked 必須留 Comment', () => {
     expect(await run(['mv', '01JBXA', 'blocked'], silent)).toBe(0);
     expect(await run(['mv', '01JBXB', 'blocked'], explained)).toBe(0);
 
-    // 擋下狀態會讓「卡住」這件事整個消失，比缺一則說明更糟 —— 所以是提醒不是錯誤。
     expect(openBoard({ dir }).get('01JBXA').status).toBe('blocked');
-    // blocked 遺失的資訊（卡住前在做什麼）只能由 Comment 補上（ADR-0003）。
-    expect(silent.err).toContain('comment');
+    // 有沒有 Comment 都走同一條路 —— 沒有留言的那張不再被說教。
+    expect(silent.err).toBe('');
     expect(explained.err).toBe('');
   });
 });

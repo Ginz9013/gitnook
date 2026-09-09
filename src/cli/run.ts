@@ -24,7 +24,7 @@ import {
 import { renderJson } from '../render/json.js';
 import { renderTable } from '../render/table.js';
 import { PortInUse, serve } from '../server/serve.js';
-import type { Board, Change, CreateInput, Filter, Issue } from '../core/types.js';
+import type { Board, Change, CreateInput, Filter } from '../core/types.js';
 
 /**
  * argv → Board → render → exit code。
@@ -202,7 +202,7 @@ function displayLength(board: Board): number {
 
 /**
  * 每次互動都可能被讀，所以每一行都要付得起 token（ADR-0005）。
- * 指令一行一個，後面只留三條「不知道就會做錯」的規則。
+ * 指令一行一個，後面只留兩條「不知道就會做錯」的規則。
  */
 const HELP = `nook <command>
 
@@ -220,7 +220,6 @@ studio [--port <n>]                    localhost 看板，可拖拉與編輯
 status: backlog todo queued in_progress review blocked done cancelled
 <ref> 與 status 都接受無歧義前綴。<value> 用 - 從 stdin 讀。
 queued 是授權邊界：進入 queued 表示已授權 agent 直接動手。
-blocked 必須同時留一則 comment 說明原因。
 list 預設隱藏 archived / done / cancelled。
 `;
 
@@ -431,7 +430,6 @@ function cmdSet(args: Args, io: Io): number {
   }
 
   const updated = board.apply(ref, asChange(field as Field, text));
-  remindIfBlocked(io, updated);
   // 回印更新後那一行 —— 呼叫端不必再跑一次 show 才知道結果。
   line(io, renderTable([updated], displayLength(board)));
   return 0;
@@ -448,20 +446,8 @@ function cmdMv(args: Args, io: Io): number {
 
   const board = openBoard({ dir: io.cwd });
   const updated = board.apply(ref, { status });
-  remindIfBlocked(io, updated);
   line(io, renderTable([updated], displayLength(board)));
   return 0;
-}
-
-/**
- * blocked 遺失的資訊是「卡住前在做什麼」，只有 Comment 補得回來（ADR-0003）——
- * 所以這條規則是提醒而不是錯誤：擋下狀態會讓「卡住」這件事整個消失，比缺一則
- * 說明更糟。
- */
-function remindIfBlocked(io: Io, issue: Issue): void {
-  if (issue.status === 'blocked' && issue.comments.length === 0) {
-    errLine(io, '提醒：blocked 要有一則說明原因的 comment（nook comment <ref> <why>）');
-  }
 }
 
 /**

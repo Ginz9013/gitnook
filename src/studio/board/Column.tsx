@@ -24,20 +24,24 @@ export interface ColumnProps {
   readonly dragging: DragState | null;
 }
 
-/** 被拖到這一欄上方時，這一欄長什麼樣、說什麼話。 */
+/**
+ * 被拖到這一欄上方時，這一欄長什麼樣、說什麼話。
+ *
+ * `blocked` 欄不再有自己的一組（原本是 destructive 的 ring 加「放開後要說明
+ * 卡住的原因」）—— 那條規則拿掉了（ADR-0003 已改寫），而一個仍然把 blocked
+ * 畫成警告色的欄位，講的是一件不會發生的事。
+ */
 const TARGET_STYLE = {
   none: 'border-muted-foreground/40 border-dashed',
   move: 'border-primary/40 bg-accent',
   // 授權邊界要看得出來比換一個 Status 重：實心的 ring 加 primary 底色。
   authorize: 'border-primary bg-primary/10 ring-2 ring-primary',
-  'needs-reason': 'border-destructive bg-destructive/10 ring-2 ring-destructive',
 } as const;
 
 const TARGET_HINT = {
   none: null,
   move: null,
   authorize: '放開＝授權 agent 不再詢問、直接動手',
-  'needs-reason': '放開後要說明卡住的原因',
 } as const;
 
 /** 看板上的一個直排 —— 一個 Status 的全部 Issue。名字講的是版面，`status` 講的是內容。 */
@@ -74,16 +78,7 @@ export function Column({
         )}
       </header>
 
-      {hint !== null && (
-        <p
-          className={cn(
-            'px-3 py-1 text-xs font-medium',
-            effect === 'authorize' ? 'text-primary' : 'text-destructive',
-          )}
-        >
-          {hint}
-        </p>
-      )}
+      {hint !== null && <p className="text-primary px-3 py-1 text-xs font-medium">{hint}</p>}
 
       <ul className="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2">
         {issues.map((projected) => (

@@ -6,12 +6,11 @@
  * 送出去的每一筆都永久留在 .ndjson 裡。一個什麼都沒改的 blur 不該在歷史上
  * 留下痕跡。
  *
- * **檔案在 `drawer/` 底下，但規則不是 drawer 專屬的。** `board/lanes.ts` 的
- * `dropEffect` 也 import `needsReason`：ADR-0003 那條「blocked 必須同時留下
- * 原因」是領域規則，drawer 的選單與看板的拖曳都要問它。原本兩邊各寫一次
- * `to === 'blocked'`，而兩份分歧過 —— 看板那份只把對話框叫出來然後照樣移動。
- * 位置留在這裡是因為 `DrawerChange` 是這些函式的產物型別，而**規則只有一份**
- * 這件事比它住在哪個目錄重要。
+ * **這裡只剩「有沒有變化」這一類的判斷。** 曾經還有一條領域規則住在這裡
+ * （`needsReason`：改成 `blocked` 要先問卡住的原因），`board/lanes.ts` 的
+ * `dropEffect` 也 import 它。那條規則整條拿掉了（ADR-0003 已改寫）——
+ * `blocked` 就只是一個 Status，狀態不該帶有額外效果，所以 drawer 與看板
+ * 對它沒有任何要對齊的東西。
  *
  * **樂觀模型不在這裡。** 這個檔案的前身 `pending.ts` 另外帶著一份 drawer 專用
  * 的 pending reducer；票 10 把 `reconcile.ts` 擴成 Change 的形狀之後，那一份就
@@ -61,27 +60,13 @@ export function removeLabelChange(label: string): DrawerChange {
 }
 
 /**
- * 改 status。**`blocked` 必須同時留一則說明原因的 comment**（CONTEXT.md）——
- * 理由沒填就回傳 `undefined`，這一下什麼都不會送出。
+ * 改 status。八個 Status 一視同仁 —— 沒有變化就不送，其餘什麼都不判斷。
  *
- * 兩者放進同一份 Change 而不是兩次 POST：`board.apply()` 對一份 Change 只
- * append 一次，status 與 comment 因此不可能只落地一半。
- *
- * server 端刻意不強制這條（票 03）—— CLI 是提醒而非拒絕，在 server 加一條
- * CLI 沒有的規則會讓兩個介面分歧。配對的責任在這裡。
+ * 曾經有第三個參數 `reason`：改成 `blocked` 要同時帶一則說明原因的 comment，
+ * 沒填就回 `undefined`。那條規則拿掉了（ADR-0003 已改寫），於是 CLI、server
+ * 與 studio 三邊對 `blocked` 又是同一套行為 —— 分歧原本就是只有 studio 擋、
+ * CLI 只提醒、server 完全不管造成的。
  */
-export function statusChange(
-  next: Status,
-  current: Status,
-  reason: string,
-): DrawerChange | undefined {
-  if (next === current) return undefined;
-  if (next !== 'blocked') return { status: next };
-  const comment = reason.trim();
-  return comment === '' ? undefined : { status: next, comment };
-}
-
-/** 改成這個 status 需要先問原因嗎。 */
-export function needsReason(next: Status, current: Status): boolean {
-  return next === 'blocked' && next !== current;
+export function statusChange(next: Status, current: Status): DrawerChange | undefined {
+  return next === current ? undefined : { status: next };
 }

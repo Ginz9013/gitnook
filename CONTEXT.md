@@ -48,7 +48,7 @@ Status 序列被切成兩段：`backlog` 與 `todo` 是**人的車道**，`queue
 _Avoid_: ready, ready to go, todo
 
 **Blocked**:
-工作已開始但無法推進。設為 `blocked` 時**必須同時留下一則 Comment 說明原因** —— 這條規則補上了「卡住前在做什麼」這項在扁平 Status 中會遺失的資訊。
+工作已開始但無法推進。**它就只是八個 Status 之一，不帶任何額外規則。**「卡住前在做什麼」這項資訊在扁平 Status 中確實會遺失，而我們接受這個遺失（ADR-0003）—— 想交代原因的人照樣可以留一則 Comment，但那是選擇，不是規則。
 
 **Archived**:
 一張 Issue 是否從預設檢視隱藏。這是**可見性**，與 `done` / `cancelled` 所表達的**工作結果**正交，因此不是一個 Status。

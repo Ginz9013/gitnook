@@ -4,16 +4,13 @@ import type { Announcements, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 
 import type { IssueView, Status } from '@/api';
 import type { ProjectedIssue } from '@/reconcile';
-import type { DrawerChange } from '@/drawer/changes';
 import { Button } from '@/components/ui/button';
 
-import { BlockedGate } from './BlockedGate';
 import { CardFace } from './Card';
 import { Column } from './Column';
 import type { DragState } from './Column';
 import { announceCancel, announceDrop, announceGrab, announceOver, dragInstructions } from './announce';
 import { boardCollision, columnKeyboardCoordinates, draggedIssue, statusOf } from './dnd';
-import { focusIssue } from './focus';
 import { STATUS_LANES, dropEffect, groupByStatus } from './lanes';
 
 /**
@@ -35,20 +32,14 @@ export interface BoardProps {
   readonly selectedId: string | null;
   readonly onSelect: (id: string | null) => void;
   /**
-   * 一次拖曳造成的移動。**不含 `blocked`** —— 那條路走 `onBlock`，因為它要帶著
-   * 原因，而「只有 status」正是這個簽章能表達的全部。
+   * 一次拖曳造成的移動。**八個 Status 都走這一條**，包含 `blocked`。
+   *
+   * 曾經有一條 `onBlock`：拖進 `blocked` 得先開閘門收下卡住的原因，再把
+   * status 與 comment 當成同一份 Change 送出。那條規則整條拿掉了（ADR-0003
+   * 已改寫），於是「只有 status」就是一次拖曳能表達的全部 —— 這個簽章因此
+   * 不再是缺了什麼，而是剛好。
    */
   readonly onMove: (id: string, status: Status) => void;
-  /**
-   * 拖進 `blocked`，而且使用者已經在閘門裡寫下原因。
-   *
-   * **收的是整份 `Change`，不是 `(id, reason)`。** ADR-0003 要的不是「有一段
-   * 文字」而是「status 與 comment 是同一次 append」——`board.apply()` 對一份
-   * Change 只 append 一次，所以只要它們同在一個物件裡，磁碟上就不可能出現
-   * 「已經 blocked 但還沒留言」的中間狀態。拆成兩個參數就等於把配對的責任
-   * 交回給呼叫端，而那正是 drawer 那條路徑早就做對、看板這條做錯的地方。
-   */
-  readonly onBlock: (id: string, change: DrawerChange) => void;
   /**
    * 這張 Issue 被指標或鍵盤抓住了。對應調和 reducer 的 `GRAB`：抓住之後它在
    * 放開之前不接受任何來自伺服器的移動（`reconcile.ts` 第三條規則）。
@@ -59,19 +50,11 @@ export interface BoardProps {
    */
   readonly onGrab: (id: string) => void;
   /**
-   * 放開了，而且**沒有**造成移動（取消、放回原本的 Status、或在 blocked 閘門前反悔）。
-   * 對應 `RELEASE`。有移動時只送 `onMove`：reducer 的 `DROP` 本身就結束拖曳，
-   * 再補一次 `RELEASE` 會把押後的快照套兩次。
+   * 放開了，而且**沒有**造成移動（取消，或放回原本的 Status）。對應 `RELEASE`。
+   * 有移動時只送 `onMove`：reducer 的 `DROP` 本身就結束拖曳，再補一次
+   * `RELEASE` 會把押後的快照套兩次。
    */
   readonly onRelease: () => void;
-}
-
-/** blocked 閘門正在問的那一張。 */
-interface Gate {
-  readonly id: string;
-  readonly title: string;
-  /** 它現在的 Status —— 閘門要它才組得出那份 `Change`。 */
-  readonly from: Status;
 }
 
 export function Board({
@@ -79,12 +62,10 @@ export function Board({
   selectedId,
   onSelect,
   onMove,
-  onBlock,
   onGrab,
   onRelease,
 }: BoardProps): React.JSX.Element {
   const [dragging, setDragging] = useState<DragState | null>(null);
-  const [gate, setGate] = useState<Gate | null>(null);
   const [showArchived, setShowArchived] = useState(false);
 
   const sensors = useSensors(
@@ -149,10 +130,6 @@ export function Board({
     switch (dropEffect(drag.status, to)) {
       case 'none':
         onRelease();
-        return;
-      case 'needs-reason':
-        // 還沒決定，所以還沒 RELEASE：閘門開著的時候這張 Issue 不該被伺服器抽走。
-        setGate({ id: drag.id, title: drag.title, from: drag.status });
         return;
       case 'authorize':
       case 'move':
@@ -224,32 +201,6 @@ export function Board({
           )}
         </DragOverlay>
       </DndContext>
-
-      {gate !== null && (
-        <BlockedGate
-          title={gate.title}
-          from={gate.from}
-          onConfirm={(change) => {
-            // 一次 `onBlock`，不是「先移動再開 drawer 請人補留言」：status 與
-            // 原因在同一份 Change 裡，磁碟上不會出現只有其中一半的那一刻。
-            //
-            // **確認之後刻意不開 drawer。** 前一版開它是因為原因只能寫在那裡；
-            // 現在原因已經收完了，再彈出一整面細節就只是打斷拖曳的節奏 ——
-            // 而且那面 drawer 是程式化開啟的，正是焦點會掉進 <body> 的那條路徑。
-            onBlock(gate.id, change);
-            setGate(null);
-          }}
-          onCancel={() => {
-            // 取消什麼都不送：不移動、不留言。這裡只把拖曳鎖解開。
-            onRelease();
-            setGate(null);
-          }}
-          // 焦點回到剛才那張卡片 —— 確認的話它已經在 blocked 欄裡，取消的話它
-          // 還在原處。理由見 `focus.ts`：焦點跟著 Issue 走，而卡片現在的位置
-          // 同時回答了「我剛做的事成功了嗎」。
-          onCloseFocus={() => focusIssue(gate.id)}
-        />
-      )}
     </main>
   );
 }

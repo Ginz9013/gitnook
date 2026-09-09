@@ -161,27 +161,6 @@ export function App(): React.JSX.Element {
     [send],
   );
 
-  /**
-   * 拖進 `blocked`：status 與原因是**同一份 Change**，因此是同一次 `POST`，
-   * 而 `board.apply()` 對一份 Change 只 append 一次 —— 磁碟上不會出現
-   * 「已經 blocked 但還沒留言」的那一刻（ADR-0003）。
-   *
-   * **為什麼是 `RELEASE` + `EDIT` 而不是 `DROP`。** `DROP` 只帶得動一個 `to`
-   * 字串，reducer 用它組出來的樂觀變更就只有 `{ status }` —— 那則留言會在樂觀
-   * 這一側被丟掉，於是閘門關掉的瞬間，畫面上那張 Issue 已經是 blocked、卻看不到
-   * 使用者一秒前才打進去的原因，要等 ACK 回來才補上。`DROP` 做的兩件事拆開來
-   * 就是這兩個 action：`RELEASE` 結束拖曳（閘門開著的期間看板刻意押著沒放），
-   * `EDIT` 掛上完整的那份 Change。drawer 那條路徑用的也是 `EDIT`，兩邊從此
-   * 連樂觀模型上的形狀都一樣。
-   */
-  const onBlock = useCallback(
-    (id: string, change: DrawerChange) => {
-      apply({ type: 'RELEASE' });
-      send(id, change, { type: 'EDIT', issueId: id, change });
-    },
-    [apply, send],
-  );
-
   const onGrab = useCallback((id: string) => void apply({ type: 'GRAB', issueId: id }), [apply]);
   const onRelease = useCallback(() => void apply({ type: 'RELEASE' }), [apply]);
 
@@ -228,7 +207,6 @@ export function App(): React.JSX.Element {
         selectedId={selectedId}
         onSelect={setSelectedId}
         onMove={onMove}
-        onBlock={onBlock}
         onGrab={onGrab}
         onRelease={onRelease}
       />

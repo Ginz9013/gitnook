@@ -104,26 +104,25 @@ describe('dropEffect —— 一次放下會發生什麼', () => {
     for (const from of others('queued')) expect(dropEffect(from, 'queued')).toBe('authorize');
   });
 
-  // ADR-0003 / CONTEXT.md：設為 blocked 必須同時留下一則說明原因的 Comment。
-  // 判斷式只有一份（drawer/changes.ts 的 needsReason），這裡只是問它。
-  it('進 blocked 要先問原因', () => {
-    for (const from of others('blocked')) expect(dropEffect(from, 'blocked')).toBe('needs-reason');
+  // blocked 就只是一個 Status（ADR-0003）：它不帶任何額外效果，所以拖進去與
+  // 拖進 review 是同一件事。這裡釘的正是「沒有第四種效果」——'needs-reason'
+  // 曾經是它的回答，而閘門就開在那個值上。
+  it('進 blocked 只是一次搬移', () => {
+    for (const from of others('blocked')) expect(dropEffect(from, 'blocked')).toBe('move');
   });
 
   it('其餘每一種換 Status 都只是一次搬移', () => {
     for (const from of STATUSES) {
       for (const to of STATUSES) {
-        if (from === to || to === 'queued' || to === 'blocked') continue;
+        if (from === to || to === 'queued') continue;
         expect(dropEffect(from, to)).toBe('move');
       }
     }
   });
 
-  // 授權發生在進去的那一下。從 queued 出來 —— agent 開始動工 —— 不需要再授權一次，
-  // 從 blocked 出來也不需要再說明一次原因。
-  it('從 queued 或 blocked 出來只是一次搬移', () => {
+  // 授權發生在進去的那一下。從 queued 出來 —— agent 開始動工 —— 不需要再授權一次。
+  it('從 queued 出來只是一次搬移', () => {
     expect(dropEffect('queued', 'in_progress')).toBe('move');
-    expect(dropEffect('blocked', 'in_progress')).toBe('move');
     expect(dropEffect('queued', 'todo')).toBe('move');
   });
 });
@@ -302,37 +301,36 @@ describe('進 queued —— 授權邊界要念得出來', () => {
 });
 
 /**
- * blocked 必須同時留下一則說明卡住原因的 Comment（CONTEXT.md、ADR-0003）——
- * 那條規則正是把 blocked 留在 Status 裡的理由。放下的當下就要問，不能讓人
- * 拖完才發現，所以停留與放下兩則都得講。
+ * blocked 只是一個 Status，不帶額外效果（ADR-0003）。看得見的那一面早就沒有
+ * 閘門了，這裡釘的是**念出來的那一面也不能還留著它**：多一句只有 blocked 才
+ * 聽得到的提示，鍵盤與 screen reader 使用者收到的就是另一個看板 —— 一個仍然
+ * 要求他們說明原因、但實際上不會問的看板。
  */
-describe('進 blocked —— 要說明原因這件事要念得出來', () => {
+describe('進 blocked —— 就是一次普通搬移', () => {
   const ordinaryOver = announceOver(TITLE, 'todo', 'review');
   const blockedOver = announceOver(TITLE, 'todo', 'blocked');
   const ordinaryDrop = announceDrop(TITLE, 'todo', 'review');
   const blockedDrop = announceDrop(TITLE, 'todo', 'blocked');
 
-  it('還停在 blocked 上時就先講會要求說明原因', () => {
-    expect(blockedOver).toMatch(/原因/);
+  it('停在 blocked 上與放下到 blocked 都不再提原因', () => {
+    expect(blockedOver).not.toMatch(/原因/);
+    expect(blockedDrop).not.toMatch(/原因/);
   });
 
-  it('放下到 blocked 時講的是要先說明原因，不是已經搬過去了', () => {
-    expect(blockedDrop).toMatch(/原因/);
-    expect(blockedDrop).not.toBe(asOrdinaryWordingFor(ordinaryDrop, 'review', 'blocked'));
+  it('措辭就是一般搬移換一個 Status 名 —— 沒有任何 blocked 專屬的字', () => {
+    expect(blockedOver).toBe(asOrdinaryWordingFor(ordinaryOver, 'review', 'blocked'));
+    expect(blockedDrop).toBe(asOrdinaryWordingFor(ordinaryDrop, 'review', 'blocked'));
   });
 
-  it('停在 blocked 上的措辭不是把一般搬移換個 Status 名', () => {
-    expect(blockedOver).not.toBe(asOrdinaryWordingFor(ordinaryOver, 'review', 'blocked'));
-  });
+  // 'review' 不當來源：那句話裡會出現兩次 'review'（來源與去處），
+  // `asOrdinaryWordingFor` 的 replaceAll 會把來源也一起換掉。
+  it('從任何 Status 進 blocked 都與進別的 Status 是同一個模子', () => {
+    for (const from of STATUSES.filter((s) => s !== 'blocked' && s !== 'review')) {
+      const ordinary = announceDrop(TITLE, from, 'review');
 
-  it('一般搬移不提原因', () => {
-    expect(ordinaryOver).not.toMatch(/原因/);
-    expect(ordinaryDrop).not.toMatch(/原因/);
-  });
-
-  it('從任何 Status 進 blocked 都講原因', () => {
-    for (const from of STATUSES.filter((s) => s !== 'blocked')) {
-      expect(announceDrop(TITLE, from, 'blocked')).toMatch(/原因/);
+      expect(announceDrop(TITLE, from, 'blocked')).toBe(
+        asOrdinaryWordingFor(ordinary, 'review', 'blocked'),
+      );
     }
   });
 });
@@ -369,17 +367,16 @@ describe('播報的通則', () => {
     for (const line of said) expect(line).toContain(TITLE);
   });
 
-  // 四種 DropEffect 是四件不同的事，播報必須分得出來 —— 兩種講成同一句，
+  // 三種 DropEffect 是三件不同的事，播報必須分得出來 —— 兩種講成同一句，
   // 鍵盤使用者就少了一個區別。
-  it('四種放下結果念出四句不同的話', () => {
+  it('三種放下結果念出三句不同的話', () => {
     const byEffect = [
       announceDrop(TITLE, 'todo', 'todo'), // none
       announceDrop(TITLE, 'todo', 'review'), // move
       announceDrop(TITLE, 'todo', 'queued'), // authorize
-      announceDrop(TITLE, 'todo', 'blocked'), // needs-reason
     ];
 
-    expect(new Set(byEffect).size).toBe(4);
+    expect(new Set(byEffect).size).toBe(3);
   });
 });
 

@@ -56,13 +56,6 @@ Fixed; not configurable. Prefixes work (`que` → `queued`, `in_p` → `in_progr
 
 **`queued` is an authorization boundary, not a category.** `backlog` and `todo` are the human lane; `queued` onward is the agent lane. An issue in `queued` means requirements are settled and **the agent may act without asking**. Do not move an issue into `queued` on your own initiative — that is the human granting permission.
 
-**`blocked` requires a comment saying why.** Setting it without one prints a reminder. Always pair them:
-
-```bash
-nook comment <ref> "waiting on the upstream API fix"
-nook mv <ref> blocked
-```
-
 `archived` is a separate boolean field, not a status — it is visibility, orthogonal to `done`/`cancelled`. Use `nook set <ref> archived true`.
 
 ## Output and exit codes
