@@ -1,4 +1,13 @@
-@import "tailwindcss";
+/**
+ * `source("./")` 把 Tailwind 的自動來源偵測限制在這個檔案所在的目錄，
+ * 也就是 `src/studio/` —— 唯一真的有 class 名的地方。
+ *
+ * 預設的偵測範圍是整個 repo，於是散文會被當成 class 收割：`README.md`
+ * 裡的英文字 "grow" 變成出貨 CSS 裡的 `.grow{flex-grow:1}`，
+ * `.scratch/` 的原型 HTML 也照樣漏進來。修法是限制掃描範圍，
+ * 不是回頭去改文件用字 —— 後者對每一次文件編輯都是不可維護的規則。
+ */
+@import "tailwindcss" source("./");
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
