@@ -4,8 +4,8 @@ import { Board } from '@/board/Board';
 import { focusIssue } from '@/board/focus';
 import { IssueDrawer } from '@/drawer/IssueDrawer';
 import type { DrawerChange } from '@/drawer/changes';
-import { createIssue, fetchBoard, postChange } from '@/api';
-import type { IssueView, Status } from '@/api';
+import { createIssue, fetchBoard, fetchBoardInfo, postChange } from '@/api';
+import type { BoardInfo, IssueView, Status } from '@/api';
 import { clientReduce, initialClient, project } from '@/reconcile';
 import type { ClientAction, ClientState } from '@/reconcile';
 import { startPolling } from '@/poll';
@@ -40,6 +40,9 @@ export function App(): React.JSX.Element {
   // 開場那份快照的 hash。設定它同時也是「第一份快照到了」的訊號 —— 輪詢的
   // effect 以它為 dep，因此不可能在快照之前就開始跑。
   const [hash, setHash] = useState<string | null>(null);
+  // 這塊 board 在磁碟上的位置、分支與 Actor。header 的那一行說明文字，**只此
+  // 一格**，抓不到就一直是 null。
+  const [info, setInfo] = useState<BoardInfo | null>(null);
 
   /**
    * 調和 state 的權威副本。
@@ -111,6 +114,31 @@ export function App(): React.JSX.Element {
       },
       (err: unknown) => {
         if (!abort.signal.aborted) setError(err instanceof Error ? err.message : String(err));
+      },
+    );
+    return () => abort.abort();
+  }, []);
+
+  /**
+   * board 的位置、分支與 Actor —— **開場抓一次，永遠不進輪詢迴圈**。
+   *
+   * 那個端點會 spawn 一個 `git rev-parse`（`health.ts`），掛進每 2 秒一次的迴圈
+   * 等於每 2 秒多一個子行程，換來的是一個幾乎不會變的答案。它與 `/api/board`
+   * 分開就是為了這件事（`handler.ts` 的 `boardInfo`）。
+   *
+   * **失敗不設 `error`。** 上面那個 `fetchBoard` 失敗時整個畫面換成一句「讀不到
+   * board」，因為那時候真的沒有東西可以畫；這裡失敗只是 header 少一行說明文字，
+   * 把整塊看板換掉是把一個裝飾當成前提。連線真的斷了的時候，輪詢迴圈會在兩秒內
+   * 用底部橫幅說出來 —— 那句話不必在這裡再講一次。
+   */
+  useEffect(() => {
+    const abort = new AbortController();
+    fetchBoardInfo(abort.signal).then(
+      (fetched) => {
+        if (!abort.signal.aborted) setInfo(fetched);
+      },
+      () => {
+        // 見上：header 少一行，看板照跑。
       },
     );
     return () => abort.abort();
@@ -248,6 +276,8 @@ export function App(): React.JSX.Element {
         // 唯一來源 —— 看板拿不到就只能畫得跟已落地的一模一樣。drawer 收的一直
         // 是投影（`IssueDrawerProps`），兩邊從此是同一個形狀。
         issues={projected}
+        // 還沒抓到就是 null —— header 自己會少畫那一行，看板不等它。
+        info={info}
         selectedId={selectedId}
         onSelect={setSelectedId}
         onMove={onMove}

@@ -2,15 +2,14 @@ import { useMemo, useState } from 'react';
 import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { Announcements, DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 
-import type { IssueView, Status } from '@/api';
+import type { BoardInfo, IssueView, Status } from '@/api';
 import type { ProjectedIssue } from '@/reconcile';
-import { Button } from '@/components/ui/button';
 import { STATUS_ORDER, groupByStatus } from '@/statuses';
 
+import { BoardHeader } from './BoardHeader';
 import { CardFace } from './Card';
 import { Column } from './Column';
 import type { DragState } from './Column';
-import { NewIssueForm, useNewIssueEntry } from './NewIssueForm';
 import { announceCancel, announceDrop, announceGrab, announceOver, dragInstructions } from './announce';
 import { boardCollision, columnKeyboardCoordinates, draggedIssue, statusOf } from './dnd';
 
@@ -29,6 +28,15 @@ export interface BoardProps {
    * 個形狀，看板這裡是補齊。
    */
   readonly issues: readonly ProjectedIssue<IssueView>[];
+  /**
+   * 這塊 board 是哪一塊 —— 路徑、分支、Actor（`/api/board-info`）。看板自己不用
+   * 它，整份直接交給 `BoardHeader`。
+   *
+   * **還沒抓到就是 `null`，看板照畫。** 那個端點會 spawn 一個 `git rev-parse`，
+   * 所以它與快照分開、只在開場抓一次（`App.tsx`）；讓看板等它，等於為了一行
+   * 說明文字把整塊 board 押後。
+   */
+  readonly info: BoardInfo | null;
   /** drawer 目前開在哪一張；沒開就是 null。 */
   readonly selectedId: string | null;
   readonly onSelect: (id: string | null) => void;
@@ -69,6 +77,7 @@ export interface BoardProps {
 
 export function Board({
   issues,
+  info,
   selectedId,
   onSelect,
   onMove,
@@ -78,9 +87,6 @@ export function Board({
 }: BoardProps): React.JSX.Element {
   const [dragging, setDragging] = useState<DragState | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  // header 上的入口。八欄各自還有一個，各自獨立開合 —— 開著的那個表單屬於
-  // 開它的那個入口，而焦點要還給的也正是那一顆按鈕（`NewIssueForm.tsx`）。
-  const entry = useNewIssueEntry();
 
   const sensors = useSensors(
     // 4px 的門檻讓「點一下開細節」與「拖走」分得開。
@@ -167,26 +173,16 @@ export function Board({
       // 與測試看的，輔助技術讀不到它。
       aria-label="Nook 看板"
     >
-      <header className="flex shrink-0 items-center gap-3">
-        <span className="text-muted-foreground text-xs">{visible.length} 張 Issue</span>
-        {/* 本批先放在這條既有的 header 上；B1 會把 header 整條重整。 */}
-        <Button {...entry.trigger} type="button" size="sm">
-          新增 Issue
-        </Button>
-        {/* 不帶 `status` —— header 這顆問的是「開一張」，不是「在哪一欄開一張」，
-            落點由 core 的預設回答。 */}
-        {entry.open && <NewIssueForm onCreate={onCreate} onCancel={entry.close} className="w-64" />}
-        {archivedCount > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-pressed={showArchived}
-            onClick={() => setShowArchived((v) => !v)}
-          >
-            {showArchived ? '隱藏已封存' : `顯示已封存（${archivedCount}）`}
-          </Button>
-        )}
-      </header>
+      {/* 整條 header 在 `BoardHeader.tsx` —— B5 與 B6 都還要往上加東西，而這個
+          檔案已經是 DndContext 的持有者。 */}
+      <BoardHeader
+        info={info}
+        visibleCount={visible.length}
+        archivedCount={archivedCount}
+        showArchived={showArchived}
+        onToggleArchived={() => setShowArchived((v) => !v)}
+        onCreate={onCreate}
+      />
 
       <DndContext
         sensors={sensors}

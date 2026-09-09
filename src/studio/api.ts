@@ -1,4 +1,4 @@
-import type { BoardSnapshot, CommentView, IssueView } from '../server/handler.js';
+import type { BoardInfo, BoardSnapshot, CommentView, IssueView } from '../server/handler.js';
 import type { Change, Status } from '../core/types.js';
 
 /**
@@ -9,7 +9,7 @@ import type { Change, Status } from '../core/types.js';
  * 反向也一樣：`src/cli/run.ts` 的 import 鏈永遠碰不到 React（ADR-0008）。
  * 只要有人把其中一條改成值的 import，這條保證就沒了。
  */
-export type { BoardSnapshot, Change, CommentView, IssueView, Status };
+export type { BoardInfo, BoardSnapshot, Change, CommentView, IssueView, Status };
 
 /**
  * 伺服器**答了**，但答的是一個錯誤狀態碼。
@@ -88,7 +88,32 @@ export function isBoardSnapshot(value: unknown): value is BoardSnapshot {
   return Array.isArray(body.issues) && typeof body.hash === 'string';
 }
 
+/**
+ * 這塊 body 是不是一份 `BoardInfo` —— 只看頂層，同 `isBoardSnapshot`。
+ *
+ * 存在的理由一樣：`getJson` 的 `isShape` 是必填，而它必填正是為了讓多一個端點
+ * 的人在這裡回答「怎樣算是答對了」。
+ */
+export function isBoardInfo(value: unknown): value is BoardInfo {
+  if (value === null || typeof value !== 'object') return false;
+  const body = value as {
+    root?: unknown;
+    branch?: unknown;
+    actor?: unknown;
+    diagnostics?: unknown;
+  };
+  return (
+    typeof body.root === 'string' &&
+    // `null` 是正常的答案而不是壞掉的 body：不是 git repo、detached HEAD、
+    // 還沒有第一次提交，三者都回 null（`handler.ts` 的 `currentBranch`）。
+    (body.branch === null || typeof body.branch === 'string') &&
+    typeof body.actor === 'string' &&
+    Array.isArray(body.diagnostics)
+  );
+}
+
 const BOARD_URL = '/api/board';
+const BOARD_INFO_URL = '/api/board-info';
 const HASH_URL = '/hash';
 const ISSUE_PREFIX = '/i/';
 const ISSUES_URL = '/api/issues';
@@ -124,6 +149,17 @@ async function getJson<T>(
 /** 一次全量快照。ADR-0002：沒有快取也沒有增量 —— 全量掃描加摺疊就是實作。 */
 export function fetchBoard(signal?: AbortSignal): Promise<BoardSnapshot> {
   return getJson(BOARD_URL, isBoardSnapshot, signal);
+}
+
+/**
+ * 這塊 board 在磁碟上的位置、分支與 Actor —— header 那一行 mono 小字的來源。
+ *
+ * **開場抓一次，不進輪詢迴圈。** 這個端點會 spawn 一個 `git rev-parse`
+ * （`health.ts`），掛進每 2 秒一次的迴圈等於每 2 秒多一個子行程，換來的是一個
+ * 幾乎不會變的答案。它與快照分開的理由就是這個（`handler.ts` 的 `boardInfo`）。
+ */
+export function fetchBoardInfo(signal?: AbortSignal): Promise<BoardInfo> {
+  return getJson(BOARD_INFO_URL, isBoardInfo, signal);
 }
 
 /**
