@@ -3,7 +3,7 @@ import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Board } from '../core/types.js';
 import { handleRequest } from './handler.js';
-import type { HandlerOptions } from './handler.js';
+import type { HandlerOptions, StudioResponse } from './handler.js';
 
 /**
  * 只綁 loopback。ADR-0007 之後 `--host` 不是「暫時沒做」而是**永遠不做** ——
@@ -59,6 +59,30 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+/**
+ * 一則未預期失敗留在終端機上的紀錄。
+ *
+ * **管道就是 `console.error`，不是注入進來的接收器。** ADR-0004：只有單一
+ * adapter 的介面是掩體不是接縫，而這裡說不出第二個真實的使用者 —— 若在
+ * `ServeOptions` 上多開一個接收器，實際會傳它的只有測試（`cmdStudio` 是
+ * 唯一的生產呼叫端，它不會傳）。讀者本來就是跑 `nook studio` 的那個人，
+ * 那個終端機就開在他面前，stderr 直接送到得了。
+ *
+ * **只記未預期的那些**，判準是 `status >= 500`。404（ref 找不到）、
+ * 400（body 不合法）、405（方法不對）都是系統正常運作時的回應；把它們也
+ * 記下來，等於讓前端每 2 秒一次的輪詢與每一次 `nook list` 都在洗版，
+ * 而真正需要被看見的那一行就埋在裡面 —— 一個什麼都印的終端機沒有人讀。
+ *
+ * 訊息取自回應主體而不是 Error 物件：`handleRequest` 是純函數，例外在它
+ * 那一格變成值的時候就只剩下 message（見 handler.ts 的 `serverError`），
+ * serve.ts 拿不到原本擲出的東西。這也正好是對的 —— 終端機上讀到的，
+ * 與瀏覽器那邊收到的是同一句話。
+ */
+function logUnexpected(method: string, url: string, out: StudioResponse): void {
+  if (out.status < 500) return;
+  console.error(`nook studio: ${out.status} ${method} ${url} —— ${out.body.trim()}`);
+}
+
 export function serve(board: Board, opts: ServeOptions = {}): Promise<Studio> {
   const port = opts.port ?? DEFAULT_PORT;
   // 只把有指定的欄位往下傳：exactOptionalPropertyTypes 之下，
@@ -77,7 +101,12 @@ export function serve(board: Board, opts: ServeOptions = {}): Promise<Studio> {
     // 未預期的例外在它自己那一格就變成 500。要改那條保證，改 handler.ts。
     void readBody(req).then(
       (body) => {
-        const out = handleRequest(board, { method: req.method ?? 'GET', url: req.url ?? '/', body }, handlerOpts);
+        const method = req.method ?? 'GET';
+        const url = req.url ?? '/';
+        const out = handleRequest(board, { method, url, body }, handlerOpts);
+        // 記錄在回應之前，而且在同一個續行裡：拿到 500 的那一方（瀏覽器上的
+        // 斷線橫幅）會叫讀者去看終端機，那則紀錄不能比它晚到。
+        logUnexpected(method, url, out);
         res.writeHead(out.status, out.headers);
         res.end(out.body);
       },

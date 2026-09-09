@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
@@ -321,5 +321,74 @@ describe('未預期的例外不得帶掉整個 process', () => {
     // 而且是「還在服務」而不是「還在但壞了」：board 回來就照常回答。
     mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
     expect((await fetch(`${studio.url}/hash`)).status).toBe(200);
+  });
+});
+
+/**
+ * 攔下全域的 `console.error`。serve.ts 的紀錄管道就是它本身（見該檔的註解），
+ * 所以這裡被替身取代的是**那個管道**，不是 serve 內部的任何協作者 ——
+ * 與 run.test.ts 攔 `process.stdout.write` 來測 processIo 的作法同一種。
+ */
+function captureConsoleError(): string[] {
+  const lines: string[] = [];
+  vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map((a) => String(a)).join(' '));
+  });
+  return lines;
+}
+
+describe('未預期的 500 在終端機上留下痕跡', () => {
+  let logged: string[];
+
+  beforeEach(() => {
+    logged = captureConsoleError();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('board 在 session 中途被移走：除了那份 500 回應，跑 studio 的終端機也看得到', async () => {
+    createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
+    const studio = await start();
+
+    // 正常的那一次先跑：它不該留下任何東西，否則下面數到的 1 不知道是誰寫的。
+    expect((await fetch(`${studio.url}/api/board`)).status).toBe(200);
+    expect(logged).toEqual([]);
+
+    rmSync(join(dir, '.issues'), { recursive: true, force: true });
+    expect((await fetch(`${studio.url}/api/board`)).status).toBe(500);
+
+    expect(logged).toHaveLength(1);
+    // 一則看得懂的紀錄 = 讀者認得出「哪一個請求」與「出了什麼事」。
+    expect(logged[0]).toContain('500');
+    expect(logged[0]).toContain('GET');
+    expect(logged[0]).toContain('/api/board');
+    // 訊息本身要在，而不是只有一句「有錯誤發生」—— 「先執行 nook init」才是可行動的。
+    expect(logged[0]).toContain('nook init');
+  });
+
+  it('正常的 4xx 一則都不留 —— 一個每次輪詢都在噴東西的終端機等於沒有紀錄', async () => {
+    const id = fullId('01JBXA');
+    createWith(id, { title: 'Fix login redirect' });
+    const studio = await start();
+
+    const post = (ref: string, body: string): Promise<Response> =>
+      fetch(`${studio.url}/i/${ref}`, { method: 'POST', body });
+
+    // 404：這個 ref 沒有對應的 Issue。
+    expect((await post(fullId('01JBXQ'), JSON.stringify({ status: 'queued' }))).status).toBe(404);
+    // 400：body 根本不是 JSON。
+    expect((await post(id, 'not json')).status).toBe(400);
+    // 400：status 不是一個合法的 Status。
+    expect((await post(id, JSON.stringify({ status: 'nope' }))).status).toBe(400);
+    // 405：方法不對。
+    expect((await fetch(`${studio.url}/`, { method: 'DELETE' })).status).toBe(405);
+    // 404：路徑不存在。
+    expect((await fetch(`${studio.url}/nope`)).status).toBe(404);
+
+    // 以上每一則都是系統正常運作的回應。它們若也被記下來，真正該被看見的
+    // 那一行就會被埋掉 —— 這是這張票最容易做錯的一半。
+    expect(logged).toEqual([]);
   });
 });
