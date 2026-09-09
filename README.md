@@ -95,10 +95,10 @@ structural rows below them — and exits non-zero if any is over budget.
 
 | Metric | Budget | Measured |
 |---|---|---|
-| Package size, unpacked | < 3 MB | **571,512 B** (18% of the gate) |
-| Cold start, `nook --version` from the packed tarball | < 500 ms | **≈31 ms** |
+| Package size, unpacked | < 3 MB | **597,116 B** (19% of the gate) |
+| Cold start, `nook --version` from the packed tarball | < 500 ms | **≈25 ms** |
 | Concurrent merge of one issue on two branches | zero conflicts | **0** |
-| Agent tokens, 40-issue scenario | < 4.5 KB | **4,026 B** |
+| Agent tokens, 40-issue scenario | < 4.5 KB | **4,102 B** |
 
 The size and cold-start numbers are measured against the tarball `npm pack`
 produces, not against `src/` — only the tarball reflects what you actually
@@ -115,7 +115,7 @@ Two more rows exist because those four cannot see what they need to see:
 
 | Row | Budget | Measured |
 |---|---|---|
-| studio assets, `dist/studio/` | < 768 KB | **421,310 B** |
+| studio assets, `dist/studio/` | < 768 KB | **440,322 B** |
 | React markers in `dist/cli/run.js` | 0 | **0** |
 
 studio is three quarters of the package, so it could grow by half and package
