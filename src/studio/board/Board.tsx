@@ -10,6 +10,7 @@ import { STATUS_ORDER, groupByStatus } from '@/statuses';
 import { CardFace } from './Card';
 import { Column } from './Column';
 import type { DragState } from './Column';
+import { NewIssueForm, useNewIssueEntry } from './NewIssueForm';
 import { announceCancel, announceDrop, announceGrab, announceOver, dragInstructions } from './announce';
 import { boardCollision, columnKeyboardCoordinates, draggedIssue, statusOf } from './dnd';
 
@@ -55,6 +56,15 @@ export interface BoardProps {
    * `RELEASE` 會把押後的快照套兩次。
    */
   readonly onRelease: () => void;
+  /**
+   * 開一張新的 Issue。`status` 是 `undefined` 時不指定，由 core 決定落點
+   * （`backlog`）—— header 那顆按鈕就是這種，欄頂的八個 `+` 各自帶著自己那一欄。
+   *
+   * **回 `false` 表示沒建成**，表單靠它決定要不要清空輸入框。新增刻意不做樂觀
+   * 更新：新 Issue 的 ULID 由 server 產生，client 沒有 id 可以先畫
+   * （`reconcile.ts` 的 `CREATED`），所以看板在回應到達之前不會多出任何東西。
+   */
+  readonly onCreate: (title: string, status: Status | undefined) => Promise<boolean>;
 }
 
 export function Board({
@@ -64,9 +74,13 @@ export function Board({
   onMove,
   onGrab,
   onRelease,
+  onCreate,
 }: BoardProps): React.JSX.Element {
   const [dragging, setDragging] = useState<DragState | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  // header 上的入口。八欄各自還有一個，各自獨立開合 —— 開著的那個表單屬於
+  // 開它的那個入口，而焦點要還給的也正是那一顆按鈕（`NewIssueForm.tsx`）。
+  const entry = useNewIssueEntry();
 
   const sensors = useSensors(
     // 4px 的門檻讓「點一下開細節」與「拖走」分得開。
@@ -155,6 +169,13 @@ export function Board({
     >
       <header className="flex shrink-0 items-center gap-3">
         <span className="text-muted-foreground text-xs">{visible.length} 張 Issue</span>
+        {/* 本批先放在這條既有的 header 上；B1 會把 header 整條重整。 */}
+        <Button {...entry.trigger} type="button" size="sm">
+          新增 Issue
+        </Button>
+        {/* 不帶 `status` —— header 這顆問的是「開一張」，不是「在哪一欄開一張」，
+            落點由 core 的預設回答。 */}
+        {entry.open && <NewIssueForm onCreate={onCreate} onCancel={entry.close} className="w-64" />}
         {archivedCount > 0 && (
           <Button
             variant="ghost"
@@ -186,6 +207,7 @@ export function Board({
               selectedId={selectedId}
               onSelect={onSelect}
               dragging={dragging}
+              onCreate={onCreate}
             />
           ))}
         </div>

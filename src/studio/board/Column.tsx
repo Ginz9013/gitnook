@@ -1,11 +1,14 @@
 import { useDroppable } from '@dnd-kit/core';
+import { PlusIcon } from 'lucide-react';
 
 import type { IssueView, Status } from '@/api';
 import type { ProjectedIssue } from '@/reconcile';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 import { Card } from './Card';
 import type { DraggedIssue } from './dnd';
+import { NewIssueForm, useNewIssueEntry } from './NewIssueForm';
 
 /** 拖曳中的那一張 Issue：從哪個 Status 來、叫什麼。 */
 export interface DragState extends DraggedIssue {
@@ -20,6 +23,15 @@ export interface ColumnProps {
   readonly selectedId: string | null;
   readonly onSelect: (id: string) => void;
   readonly dragging: DragState | null;
+  /**
+   * 在**這一欄**開一張 Issue。欄頂的 `+` 把 `status` 當預設值送出去 —— 那是
+   * 看板這個版面唯一比 CLI 好的地方，所以八欄都有，含 `queued`（D15，使用者
+   * 明確裁決）。八欄一視同仁，這裡不例外（ADR-0010）。
+   *
+   * **必填。** 同 `Board` 的 `onGrab`：可選的接線少傳時編得過、跑得動、沒有
+   * 任何錯誤，只是那一欄的 `+` 從此什麼都不會發生。
+   */
+  readonly onCreate: (title: string, status: Status | undefined) => Promise<boolean>;
 }
 
 /**
@@ -44,7 +56,9 @@ export function Column({
   selectedId,
   onSelect,
   dragging,
+  onCreate,
 }: ColumnProps): React.JSX.Element {
+  const entry = useNewIssueEntry();
   // droppable 的 id 就是 Status —— 放下時不必再查表。
   const { isOver, setNodeRef } = useDroppable({ id: status });
   const targeted = isOver && dragging !== null;
@@ -61,10 +75,29 @@ export function Column({
         targeted && TARGET_STYLE[effect],
       )}
     >
-      <header className="flex items-center gap-2 border-b px-3 py-2">
-        {/* 八個欄頭長得一模一樣：名字與張數，沒有任何一欄多一個東西（ADR-0010）。 */}
-        <h2 className="font-mono text-xs font-medium">{status}</h2>
-        <span className="text-muted-foreground text-xs">{issues.length}</span>
+      <header className="flex flex-col gap-2 border-b px-3 py-2">
+        {/* 八個欄頭長得一模一樣：名字、張數，加上一顆 `+`。沒有任何一欄多一個
+            東西，也沒有任何一欄少一個（ADR-0010）。 */}
+        <div className="flex items-center gap-2">
+          <h2 className="font-mono text-xs font-medium">{status}</h2>
+          <span className="text-muted-foreground text-xs">{issues.length}</span>
+          <Button
+            {...entry.trigger}
+            type="button"
+            variant="ghost"
+            size="icon"
+            // 八顆按鈕都叫「新增」時，螢幕閱讀器唸出來的是八個一模一樣的東西，
+            // 使用者分不出自己按的是哪一欄 —— 而「哪一欄」正是這顆按鈕全部的
+            // 意義所在。
+            aria-label={`在 ${status} 新增 Issue`}
+            className="ml-auto size-6"
+          >
+            <PlusIcon />
+          </Button>
+        </div>
+        {entry.open && (
+          <NewIssueForm status={status} onCreate={onCreate} onCancel={entry.close} />
+        )}
       </header>
 
       <ul className="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2">

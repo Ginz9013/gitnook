@@ -91,6 +91,7 @@ export function isBoardSnapshot(value: unknown): value is BoardSnapshot {
 const BOARD_URL = '/api/board';
 const HASH_URL = '/hash';
 const ISSUE_PREFIX = '/i/';
+const ISSUES_URL = '/api/issues';
 
 /**
  * `isShape` 是必填而不是選填：這個位置以前是 `as T`，而 `as T` 對編譯器來說
@@ -169,23 +170,55 @@ export async function fetchHash(signal?: AbortSignal): Promise<string> {
 export async function postChange(ref: string, change: Change): Promise<IssueView> {
   // ref 是 server 給的 ULID（只有 [0-9A-Z]），編碼對它是恆等變換；寫出來是
   // 為了讓「路徑片段就是路徑片段」這件事不必靠 id 的字元集來成立。
-  const url = `${ISSUE_PREFIX}${encodeURIComponent(ref)}`;
+  return await postJson(`${ISSUE_PREFIX}${encodeURIComponent(ref)}`, change);
+}
+
+/**
+ * 一次新增 —— `POST /api/issues`。**新增是唯一不走 `POST /i/<ref>` 的寫入**，
+ * 理由就寫在簽章裡：建立的那一刻還沒有 ref 可以放進 URL。
+ *
+ * **`status` 省略時就不送那個鍵**，而不是自己填一個 `'backlog'`。預設值是
+ * `board.create()` 的決定（core 那一份），這裡填一個等於把它抄成第二份 ——
+ * 兩份預設值哪天分岔了，畫面與 `nook new` 會把同一個「不指定」開到不同的欄裡。
+ * 看板欄頂的 `+` 給的是那一欄的 Status，header 那顆什麼都不給。
+ *
+ * **只送 `title` 與 `status`。** 端點對不認得的欄位回 400 而不是忽略
+ * （`handler.ts` 的 `CREATE_FIELDS`），同 `postChange` 的規則。
+ */
+export async function createIssue(title: string, status?: Status): Promise<IssueView> {
+  return await postJson(ISSUES_URL, status === undefined ? { title } : { title, status });
+}
+
+/**
+ * 一次 JSON 寫入。**兩個寫入端點共用這一份，這是刻意的。**
+ *
+ * 拆出來的理由與 `postChange` 當初被拖曳與 drawer 共用是同一個：兩處各寫一次
+ * fetch 慣例（method、content-type、錯誤訊息的形狀、回應怎麼解）遲早會分歧，
+ * 而分歧的那一半是靜默的 —— 少一個 content-type 只換來一個 400，看起來像是
+ * 使用者的資料有問題。錯誤訊息尤其：`App.tsx` 的失敗橫幅直接顯示 `err.message`，
+ * 新增與編輯失敗時那句話應該長得一樣。
+ *
+ * 回應**不做形狀檢查**，與 `getJson` 不同：`getJson` 擋的是「打錯 port，另一個
+ * server 在那裡回了 JSON」，而那件事在開場第一次 `/api/board` 就會被抓到；
+ * 走到這裡表示已經有一份合法的快照，寫入的對象是同一個 server。
+ */
+async function postJson<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(change),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     // body 只讀得到一次，所以先取出來 —— 這句話同時進 `message`（寫入失敗的
     // 橫幅直接顯示它，一個字不變）與 `detail`。
-    const body = await res.text();
-    const detail = body.trim();
+    const text = await res.text();
+    const detail = text.trim();
     throw new HttpError(
       url,
       res.status,
-      `${url} 回了 ${res.status}：${body}`,
+      `${url} 回了 ${res.status}：${text}`,
       detail === '' ? null : detail,
     );
   }
-  return (await res.json()) as IssueView;
+  return (await res.json()) as T;
 }

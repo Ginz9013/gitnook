@@ -4,7 +4,7 @@ import { Board } from '@/board/Board';
 import { focusIssue } from '@/board/focus';
 import { IssueDrawer } from '@/drawer/IssueDrawer';
 import type { DrawerChange } from '@/drawer/changes';
-import { fetchBoard, postChange } from '@/api';
+import { createIssue, fetchBoard, postChange } from '@/api';
 import type { IssueView, Status } from '@/api';
 import { clientReduce, initialClient, project } from '@/reconcile';
 import type { ClientAction, ClientState } from '@/reconcile';
@@ -17,7 +17,7 @@ type Client = ClientState<IssueView>;
  * SPA 的殼裡唯一的組件 —— composition root。
  *
  * 它持有的東西剛好是「不屬於任何一個目錄」的那些：**一份**調和 state
- * （`reconcile.ts`）、**一份**寫入面（`api.ts` 的 `postChange`）、輪詢迴圈，
+ * （`reconcile.ts`）、**一份**寫入面（`api.ts` 的 `postChange` 與 `createIssue`）、輪詢迴圈，
  * 以及 drawer 開在哪一張。看板（`board/`）與 drawer（`drawer/`）都不持有
  * 樂觀狀態：兩份樂觀模型會分歧，而分歧的樣子是「同一張 Issue 看板上停在 A，
  * drawer 說它在 B」。
@@ -162,6 +162,31 @@ export function App(): React.JSX.Element {
     [send],
   );
 
+  /**
+   * 一次新增。**與 `send` 不同，這裡沒有樂觀的那一半** —— 新 Issue 的 ULID 由
+   * server 產生，client 手上沒有 id 可以先畫（`reconcile.ts` 的 `CREATED`）。
+   * 所以順序是反過來的：先 `POST`，回應到了才把那張接進快照。
+   *
+   * 失敗走的是同一條 `failed` 橫幅（`postChange` 那條路徑同款），另外回一個
+   * `false` 給表單 —— 那句剛打好的標題是使用者手上唯一的一份，沒建成就不該
+   * 被清掉。
+   */
+  const onCreate = useCallback(
+    (title: string, status: Status | undefined): Promise<boolean> =>
+      createIssue(title, status).then(
+        (issue) => {
+          apply({ type: 'CREATED', issue });
+          setFailed(null);
+          return true;
+        },
+        (err: unknown) => {
+          setFailed(err instanceof Error ? err.message : String(err));
+          return false;
+        },
+      ),
+    [apply],
+  );
+
   const onGrab = useCallback((id: string) => void apply({ type: 'GRAB', issueId: id }), [apply]);
   const onRelease = useCallback(() => void apply({ type: 'RELEASE' }), [apply]);
 
@@ -210,6 +235,7 @@ export function App(): React.JSX.Element {
         onMove={onMove}
         onGrab={onGrab}
         onRelease={onRelease}
+        onCreate={onCreate}
       />
       <IssueDrawer
         issue={selected}
