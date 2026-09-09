@@ -2,3 +2,4 @@
 {"id":"01M22PB08TT1AMXYXN6X3SJVKA","t":2,"a":"83a1","op":"set","k":"description","v":"票 08 的 worker 實測到的，不是推論。\n\nTailwind v4 的自動來源偵測會掃 README.md 與 AGENT.md。它用 git show HEAD 的舊版文件重建，studio.css 是 33,609 B；換成新文件是 33,627 B，而 CSS 規則的差異恰好是多出一條 .grow{flex-grow:1} —— 從散文裡的英文字 \"grow\" 收割來的。\n\n每一個使用者都會下載那條沒有用的規則。今天很小，但原則上沒有上界：文件寫得越多，漏進去的越多。\n\n修法是在 src/studio/index.css 或 vite 設定裡用 @source 明確限制掃描範圍到 src/studio。屬於設定檔，超出票 08 的寫入範圍所以沒做。"}
 {"id":"01M22PB08T06MP9JE2DWERR43P","t":3,"a":"83a1","op":"label.add","v":"studio"}
 {"id":"01M22PB08TSMSDK27BBYJDB66V","t":4,"a":"83a1","op":"label.add","v":"bug"}
+{"id":"01M22QF8TBP3C3TPS91WDGKQ76","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}

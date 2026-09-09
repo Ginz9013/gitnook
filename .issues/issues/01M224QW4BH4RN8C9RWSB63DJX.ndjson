@@ -4,3 +4,4 @@
 {"id":"01M22BXAFANNQ58BMFAX6XA0WE","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M22EFCX8YZ2GBEX80H9P5BBD","t":5,"a":"83a1","op":"set","k":"status","v":"review"}
 {"id":"01M22EFD0MX7D9D8E55557JQ1P","t":6,"a":"83a1","op":"comment","body":"完成（ce80e16）。四條規則各自有紅燈證據。順帶修掉 prototype 的一個 bug：DROP 原本只設 drag: null，deferred 留在 state 裡，下一次不相干的 RELEASE 會套用古老快照讓卡片憑空跳一下 —— 我那四個情境都沒走到那條路徑。"}
+{"id":"01M22QF89QWF6AYXT3VVN5M8WD","t":7,"a":"83a1","op":"set","k":"status","v":"done"}

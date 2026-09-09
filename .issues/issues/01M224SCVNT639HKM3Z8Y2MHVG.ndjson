@@ -6,3 +6,4 @@
 {"id":"01M22FM9847EN0VWBCZTSVHR0T","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M22NG4SPDBR55ADAVBQFZ2NC","t":7,"a":"83a1","op":"set","k":"status","v":"review"}
 {"id":"01M22NG4V0M88JQK20AGBYXWXT","t":8,"a":"83a1","op":"comment","body":"三條卡住的驗收條件已由票 11（shortId）與票 12（App 接線）補齊。票 12 的 worker 用 headless Chrome 走 CDP 真實驗證過滑鼠拖曳與鍵盤拖曳，op-log 留下十筆真實的 op。"}
+{"id":"01M22QF8D274KGXWYAAJK3KHY4","t":9,"a":"83a1","op":"set","k":"status","v":"done"}
