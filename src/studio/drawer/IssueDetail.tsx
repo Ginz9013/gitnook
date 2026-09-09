@@ -7,6 +7,7 @@ import { SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet
 import type { IssueView } from '@/api';
 import type { ProjectedIssue } from '@/reconcile';
 import { CommentTimeline } from './CommentTimeline';
+import { HistoryPanel } from './HistoryPanel';
 import { LabelEditor } from './LabelEditor';
 import { StatusPicker } from './StatusPicker';
 import {
@@ -92,6 +93,12 @@ export function IssueDetail({ projected, onSubmit }: IssueDetailProps): React.JS
           unconfirmed={projected.unconfirmed}
           onSubmit={submit}
         />
+
+        {/*
+          變更歷史接在留言下面，預設收合，展開時才 fetch（票 B7）。它與上面
+          那些欄位不同：那些是每天在用的，這個是出事才來看的。
+        */}
+        <HistoryPanel issueId={projected.id} />
 
         <IssueActions
           shortId={shown.shortId}

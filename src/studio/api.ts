@@ -1,4 +1,11 @@
-import type { BoardInfo, BoardSnapshot, CommentView, IssueView } from '../server/handler.js';
+import type {
+  BoardInfo,
+  BoardSnapshot,
+  CommentView,
+  IssueHistory,
+  IssueView,
+  WriteView,
+} from '../server/handler.js';
 import type { Change, Status } from '../core/types.js';
 
 /**
@@ -9,7 +16,16 @@ import type { Change, Status } from '../core/types.js';
  * 反向也一樣：`src/cli/run.ts` 的 import 鏈永遠碰不到 React（ADR-0008）。
  * 只要有人把其中一條改成值的 import，這條保證就沒了。
  */
-export type { BoardInfo, BoardSnapshot, Change, CommentView, IssueView, Status };
+export type {
+  BoardInfo,
+  BoardSnapshot,
+  Change,
+  CommentView,
+  IssueHistory,
+  IssueView,
+  Status,
+  WriteView,
+};
 
 /**
  * 伺服器**答了**，但答的是一個錯誤狀態碼。
@@ -112,11 +128,25 @@ export function isBoardInfo(value: unknown): value is BoardInfo {
   );
 }
 
+/**
+ * 這塊 body 是不是一份 `IssueHistory` —— 只看頂層，同 `isBoardSnapshot`。
+ *
+ * **逐列驗型別是刻意不做的。** 那等於在 client 上放第二份 `WriteView` 的定義，
+ * 而兩份定義遲早分岔：server 哪天多送一個欄位，畫面會說「那個 port 上跑的不是
+ * nook studio」，而伺服器答得好好的。這裡要擋的只有「打錯 port，另一個 server
+ * 在那裡回了 JSON」。
+ */
+export function isIssueHistory(value: unknown): value is IssueHistory {
+  if (value === null || typeof value !== 'object') return false;
+  return Array.isArray((value as { writes?: unknown }).writes);
+}
+
 const BOARD_URL = '/api/board';
 const BOARD_INFO_URL = '/api/board-info';
 const HASH_URL = '/hash';
 const ISSUE_PREFIX = '/i/';
 const ISSUES_URL = '/api/issues';
+const HISTORY_PREFIX = '/api/history/';
 
 /**
  * `isShape` 是必填而不是選填：這個位置以前是 `as T`，而 `as T` 對編譯器來說
@@ -188,6 +218,21 @@ export async function fetchHash(signal?: AbortSignal): Promise<string> {
     throw new HttpError(HASH_URL, res.status, `${HASH_URL} 回了 ${res.status}`, await said(res));
   }
   return await res.text();
+}
+
+/**
+ * 一張 Issue 上每一次對 LWW 欄位的寫入 —— `GET /api/history/<ref>`。
+ *
+ * **只在有人展開歷史區塊時才叫**，不在開 drawer 時（票 B7）：多數人不會展開它，
+ * 而每開一次 drawer 就多讀一次 op-log 是替不會發生的事付錢。
+ *
+ * **已刪的 Issue 照樣讀得到，而且是 200**（`handler.ts` 的 `issueHistory`）——
+ * 那正是誤刪的救生索，drawer 的刪除確認框就是這樣答應使用者的。
+ */
+export function fetchHistory(ref: string, signal?: AbortSignal): Promise<IssueHistory> {
+  // 同 `postChange`：ref 是 ULID，編碼對它是恆等變換；寫出來是為了讓
+  // 「路徑片段就是路徑片段」不必靠 id 的字元集來成立。
+  return getJson(`${HISTORY_PREFIX}${encodeURIComponent(ref)}`, isIssueHistory, signal);
 }
 
 /**
