@@ -1083,8 +1083,11 @@ describe('history', () => {
     expect(await run(['history', '01JBXA'], io)).toBe(0);
 
     // 敗方（t=2）與勝方（t=3）都在，而 show 只看得到勝方。
+    // create 那一筆（t=1）是 title 的第一次寫入，排在同一個時間序的最前面（A12）。
     expect(io.out).toBe(
-      '2  alice  description  alice 的原稿\n' + '3  bob    description  bob 蓋掉的版本\n',
+      '1  alice  title        Fix login redirect\n' +
+        '2  alice  description  alice 的原稿\n' +
+        '3  bob    description  bob 蓋掉的版本\n',
     );
     expect(io.err).toBe('');
   });
@@ -1103,7 +1106,10 @@ describe('history', () => {
 
     // 有多行的值時，值一律另起 —— 否則讀者無從得知一個值在哪裡結束。
     expect(io.out).toBe(
-      '2  alice  description\n' +
+      '1  alice  title\n' +
+        'Fix login redirect\n' +
+        '\n' +
+        '2  alice  description\n' +
         'Repro:\n1. 開啟 /login\n2. 轉圈\n' +
         '\n' +
         '3  bob    description\n' +
@@ -1150,7 +1156,9 @@ describe('history', () => {
 
     expect(io.err).toContain('merge=union');
     // 警告走 stderr，資料照樣讀得到。
-    expect(io.out).toBe('2  alice  description  alice 的原稿\n');
+    expect(io.out).toBe(
+      '1  alice  title        Fix login redirect\n' + '2  alice  description  alice 的原稿\n',
+    );
   });
 
   /**
@@ -1177,10 +1185,115 @@ describe('history', () => {
 
     const io = capture();
 
+    expect(await run(['history', '01JBXA', 'description'], io)).toBe(0);
+
+    // 這張 Issue 只有一個 create op，description 因此真的一次都沒被寫過。
+    // （原本這條問的是不帶欄位的 history —— 但 create 就是 title 的第一次寫入，
+    // 那份清單不再是空的，A12。空清單訊息要有一個真的觸發得到它的欄位。）
+    expect(io.out).toBe('沒有 set op\n');
+  });
+});
+
+/**
+ * A12：`create` op **就是** `title` 的第一次寫入。它被 `history` 濾掉之前，
+ * 「`history` 列出每一次對某個欄位的寫入」這句話對最常見的那張 Issue 是假的 ——
+ * 刪掉一張從沒改過標題的 Issue，然後撈不回它叫什麼。
+ */
+describe('history 與 create op 寫下的標題', () => {
+  const asActor = (actor: string, seed: string) =>
+    openBoard({ dir, actor, ids: seeded(fullId(seed)) });
+
+  it('nook new 之後直接 history <ref> —— create 那次寫下的標題列得出來', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({ title: '標題只在 create op 裡' });
+
+    const io = capture();
+
     expect(await run(['history', '01JBXA'], io)).toBe(0);
 
-    // create 帶的 title 不是 set op —— 它是這張 Issue 的第一行，不是一次改寫。
+    // 欄位與 set 那幾行一致：lamport t、actor、欄位名、值。
+    expect(io.out).toBe('1  alice  title  標題只在 create op 裡\n');
+    expect(io.err).toBe('');
+  });
+
+  it('history <ref> title 對一張從沒 set 過 title 的 Issue —— 不是一份空清單', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA', 'title'], io)).toBe(0);
+
+    // 空清單等於告訴呼叫端「這個欄位從沒被寫過」——「沒有 set op」在這裡是假話。
+    expect(io.out).toBe('1  alice  title  Fix login redirect\n');
+    expect(io.out).not.toBe('沒有 set op\n');
+  });
+
+  it('create 之後又改過標題 —— 兩筆都在，create 那筆在前（t 較小）', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({ title: 'Fix login redirect' });
+    asActor('bob', '01ZZZA').apply('01JBXA', { title: 'Fix login redirect on Safari' });
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA', 'title'], io)).toBe(0);
+
+    // 同一個時間序上：`opLog` 已經是 orderOps 的全序，create 因此自己就落在最前面。
+    expect(io.out).toBe(
+      '1  alice  title  Fix login redirect\n' + '2  bob    title  Fix login redirect on Safari\n',
+    );
+  });
+
+  it('history <ref> status 不受影響 —— create 不寫 status，清單不該多出東西', async () => {
+    await run(['init'], capture());
+    // --status 產生的是一筆真的 set，它本來就在；create 那一筆不該混進來。
+    asActor('alice', '01JBXA').create({ title: 'Fix login redirect', status: 'queued' });
+    asActor('bob', '01ZZZA').apply('01JBXA', { status: 'in_progress' });
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA', 'status'], io)).toBe(0);
+
+    expect(io.out).toBe('2  alice  status  queued\n' + '3  bob    status  in_progress\n');
+  });
+
+  it('沒寫過 status 的 Issue：history <ref> status 仍然是空的 —— create 不是一次 status 寫入', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({ title: 'Fix login redirect' });
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA', 'status'], io)).toBe(0);
+
     expect(io.out).toBe('沒有 set op\n');
+  });
+
+  it('history <ref> deleted 對一張被刪的 Issue —— 仍然只有那一筆刪除', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({ title: '標題只在 create op 裡' });
+    await run(['rm', '01JBXA', '--yes'], capture());
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA', 'deleted'], io)).toBe(0);
+
+    expect(io.out.trimEnd().split('\n')).toHaveLength(1);
+    expect(io.out).toContain('deleted  true');
+    expect(io.out).not.toContain('標題只在 create op 裡');
+  });
+
+  /** 票面那份重現：刪掉一張從沒改過標題的 Issue，然後撈得回它叫什麼。 */
+  it('刪掉之後 history <ref> 撈得回它叫什麼 —— rm 與 show 指著這個指令說的那句話', async () => {
+    await run(['init'], capture());
+    asActor('alice', '01JBXA').create({ title: '標題只在 create op 裡' });
+    await run(['rm', '01JBXA', '--yes'], capture());
+
+    const io = capture();
+
+    expect(await run(['history', '01JBXA'], io)).toBe(0);
+
+    expect(io.out).toContain('標題只在 create op 裡');
+    expect(io.out).toContain('deleted  true');
   });
 });
 

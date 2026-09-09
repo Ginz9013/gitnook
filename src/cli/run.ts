@@ -26,7 +26,7 @@ import {
 import { renderJson } from '../render/json.js';
 import { renderSetOps, renderTable } from '../render/table.js';
 import { PortInUse, serve } from '../server/serve.js';
-import type { SetOp } from '../core/ops.js';
+import type { Op, SetOp } from '../core/ops.js';
 import type { Board, Change, CreateInput, Filter } from '../core/types.js';
 
 /**
@@ -459,6 +459,21 @@ const SETTABLE = ['title', 'description', 'status', 'archived', 'deleted'] as co
 type Field = (typeof SETTABLE)[number];
 
 /**
+ * `create` op **就是** 對 `title` 的第一次寫入 —— 「第一行」與「一次改寫」是同
+ * 一件事的兩種寫法，而讀者要找的是「這個欄位被寫過什麼」。把它折成一筆 title
+ * 寫入，`history` 列出的才真的是每一次寫入；濾掉它，一張從沒 `set` 過標題的
+ * Issue 就會回一份空清單，等於告訴呼叫端「這個欄位從沒被寫過」。
+ *
+ * 折疊擺在**渲染之前的呼叫端**，而不是讓 `renderSetOps` 認得 `create`：
+ * 渲染層有 golden 檔，而既有 `set` 行的輸出一個字都不該動。
+ *
+ * 順序不在這裡碰：`opLog` 回的已經是 `orderOps` 的全序（board.ts:113），
+ * create 因此自己就落在 t 最小的位置。另寫一份比較器就是第二個真相。
+ */
+const asWrite = (op: Op): Op =>
+  op.op === 'create' ? { id: op.id, t: op.t, a: op.a, op: 'set', k: 'title', v: op.title } : op;
+
+/**
  * 一張 Issue 的 Op-log 中的 set Op —— 每一次對 LWW 欄位的寫入，誰寫的、
  * 在哪個 lamport `t`、寫成什麼。
  *
@@ -467,8 +482,9 @@ type Field = (typeof SETTABLE)[number];
  * 拿得回來 —— **刻意不做 restore**，那是 append 一個新 Op 把舊值寫回去，不是
  * 「回到過去」，語意值得單獨定。
  *
- * 只列 set op：label 是 OR-Set、comment 只增不減，兩者都不會弄丟東西，而
- * comment 在 `show` 就看得到。**本指令唯讀，不 append 任何 Op。**
+ * 只列對 LWW 欄位的寫入：`create` 折成 title 的第一次寫入（`asWrite`），label 是
+ * OR-Set、comment 只增不減，兩者都不會弄丟東西，而 comment 在 `show` 就看得到。
+ * **本指令唯讀，不 append 任何 Op。**
  */
 function cmdHistory(args: Args, io: Io): number {
   const [ref, field] = args.positional;
@@ -483,6 +499,7 @@ function cmdHistory(args: Args, io: Io): number {
   const board = openBoard({ dir: io.cwd });
   const ops = board
     .opLog(ref)
+    .map(asWrite)
     .filter((op): op is SetOp => op.op === 'set' && (field === undefined || op.k === field));
   // 同 list / show：單點失效的監看擺在讀完之後，board 不存在時該說的是
   // 「先跑 nook init」而不是兩個問題。
