@@ -28,6 +28,14 @@ export interface ReconcileIssue {
   readonly description: string;
   readonly labels: readonly string[];
   readonly archived: boolean;
+  /**
+   * 墓碑（ADR-0009 / D1）。刪除是 `set deleted=<bool>` 這個 LWW 欄位，不是新的
+   * op 型別、也不是 unlink 檔案 —— 所以它跟 `archived` 一樣，只是摺疊出來的一格。
+   *
+   * 調和只在**一個地方**用到它：ACK 帶回 `true` 時把那張移出快照（見 clientReduce）。
+   * `project()` 不看它 —— 移除發生在快照上，投影不必知道有這回事。
+   */
+  readonly deleted: boolean;
   readonly comments: readonly ReconcileComment[];
 }
 
@@ -93,7 +101,8 @@ export type ClientAction<I extends ReconcileIssue = ReconcileIssue> =
   | { readonly type: 'EDIT'; readonly issueId: string; readonly change: ReconcileChange }
   | { readonly type: 'ACK'; readonly seq: number; readonly issue: I }
   | { readonly type: 'FAIL'; readonly seq: number }
-  | { readonly type: 'POLL'; readonly issues: readonly I[] };
+  | { readonly type: 'POLL'; readonly issues: readonly I[] }
+  | { readonly type: 'CREATED'; readonly issue: I };
 
 /** 有樂觀值覆蓋著的欄位。 */
 export type OptimisticField = 'title' | 'description' | 'status' | 'labels' | 'archived';
@@ -209,6 +218,13 @@ export function clientReduce<I extends ReconcileIssue>(
       // 它送出的那張 issue，也就是畫面上還掛著樂觀值的那張。
       const lands =
         action.issue.id === p.issueId && state.snapshot.some((i) => i.id === action.issue.id);
+      // 伺服器說這張已經**刪掉**了（D1 的 `set deleted=true`）。落得到快照上時，
+      // 這則 ACK 做的事不是「覆蓋那一格」而是「拿掉那一格」—— 照原本覆蓋會在畫面
+      // 上留下一張已刪但仍然畫著的卡片，而且點得開、拖得動。
+      //
+      // 這不算落空：ACK 確實對上了快照裡的那一格，只是它做的是移除，所以 `lands`
+      // 仍然是 true、`unmatchedAck` 不該被點亮。
+      const removed = lands && action.issue.deleted;
       return {
         ...state,
         unmatchedAck: lands ? state.unmatchedAck : { seq: action.seq, issueId: p.issueId },
@@ -217,10 +233,17 @@ export function clientReduce<I extends ReconcileIssue>(
         // pending 上，而它帶的是已經被 seq2 取代的舊值 —— 卡片當場閃回舊欄位。
         // 限縮在同一張 issue 是必要的：seq 是整塊 board 共用的流水號，掃掉別張
         // issue 還在飛的變更，就是把同一個閃動搬到另一張卡片上。
-        pending: state.pending.filter((x) => x.seq > action.seq || x.issueId !== p.issueId),
-        snapshot: lands
-          ? state.snapshot.map((i) => (i.id === action.issue.id ? action.issue : i))
-          : state.snapshot,
+        // 這張離開快照時，它身上**所有**還在飛的變更一併退場，不只是 `seq <=
+        // action.seq` 那些：更晚送出的那些之後永遠不會上畫面（`project()` 只走
+        // 快照，那張已經不在了），卻會在這張被復原、輪詢帶回來的那一刻整個冒出來。
+        pending: state.pending.filter(
+          (x) => x.issueId !== p.issueId || (!removed && x.seq > action.seq),
+        ),
+        snapshot: removed
+          ? state.snapshot.filter((i) => i.id !== action.issue.id)
+          : lands
+            ? state.snapshot.map((i) => (i.id === action.issue.id ? action.issue : i))
+            : state.snapshot,
       };
     }
 
@@ -238,6 +261,24 @@ export function clientReduce<I extends ReconcileIssue>(
       // 拖曳期間絕不改動畫面。押著，等放開再說 —— 代價是最多延遲一次輪詢間隔。
       if (state.drag !== null) return { ...state, deferred: action.issues };
       return applySnapshot(state, action.issues);
+
+    case 'CREATED':
+      // 新增**不做樂觀更新**：新 Issue 的 ULID 由 server 產生，client 沒有 id
+      // 可以先畫，而 loopback 上一次全量摺疊是 14ms（ADR-0002 實測）。發明一個
+      // 暫時 id 再回頭認領，買到的是十幾毫秒，付的是調和模型上第二種「這張還不
+      // 存在」的狀態。所以這裡只做一件事：把 server 回來的那張接進快照尾端。
+      //
+      // 已經在快照裡就什麼都不做 —— 輪詢跑在 POST 回應之前時就是這個情況。無條件
+      // append 會讓快照冒出兩張同 id 的卡片，而之後每一條「找那張 issue」的路徑
+      // （project、拖曳、drawer）都跟著錯。留著快照裡那份而不是換成回應這份：
+      // 回應帶的是**建立當下**摺疊出來的值，輪詢那份不會比它舊。
+      //
+      // **拖曳中不押後**（不同於 POLL）。規則三保護的是「手指按著的那張不被伺服器
+      // 抽走」，而新增與被抓著的那張無關 —— 押後它只會讓剛開好的 Issue 在放開之前
+      // 憑空消失一段時間。
+      return state.snapshot.some((i) => i.id === action.issue.id)
+        ? state
+        : { ...state, snapshot: [...state.snapshot, action.issue] };
   }
 }
 

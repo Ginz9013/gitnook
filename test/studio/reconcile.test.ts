@@ -216,6 +216,7 @@ const full = (id: string, over: Partial<ReconcileIssue> = {}): ReconcileIssue =>
   description: '內文',
   labels: ['bug'],
   archived: false,
+  deleted: false,
   comments: [{ id: 'c1', actor: 'ann@example.com', t: 1, body: '第一則' }],
   ...over,
 });
@@ -563,5 +564,144 @@ describe('ACK —— 回應帶的 issue.id 與 pending 的 issueId 不一致', (
 
     expect(acked.unmatchedAck).toEqual({ seq: 1, issueId: 'a1' });
     expect(acked.pending).toEqual([]);
+  });
+});
+
+// ---- 票 A5：CREATED 進快照、`deleted` 的 ACK 離開快照 ----
+
+// 新增不做樂觀更新：新 Issue 的 ULID 由 server 產生，client 沒有 id 可以先畫。
+// `CREATED` 只做一件事 —— 把 server 回來的那張接進快照尾端。
+describe('CREATED —— server 回來的新 issue 進快照', () => {
+  it('接在快照尾端，project() 含那張', () => {
+    const created = full('c3', { status: 'backlog', title: '剛開的' });
+
+    const state = clientReduce(initialClient(snap(['a1', 'todo'], ['b2', 'review'])), {
+      type: 'CREATED',
+      issue: created,
+    });
+
+    expect(state.snapshot.map((i) => i.id)).toEqual(['a1', 'b2', 'c3']);
+    expect(project(state).map((p) => p.id)).toEqual(['a1', 'b2', 'c3']);
+    expect(project(state)[2]!.shown).toEqual(created);
+  });
+});
+
+// 輪詢先一步把新開的那張帶回來了（POST 的回應比下一輪輪詢晚到）。少了這條，
+// 快照裡會冒出兩張同 id 的卡片 —— 而之後每一條「找那張 issue」的路徑（project、
+// 拖曳、drawer）都跟著錯，那正是票 01 記下的那個形狀。
+describe('CREATED —— 快照裡已經有那個 id 時', () => {
+  it('不重複加，快照原封不動', () => {
+    const polled = clientReduce(initialClient(snap(['a1', 'todo'])), {
+      type: 'POLL',
+      issues: snap(['a1', 'todo'], ['c3', 'backlog']),
+    });
+
+    const created = clientReduce(polled, {
+      type: 'CREATED',
+      // 建立當下摺疊出來的那張，比輪詢那份舊：輪詢跑在 POST 回應之前。
+      issue: full('c3', { status: 'backlog' }),
+    });
+
+    expect(created.snapshot.map((i) => i.id)).toEqual(['a1', 'c3']);
+    expect(created.snapshot).toEqual(polled.snapshot);
+  });
+});
+
+// 規則三押後的是 `POLL`：它保護的是「手指按著的那張不被伺服器抽走」。新增與被
+// 抓著的那張無關 —— 押後它只會讓剛開好的 Issue 在放開之前憑空消失一段時間。
+describe('CREATED —— 拖曳中不被押後', () => {
+  it('抓著卡片時新開的那張立刻進快照，deferred 不被動到', () => {
+    const held = clientReduce(initialClient(snap(['a1', 'todo'])), {
+      type: 'GRAB',
+      issueId: 'a1',
+    });
+
+    const created = clientReduce(held, { type: 'CREATED', issue: full('c3', { status: 'todo' }) });
+
+    expect(created.snapshot.map((i) => i.id)).toEqual(['a1', 'c3']);
+    expect(project(created).map((p) => p.id)).toEqual(['a1', 'c3']);
+    expect(created.deferred).toBeNull();
+    // 拖曳鎖本身不受影響：放開的仍然是 a1。
+    expect(created.drag).toEqual({ issueId: 'a1' });
+  });
+});
+
+// 刪除是 `set deleted=<bool>`（D1），所以它走的是既有的 `POST /i/<ref>` 與既有的
+// ACK。而現行的 ACK 是「用回應覆蓋那一格」—— 照做會在畫面上留下一張已刪但仍然
+// 畫著的卡片，而且點得開、拖得動。
+describe('ACK —— 回應帶 deleted: true', () => {
+  it('那張離開快照，它的 pending 一併結清', () => {
+    const state = reduceAll(
+      initialClient(snap(['a1', 'todo'], ['b2', 'backlog'])),
+      { type: 'EDIT', issueId: 'a1', change: { archived: true } }, // seq 1
+      { type: 'EDIT', issueId: 'a1', change: { title: '刪之前改的' } }, // seq 2
+      { type: 'ACK', seq: 2, issue: full('a1', { deleted: true }) },
+    );
+
+    expect(state.snapshot.map((i) => i.id)).toEqual(['b2']);
+    expect(project(state).map((p) => p.id)).toEqual(['b2']);
+    expect(state.pending).toEqual([]);
+    // 這則 ACK **落到了**快照上 —— 它做的事是移除而不是覆蓋。把它記成落空，
+    // 呼叫端會為了一次成功的刪除多抓一份快照。
+    expect(state.unmatchedAck).toBeNull();
+  });
+});
+
+// 刪除的回應飛回來的路上，同一張 issue 上可能還有更晚送出的寫入（drawer 上改了
+// 標題才按刪除，兩個 POST 各自在飛）。既有的 ACK 只清 `seq <= action.seq` ——
+// 剩下那筆之後永遠不會上畫面（`project()` 只走快照，那張已經不在了），卻會在
+// 這張被復原（`deleted false`）、輪詢帶回來的那一刻整個冒出來。
+describe('ACK —— deleted: true 之後那張 issue 上不留任何飛行中的變更', () => {
+  it('seq 比這則 ACK 更晚的 pending 也退場，別張 issue 的不受影響', () => {
+    const state = reduceAll(
+      initialClient(snap(['a1', 'todo'], ['b2', 'backlog'])),
+      { type: 'EDIT', issueId: 'a1', change: { title: '刪之前改的' } }, // seq 1
+      { type: 'EDIT', issueId: 'b2', change: { title: '別張的' } }, // seq 2
+      { type: 'EDIT', issueId: 'a1', change: { description: '刪之後才送出的' } }, // seq 3
+      // 刪除那一筆（seq 1）的回應現在到了，seq 3 還在飛。
+      { type: 'ACK', seq: 1, issue: full('a1', { deleted: true }) },
+    );
+
+    expect(state.snapshot.map((i) => i.id)).toEqual(['b2']);
+    expect(state.pending.map((p) => p.seq)).toEqual([2]);
+  });
+});
+
+// 規則三（ADR-0007）保護的是「手指按著的那張不被伺服器**移動**」。刪除不是移動：
+// 使用者刪的就是這一張，而留著一張抓不放的幽靈卡片，比在指標底下抽掉它更糟 ——
+// 放開之後它還會落回某一欄，然後每一次點擊都打在一張伺服器上已經不存在的 Issue 上。
+describe('ACK —— deleted: true 而那張正被抓著', () => {
+  it('仍然離開快照', () => {
+    const state = reduceAll(
+      initialClient(snap(['a1', 'todo'], ['b2', 'backlog'])),
+      { type: 'GRAB', issueId: 'a1' },
+      { type: 'EDIT', issueId: 'a1', change: { title: '抓著的時候改的' } }, // seq 1
+      { type: 'ACK', seq: 1, issue: full('a1', { deleted: true }) },
+    );
+
+    expect(state.snapshot.map((i) => i.id)).toEqual(['b2']);
+    expect(project(state).map((p) => p.id)).toEqual(['b2']);
+    expect(state.pending).toEqual([]);
+  });
+});
+
+// 復原走的是同一條 op（`deleted false`，D1），也回同一種 `IssueView`。移除的觸發
+// 條件因此必須是「`deleted` **是 true**」而不是「回應帶了 `deleted` 這個欄位」——
+// 後者會把每一則正常的 ACK 都當成刪除。
+describe('ACK —— 回應帶 deleted: false', () => {
+  it('照常蓋回那一格，那張留在快照上', () => {
+    const answered = full('a1', { status: 'review', title: '伺服器上的標題', deleted: false });
+
+    const state = reduceAll(
+      initialClient(snap(['a1', 'todo'], ['b2', 'backlog'])),
+      { type: 'EDIT', issueId: 'a1', change: { title: '我改的標題' } }, // seq 1
+      { type: 'ACK', seq: 1, issue: answered },
+    );
+
+    expect(state.snapshot.map((i) => i.id)).toEqual(['a1', 'b2']);
+    expect(project(state)[0]!.shown).toEqual(answered);
+    expect(project(state)[0]!.optimistic).toEqual(new Set());
+    expect(state.pending).toEqual([]);
+    expect(state.unmatchedAck).toBeNull();
   });
 });
