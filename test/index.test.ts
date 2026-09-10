@@ -19,6 +19,9 @@ describe('src/index.ts 的公開匯出', () => {
         'repair',
         // 唯讀檢視器。handleRequest 是它的內部零件，不是公開面。
         'serve',
+        // workspace 版的唯讀檢視器 —— landing page，點了才啟動子 serve()，
+        // 一上公開面就是相容承諾，同 serve。
+        'serveWorkspace',
         // 八個固定 Status 是領域模型的一部分，呼叫端要據以分欄或驗證輸入。
         'STATUSES',
         // 錯誤型別：呼叫端要 instanceof 才能分辨「使用者修得好」與「回報 bug」。

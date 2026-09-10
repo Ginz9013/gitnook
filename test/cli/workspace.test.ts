@@ -25,13 +25,14 @@ interface Capture extends Io {
   err: string;
 }
 
-function capture(cwd: string = root): Capture {
+function capture(opts: { cwd?: string; signal?: AbortSignal } = {}): Capture {
   return {
     out: '',
     err: '',
-    cwd,
+    cwd: opts.cwd ?? root,
     env: {},
     isTty: false,
+    ...(opts.signal === undefined ? {} : { signal: opts.signal }),
     write(text: string) {
       this.out += text;
     },
@@ -319,5 +320,61 @@ describe('dispatchWorkspace doctor --fix', () => {
     expect(io.out).not.toContain('pkgs/b');
     // 修完之後那條 GluedLine 不該再出現 —— --fix 修的是真正的檔案。
     expect(code).toBe(0);
+  });
+});
+
+/** 長駐指令（studio）的關閉信號。測試失敗時也一定要收乾淨，否則 vitest 掛住。 */
+const running: AbortController[] = [];
+
+afterEach(() => {
+  for (const stop of running.splice(0)) stop.abort();
+});
+
+/** 同 test/cli/run.test.ts 的手法：輪詢 capture 的 stdout 直到符合某個樣式。 */
+async function waitFor(io: Capture, pattern: RegExp): Promise<string> {
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const match = io.out.match(pattern);
+    if (match !== null) return match[0];
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`等不到符合 ${pattern} 的輸出：${JSON.stringify(io.out)}`);
+}
+
+describe('dispatchWorkspace studio — --port 參數解析', () => {
+  it('不是合法的 port 時報 UsageError，不啟動任何 server', async () => {
+    const io = capture();
+
+    await expect(dispatchWorkspace(['studio', '--port', 'nope'], io)).rejects.toThrow(/port/);
+  });
+
+  it('port 超出合法範圍時報 UsageError', async () => {
+    const io = capture();
+
+    await expect(dispatchWorkspace(['studio', '--port', '99999'], io)).rejects.toThrow(/port/);
+  });
+});
+
+describe('dispatchWorkspace studio — 開 landing server、收到關閉信號後乾淨結束', () => {
+  it('印出 landing page 的 URL，/ 列出全部成員；關閉信號後 URL 連不上', async () => {
+    member('pkgs', 'a');
+    member('pkgs', 'b');
+    const stop = new AbortController();
+    running.push(stop);
+    const io = capture({ signal: stop.signal });
+
+    // 共用資源紀律：一律綁 port 0 由 OS 指派，不得硬編碼 port。
+    const finished = dispatchWorkspace(['studio', '--port', '0'], io);
+    const url = await waitFor(io, /http:\/\/[\d.]+:\d+/);
+
+    expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    const res = await fetch(`${url}/`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain(join(root, 'pkgs', 'a'));
+    expect(html).toContain(join(root, 'pkgs', 'b'));
+
+    stop.abort();
+    expect(await finished).toBe(0);
+    await expect(fetch(`${url}/`)).rejects.toThrow();
   });
 });

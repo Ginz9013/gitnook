@@ -41,6 +41,7 @@ export { initBoard, ConflictingGitAttributes, NestedBoard } from './core/gitattr
 export { AlreadySharedBoard, NoGitDir } from './core/sharing.js';
 export { diagnose, repair } from './core/health.js';
 export { serve, PortInUse } from './server/serve.js';
+export { serveWorkspace } from './server/serveWorkspace.js';
 export {
   STATUSES,
   BoardNotInitialized,

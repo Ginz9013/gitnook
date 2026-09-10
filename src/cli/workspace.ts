@@ -2,6 +2,7 @@ import { relative } from 'node:path';
 import { openWorkspace } from '../core/workspace.js';
 import { repair } from '../core/health.js';
 import { renderWorkspaceList } from '../render/table.js';
+import { serveWorkspace } from '../server/serveWorkspace.js';
 import {
   displayLength,
   formatDiagnostic,
@@ -21,7 +22,7 @@ import type { WorkspaceGroup } from '../render/table.js';
  * 跟 `run.ts` 對單一 Board 的既有指令同一個薄度量級 —— 複雜度屬於
  * `openWorkspace()`（核心）與 `renderWorkspaceList()`（呈現），這裡只接線。
  *
- * 目前認得 `list`/`doctor`；`studio` 是後續票（04）的範圍。
+ * 目前認得 `list`/`doctor`/`studio`。
  */
 export async function dispatchWorkspace(argv: readonly string[], io: Io): Promise<number> {
   const [sub, ...rest] = argv;
@@ -31,15 +32,18 @@ export async function dispatchWorkspace(argv: readonly string[], io: Io): Promis
       return cmdList(parseArgs(rest, LIST_FLAGS), io);
     case 'doctor':
       return cmdDoctor(parseArgs(rest, DOCTOR_FLAGS), io);
+    case 'studio':
+      return cmdStudio(parseArgs(rest, STUDIO_FLAGS), io);
   }
 
   // 同 `run.ts` 的 `unknownCommand`：使用者錯誤只走 UsageError 這一條路徑，
   // 不在這裡另開一份手寫的 errLine + return 1。
-  throw new UsageError(`未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor）`);
+  throw new UsageError(`未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio）`);
 }
 
 const LIST_FLAGS: ReadonlySet<string> = new Set(['--all', '--status', '--label', '--json']);
 const DOCTOR_FLAGS: ReadonlySet<string> = new Set(['--fix']);
+const STUDIO_FLAGS: ReadonlySet<string> = new Set(['--port']);
 
 /**
  * 一個成員路徑相對於 workspace 根目錄的顯示形式。成員本身就是根目錄時
@@ -138,4 +142,37 @@ function cmdDoctor(args: Args, io: Io): number {
   }
 
   return unhealthy ? 1 : 0;
+}
+
+/**
+ * `studio`：`--port` 給 landing server；`serveWorkspace()` 幫每個成員各自的
+ * 子 studio 挑自己的 ephemeral port（同 `run.ts` 的 `cmdStudio` 對單一 Board
+ * 的既有寫法——這裡開的是 landing page，不是某一塊 Board 自己的 studio）。
+ */
+async function cmdStudio(args: Args, io: Io): Promise<number> {
+  const given = args.one('--port');
+  const port = given === undefined ? undefined : Number(given);
+  if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535)) {
+    throw new UsageError(`不是合法的 port：${given}`);
+  }
+
+  const workspace = openWorkspace({ dir: io.cwd });
+  const studio = await serveWorkspace(workspace, port === undefined ? {} : { port });
+  line(io, studio.url);
+
+  await untilAborted(io.signal);
+  await studio.close();
+  return 0;
+}
+
+/**
+ * 同 `run.ts` 的 `untilAborted`（未 export，寫入範圍不包含 run.ts，故在此
+ * 保留一份小小的複本）——長駐指令等關閉信號，沒有信號就永遠不回。
+ */
+function untilAborted(signal: AbortSignal | undefined): Promise<void> {
+  if (signal === undefined) return new Promise<void>(() => {});
+  if (signal.aborted) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    signal.addEventListener('abort', () => resolve(), { once: true });
+  });
 }
