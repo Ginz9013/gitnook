@@ -24,6 +24,9 @@ export type Sharing = 'shared' | 'private';
 /** 這次寫入實際動了什麼。消費者見 `excludeBoard` 的註解。 */
 export type ExcludeOutcome = 'created' | 'added' | 'unchanged';
 
+/** 這次移除實際動了什麼。消費者見 `unexcludeBoard` 的註解。 */
+export type UnexcludeOutcome = 'removed' | 'unchanged';
+
 /**
  * 這塊 board 的 op-log 已經被 git 追蹤 —— 它已經共享出去了，所以 `init --private`
  * 拒絕而不是照寫一條沒有效果的規則（為什麼沒有效果，見 `opLogsTracked`）。
@@ -142,7 +145,9 @@ function commonDirOf(gitDir: string): string {
 const excludeFileOf = (layout: GitLayout): string => join(layout.commonDir, 'info', 'exclude');
 
 /**
- * 那一行在不在。**整行字串比對**，刻意不實作 gitignore 的 pattern 與優先序
+ * 這一行**就是** nook 寫的那一行嗎 —— 兩個方向（認得它、移除它）共用的唯一判斷。
+ *
+ * **整行字串比對**，刻意不實作 gitignore 的 pattern 與優先序
  * 規則（目錄排除、否定、後行覆蓋前行）—— 那套規則只有 git 自己說得準，而讀取
  * 熱路徑不能 spawn git。手寫成別的形狀的 ignore 規則因此不算 private：那是
  * 保守的失敗（照舊警告、照舊回報），不是靜默的失敗。
@@ -157,8 +162,12 @@ const excludeFileOf = (layout: GitLayout): string => join(layout.commonDir, 'inf
  * 尾端只收空白與 CR，不收 tab：git 的文件只承諾忽略尾端空白，少收一種的
  * 代價是答 shared（保守），多收一種的代價是上面那種靜默失敗。
  */
+const isLine = (line: string, pattern: string): boolean =>
+  line.replace(/ *\r?$/, '') === pattern;
+
+/** 那一行在不在（`inspectSharing` 與 `excludeBoard` 的問法）。 */
 const hasLine = (content: string, pattern: string): boolean =>
-  content.split('\n').some((line) => line.replace(/ *\r?$/, '') === pattern);
+  content.split('\n').some((line) => isLine(line, pattern));
 
 /**
  * 這塊 board 是 shared 還是 private。**純 fs，不 spawn 任何子行程** ——
@@ -208,6 +217,42 @@ export function excludeBoard(root: string): ExcludeOutcome {
   const lead = existing === '' || existing.endsWith('\n') ? '' : '\n';
   appendFileSync(file, `${lead}${pattern}\n`, 'utf8');
   return 'added';
+}
+
+/**
+ * 把 board 交回給 git —— `share` 的寫入側，`excludeBoard` 的反向。
+ *
+ * **只移除 nook 自己寫的那一行**，其餘內容與順序一個 byte 都不動，而且檔案本身
+ * 留在原地：`info/exclude` 是使用者的檔案，nook 在 `init --private` 時只借了一行。
+ * 清空或刪掉它會順手丟掉他排除 build 產物的設定，而那與共享這塊 board 無關。
+ *
+ * 認的是 `isLine` —— 與 `inspectSharing` / `excludeBoard` **同一個**判斷，包含
+ * 它左右不對稱的那一面（尾端空白與 CR 收、前導空白不收）。兩邊各寫一套比對會
+ * 長出兩種不一致：寬的一邊（trim）會刪掉使用者自己寫的 ` /.issues/`，窄的一邊
+ * 會留下一條 git 仍然承認的 `/.issues/   ` —— 那時 `inspectSharing` 照樣回答
+ * private，於是 `share` 報告成功、board 卻還被 ignore。
+ *
+ * 不在 git work tree 內時回 `unchanged` 而不是丟 `NoGitDir`（`excludeBoard` 丟是
+ * 因為它**要寫**，沒有 `$GIT_DIR` 就無處可寫）：那裡沒有任何 ignore 規則，board
+ * 本來就是 shared（`inspectSharing` 也這麼答），所以「什麼都不用動」是事實，不是
+ * 一個使用者要修的錯誤。
+ */
+export function unexcludeBoard(root: string): UnexcludeOutcome {
+  const layout = gitLayout(root);
+  if (layout === null) return 'unchanged';
+
+  const file = excludeFileOf(layout);
+  if (!existsSync(file)) return 'unchanged';
+
+  const pattern = boardPattern(layout.top, root);
+  const lines = readFileSync(file, 'utf8').split('\n');
+  const kept = lines.filter((line) => !isLine(line, pattern));
+  if (kept.length === lines.length) return 'unchanged';
+
+  // split/join 成對，所以結尾那個換行（split 後是最後一格空字串）原樣還原 ——
+  // 少了它，下一次 excludeBoard 的 append 會黏在使用者的最後一行上。
+  writeFileSync(file, kept.join('\n'), 'utf8');
+  return 'removed';
 }
 
 /**

@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -23,6 +24,7 @@ import {
   excludeBoard,
   inspectSharing,
   opLogsTracked,
+  unexcludeBoard,
 } from '../../src/core/sharing.js';
 
 // ADR-0004：**不得以 in-memory fake 取代 git**。private mode 的整個賣點是
@@ -568,5 +570,158 @@ describe('兩條拒絕在 CLI 上都是 exit 1', () => {
     expect(io.out).toBe('');
     // 拒絕不留痕跡的那一半，在 CLI 這一層也成立。
     expect(existsSync(join(loose, '.issues'))).toBe(false);
+  });
+});
+
+describe('unexcludeBoard —— 只拿掉 nook 寫的那一行', () => {
+  /**
+   * `share` 的寫入側。規則必須**只**移除那一行：`info/exclude` 是使用者自己的
+   * 檔案，nook 在 `init --private` 時只借了一行，升級時就只還那一行 —— 把檔案
+   * 清空或刪掉會順手丟掉他排除 build 產物的設定，而那與共享這塊 board 無關。
+   */
+  it('移除那一行、其餘內容與順序不動，檔案留在原地，git 也不再 ignore', () => {
+    const repo = makeRepo();
+    const file = excludeFileOf(repo);
+    // 使用者自己的規則前後各一條，nook 的那一行夾在中間 —— 順序被動過才看得出來。
+    writeFileSync(file, '*.log\n', 'utf8');
+    initBoard(repo, { sharing: 'private' });
+    appendFileSync(file, 'build/\n', 'utf8');
+    expect(linesOf(file)).toEqual(['*.log', '/.issues/', 'build/', '']);
+    // 前提：git 真的在 ignore 這塊 board。
+    expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/01JBXA.ndjson').status).toBe(0);
+
+    expect(unexcludeBoard(repo)).toBe('removed');
+
+    expect(linesOf(file)).toEqual(['*.log', 'build/', '']);
+    // 檔案本身留著 —— 它不是 nook 的檔案。
+    expect(existsSync(file)).toBe(true);
+    // 基準是真實的 git，不是我們對 gitignore 的記憶：規則真的失效了。
+    expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/01JBXA.ndjson').status).toBe(1);
+    expect(inspectSharing(repo)).toBe('shared');
+  });
+
+  it('那一行本來就不在時是 unchanged，一個 byte 都不動', () => {
+    const repo = makeRepo();
+    const file = excludeFileOf(repo);
+    writeFileSync(file, '*.log\n', 'utf8');
+
+    expect(unexcludeBoard(repo)).toBe('unchanged');
+    expect(readFileSync(file, 'utf8')).toBe('*.log\n');
+  });
+});
+
+describe('移除時認的是 hasLine 的同一個判斷', () => {
+  /**
+   * 左右不對稱的那一面在移除這一側同樣成立，而且**兩個方向必須是同一個判斷**。
+   * 各寫一套比對會長出兩種不一致的失敗：
+   *
+   * - 移除端比得寬（`trim()`）：連使用者自己寫的 ` /.issues/` 一起刪掉 —— 那是
+   *   git 不承認的規則，也就不是 nook 的那一行，nook 沒有權限動它。
+   * - 移除端比得窄（整行相等）：`/.issues/   ` 留在檔案裡，而 git **仍然承認它**
+   *   —— `share` 報告成功、board 卻還被 ignore，而 `inspectSharing` 也照樣回答
+   *   private。那是這一批最不想要的那種靜默失敗。
+   *
+   * 基準一律是真實的 git check-ignore。
+   */
+  it('尾端空白與 CR 的那一行要拿掉 —— git 承認它，所以它就是 nook 的那一行', () => {
+    for (const written of ['/.issues/   ', '/.issues/\r']) {
+      const repo = makeRepo();
+      initBoard(repo);
+      writeFileSync(excludeFileOf(repo), `${written}\n`, 'utf8');
+      // 前提：git 說這條規則生效，所以這塊 board 真的是 private。
+      expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/x.ndjson').status).toBe(0);
+      expect(inspectSharing(repo)).toBe('private');
+
+      expect(unexcludeBoard(repo)).toBe('removed');
+
+      expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/x.ndjson').status).toBe(1);
+      expect(inspectSharing(repo)).toBe('shared');
+    }
+  });
+
+  it('前導空白的那一行不准碰 —— git 不承認它，它是使用者自己的內容', () => {
+    for (const written of [' /.issues/', '\t/.issues/']) {
+      const repo = makeRepo();
+      initBoard(repo);
+      writeFileSync(excludeFileOf(repo), `${written}\n`, 'utf8');
+
+      expect(unexcludeBoard(repo)).toBe('unchanged');
+      expect(readFileSync(excludeFileOf(repo), 'utf8')).toBe(`${written}\n`);
+    }
+  });
+
+  /**
+   * pattern 錨定的另一半（同 `excludeBoard` 那一條）：`info/exclude` 是整個 repo
+   * 共用的一份檔案，所以 share 一塊 `/services/api/.issues/` 的 board 不得順手
+   * 解除頂端那一塊 —— 那會把另一塊 private board 無聲地交給 git。
+   */
+  it('board 不在 repo 根目錄時，只拿掉它自己那一行', () => {
+    const repo = makeRepo();
+    const nested = join(repo, 'services', 'api');
+    mkdirSync(nested, { recursive: true });
+    // git 自己的樣板註解不是契約的一部分，清掉才逐行比對得起來（同上面那一條）。
+    writeFileSync(excludeFileOf(repo), '', 'utf8');
+    initBoard(nested, { sharing: 'private' });
+    // 頂端那一塊 board 的規則（一塊 board 不能開在另一塊底下，所以只寫規則）——
+    // info/exclude 是整個 repo 共用的一份檔案，兩條規則本來就會並存。
+    excludeBoard(repo);
+    expect(linesOf(excludeFileOf(repo))).toEqual(['/services/api/.issues/', '/.issues/', '']);
+
+    expect(unexcludeBoard(nested)).toBe('removed');
+
+    expect(linesOf(excludeFileOf(repo))).toEqual(['/.issues/', '']);
+    expect(inspectSharing(nested)).toBe('shared');
+    // 頂端那一塊還是 private —— 它不是這次 share 的對象。
+    expect(inspectSharing(repo)).toBe('private');
+  });
+});
+
+describe('share 之後 git 仍然 ignore 那些檔案時', () => {
+  /**
+   * 移除 nook 自己那一行之後，git **仍然**可能在 ignore 這塊 board —— 例如
+   * committed 的 `.gitignore` 也有一條。那時 `git add` 會被拒絕，所以報告成功
+   * 等於騙人：使用者會以為升級完成了，而同事的 clone 仍然是空的。
+   *
+   * 說得出是哪個檔案第幾行在擋，靠的是 `ignoredByGit` 帶回來的 git 原文
+   * （`<file>:<line>:<pattern>`）—— 那個行號是上層編不出來的東西。
+   */
+  it('exit 1，說出是哪個檔案第幾行在擋，而且不印那條會失敗的 git add', async () => {
+    const repo = makeRepo();
+    writeFileSync(join(repo, '.gitignore'), '# project junk\n.issues/\n', 'utf8');
+    git(repo, 'add', '.gitignore');
+    git(repo, 'commit', '-qm', 'ignore the nook board');
+    initBoard(repo, { sharing: 'private' });
+    openBoard({ dir: repo, actor: 'aaaa' }).create({ title: 'Fix login redirect' });
+    const io = capture(repo);
+
+    expect(await run(['share'], io)).toBe(1);
+
+    // nook 那一行真的被拿掉了（它做完了自己那一半），但 git 還是說 ignore ——
+    // 擋路的是 .gitignore 第 2 行，而那是使用者自己的檔案，nook 不改它。
+    expect(linesOf(excludeFileOf(repo))).not.toContain('/.issues/');
+    expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues').status).toBe(0);
+    expect(io.err).toContain('.gitignore:2:.issues/');
+    // 不假裝成功：那條 git add 會被 git 拒絕，印出來就是叫使用者去撞牆。
+    expect(io.out).not.toContain('git add');
+  });
+});
+
+describe('不在 git work tree 內時，unexcludeBoard 不是錯誤', () => {
+  /**
+   * 與 `excludeBoard` 刻意不對稱：那個丟 `NoGitDir`，因為它**要寫**，沒有
+   * `$GIT_DIR` 就無處可寫。這裡沒有任何規則在排除什麼，board 本來就是 shared
+   * （`inspectSharing` 也這麼答），所以「什麼都不用動」是事實，不是一個使用者
+   * 要修的錯誤 —— 否則 `nook share` 會在 git repo 外的 board 上無故 exit 1。
+   */
+  it('回 unchanged 而不是丟 NoGitDir', () => {
+    const loose = mkdtempSync(join(tmpdir(), 'nook-private-norepo-'));
+    dirs.push(loose);
+    initBoard(loose);
+
+    expect(inspectSharing(loose)).toBe('shared');
+    expect(unexcludeBoard(loose)).toBe('unchanged');
+    // 對照：同一個目錄上 excludeBoard 確實丟 NoGitDir，所以上面那個不是因為
+    // 這個目錄剛好有個 $GIT_DIR。
+    expect(caught(() => excludeBoard(loose))).toBeInstanceOf(NoGitDir);
   });
 });

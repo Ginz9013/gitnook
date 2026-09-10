@@ -1852,3 +1852,195 @@ describe('init 的旗標打錯時不靜默退回 shared', () => {
     expect(existsSync(join(dir, '.gitattributes'))).toBe(false);
   });
 });
+
+/**
+ * 試用完、或團隊同意了之後的升級路徑。`share` 動的是 nook 自己寫下的那兩樣東西
+ * （`info/exclude` 的那一行、`.gitattributes` 的那一行），而把**進 git 這件事**
+ * 留給使用者 —— nook 沒有任何一個會寫入的 git 指令，`git add` 也不會是第一個。
+ */
+describe('share：private → shared', () => {
+  it('移除排除規則、補上 merge=union，印出使用者自己要跑的指令，exit 0', async () => {
+    gitInit();
+    await run(['init', '--private'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    const io = capture();
+
+    expect(await run(['share'], io)).toBe(0);
+
+    // 規則真的不見了，其餘的 info/exclude 不是這一條在管（見 private-mode.test.ts）。
+    expect(readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8').split('\n')).not.toContain(
+      '/.issues/',
+    );
+    expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toContain(
+      '.issues/issues/*.ndjson merge=union',
+    );
+    // 升級買到的就是這個：git 從現在起看得到這塊 board（先前它一個字都看不到）。
+    expect(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' })).toBe(
+      '?? .gitattributes\n?? .issues/\n',
+    );
+
+    // 說話的三分法同 init：動了什麼、以及**使用者自己**要跑的那兩行。
+    expect(io.out).toBe(
+      'Removed  .issues/  $GIT_DIR/info/exclude（這塊 board 從現在起會進 git）\n' +
+        'Created  .gitattributes  .issues/issues/*.ndjson merge=union\n' +
+        'Next  nook 不替你跑任何會寫入的 git 指令，請自己執行：\n' +
+        `  git add "${dir}/.issues" "${dir}/.gitattributes"\n` +
+        '  git commit -m "Share the nook board"\n',
+    );
+    expect(io.err).toBe('');
+  });
+
+  /**
+   * 已經共享的 board 上什麼都不用動 —— 但**沉默會與成功長得一模一樣**，而使用者
+   * 問的正是「這次到底有沒有動到東西」（同 init 說話、doctor 沉默的理由）。
+   * 不是錯誤，所以 exit 0 而不是 1。
+   */
+  it('已經是共享的 board 上是個說得出話的 no-op，exit 0', async () => {
+    gitInit();
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    const io = capture();
+
+    expect(await run(['share'], io)).toBe(0);
+
+    expect(io.out).toBe(
+      'Unchanged  這裡已經是一塊共享的 board，這次沒有動到任何東西\n' +
+        'Next  nook 不替你跑任何會寫入的 git 指令，請自己執行：\n' +
+        `  git add "${dir}/.issues" "${dir}/.gitattributes"\n` +
+        '  git commit -m "Share the nook board"\n',
+    );
+    expect(io.err).toBe('');
+  });
+
+  /**
+   * 指令貼得上去才算講出了下一步。board 可能不在 repo 根目錄
+   * （`/services/api/.issues/` 是支援且被測試的形狀），而幾乎沒有人是站在 board
+   * 根目錄打指令的 —— 兩者都指向同一件事：路徑一律是**board 根目錄的完整路徑**，
+   * 不是 io.cwd，也不是相對的 `.issues`（同 AlreadySharedBoard 訊息的理由）。
+   */
+  it('board 不在 repo 根目錄、又在子目錄下指令時，印出的路徑仍然貼得上去', async () => {
+    gitInit();
+    const board = join(dir, 'services', 'api');
+    mkdirSync(board, { recursive: true });
+    await run(['init', '--private'], capture({ cwd: board }));
+    const deep = join(board, 'src', 'deep');
+    mkdirSync(deep, { recursive: true });
+    const io = capture({ cwd: deep });
+
+    expect(await run(['share'], io)).toBe(0);
+
+    expect(io.out).toContain(`  git add "${dir}/services/api/.issues" "${dir}/services/api/.gitattributes"\n`);
+    // 拿掉的是那一塊自己的規則，而 .gitattributes 寫在 board 根目錄 —— 不是
+    // io.cwd（那會在 src/deep 生出一個沒有人看的檔案），也不是 repo 根目錄。
+    expect(readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8').split('\n')).not.toContain(
+      '/services/api/.issues/',
+    );
+    expect(existsSync(join(board, '.gitattributes'))).toBe(true);
+    expect(existsSync(join(deep, '.gitattributes'))).toBe(false);
+    expect(existsSync(join(dir, '.gitattributes'))).toBe(false);
+    expect(io.err).toBe('');
+  });
+
+  /**
+   * `ignoredByGit` 的兩個欄位是分開的：git 說它 ignore 是事實，而「哪一條規則」
+   * 是它順手附上的引文。輸出形狀對不上時只有後者沒有（`source === null`），**前者
+   * 照樣成立** —— 這時閉嘴回 0 會讓使用者以為升級完成，而那正是這條檢查要避開的
+   * 那種謊。探針是 PATH 上的一支假 git：check-ignore 命中（exit 0），但輸出不是
+   * `<file>:<line>:<pattern>\t<pathname>` 的形狀。
+   */
+  it('git 說 ignore 卻指不出是哪一條時，照樣說「還被 ignore」', async () => {
+    gitInit();
+    await run(['init', '--private'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+
+    const shim = join(dir, 'shim');
+    mkdirSync(shim);
+    writeFileSync(join(shim, 'git'), '#!/bin/sh\necho "ignored, somehow"\n', { mode: 0o755 });
+
+    const realPath = process.env.PATH;
+    const io = capture();
+    process.env.PATH = shim;
+    let code: number;
+    try {
+      code = await run(['share'], io);
+    } finally {
+      // delete 而不是賦值：PATH 本來就沒有時，`= undefined` 會留下字串 "undefined"。
+      if (realPath === undefined) delete process.env.PATH;
+      else process.env.PATH = realPath;
+    }
+
+    expect(code).toBe(1);
+    expect(io.err).toContain('仍然 ignore');
+    // 說不出哪一條時就交出問法，而不是把 null 印給使用者看。
+    expect(io.err).toContain('check-ignore');
+    expect(io.err).not.toContain('null');
+    expect(io.out).not.toContain('git add');
+  });
+
+  /**
+   * `share` 正是要把 board 變回 shared，所以那條在 private 模式下無意義的檢查
+   * 在這裡回來生效：**不靜默改變別人的 merge 設定**。
+   *
+   * 而它必須排在**任何寫入之前**。反過來（先移除排除規則再撞上這條拒絕）會留下
+   * 最糟的那個半成品：board 被交給 git、卻沒有零衝突保證 —— 而使用者以為指令
+   * 失敗了，於是沒有人知道資料已經開始會衝突。同 init --private 那兩條拒絕。
+   */
+  it('.gitattributes 有衝突規則時 exit 1，而排除規則還在 —— 拒絕不留痕跡', async () => {
+    gitInit();
+    await run(['init', '--private'], capture());
+    const existing = '*.png binary\n.issues/issues/*.ndjson merge=ours\n';
+    writeFileSync(join(dir, '.gitattributes'), existing, 'utf8');
+    const io = capture();
+
+    expect(await run(['share'], io)).toBe(1);
+
+    expect(io.err).toContain('merge=ours');
+    // 沒有型別名前綴 —— 那是 exit 2（內部錯誤）那條路才加的。
+    expect(io.err.startsWith('ConflictingGitAttributes:')).toBe(false);
+    expect(io.out).toBe('');
+    // 這塊 board 還是 private，而且他的 .gitattributes 一個 byte 都沒被動過。
+    expect(readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8').split('\n')).toContain(
+      '/.issues/',
+    );
+    expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toBe(existing);
+  });
+
+  /**
+   * 沒有 board 可升級時該說的是「不是一個 Nook board」。退回 io.cwd（`boardDir` 的
+   * 做法，doctor 需要它）在這裡會變成**靜默建出一塊 board**：使用者打錯目錄，
+   * 卻拿到一句成功與一塊空 board，而他真正那一塊還在別的地方。
+   */
+  it('不是一塊 board 的目錄上 exit 1，而且什麼都沒建', async () => {
+    gitInit();
+    const io = capture();
+
+    expect(await run(['share'], io)).toBe(1);
+
+    expect(io.err).toContain('不是一個 Nook board');
+    expect(io.out).toBe('');
+    expect(existsSync(join(dir, '.issues'))).toBe(false);
+    expect(existsSync(join(dir, '.gitattributes'))).toBe(false);
+  });
+});
+
+/**
+ * 藏起一個存在的指令與教一個不存在的指令是同一種錯 —— 而 `--help` 是 AGENT.md
+ * 自稱的「語法即時來源」，兩者由 test/agent-doc.test.ts 釘在一起（只改一邊會紅）。
+ */
+describe('--help 與打錯字的建議清單都認得 share', () => {
+  it('指令表列出 share、打錯字時建議它，而且仍然短到值得每次都讀', async () => {
+    const io = capture();
+
+    expect(await run(['--help'], io)).toBe(0);
+
+    expect(io.out).toContain('share');
+    // agent 的 token 成本是硬指標（ADR-0005）：--help 每次互動都可能被讀。
+    expect(Buffer.byteLength(io.out, 'utf8')).toBeLessThan(1024);
+
+    // 不在 COMMANDS 裡的指令打錯字時會得到「差太遠就不硬猜」那一條 —— 對一個
+    // 真的存在的指令而言，那等於把它藏起來。
+    const typo = capture();
+    expect(await run(['shre'], typo)).toBe(1);
+    expect(typo.err).toContain('share');
+  });
+});
