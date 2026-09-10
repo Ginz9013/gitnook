@@ -24,6 +24,15 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+/**
+ * PATH 上那支假 git 的內容。**分指令回答** —— 對任何問題都 `exit 0` + `echo true`
+ * 的版本會說謊：`check-ignore` 被讀成「這塊 board 被 ignore」、`ls-files` 被讀成
+ * 「op-log 已被追蹤」，於是探針會以陽性對照的形式紅掉，而紅的原因與它要量的東西
+ * （有沒有真的生出子行程）無關。這一批實際撞過那一次。
+ */
+const fakeGit = (marker: string): string =>
+  `#!/bin/sh\necho "$@" >> "${marker}"\ncase "$1" in\n  rev-parse) echo true ;;\n  *) exit 1 ;;\nesac\n`;
+
 interface Capture extends Io {
   out: string;
   err: string;
@@ -842,7 +851,7 @@ describe('list 不再為了一行警告跑一次全量診斷', () => {
     const shim = join(dir, 'shim');
     const marker = join(dir, 'git-calls.txt');
     mkdirSync(shim);
-    writeFileSync(join(shim, 'git'), `#!/bin/sh\necho "$@" >> "${marker}"\necho true\n`, {
+    writeFileSync(join(shim, 'git'), fakeGit(marker), {
       mode: 0o755,
     });
 
@@ -859,7 +868,9 @@ describe('list 不再為了一行警告跑一次全量診斷', () => {
       expect(await run(['doctor'], doctoring)).toBe(0);
       expect(readFileSync(marker, 'utf8')).toContain('rev-parse');
     } finally {
-      process.env.PATH = realPath;
+      // delete 而不是賦值：PATH 本來就沒有時，`= undefined` 會留下字串 "undefined"。
+      if (realPath === undefined) delete process.env.PATH;
+      else process.env.PATH = realPath;
     }
 
     // 警告本身沒有被拿掉，只是換了個更便宜的問法。
@@ -1162,7 +1173,7 @@ describe('history', () => {
   });
 
   /**
-   * 唯讀是這張票的邊界，不是它的副作用：restore 是 append 一個新 Op 把舊值
+   * 唯讀是這一批的邊界，不是它的副作用：restore 是 append 一個新 Op 把舊值
    * 寫回去，那是另一個決定。這條是那個邊界的守門，因此一開始就是綠的。
    */
   it('唯讀：跑完之後 op-log 一個 byte 都沒變', async () => {
@@ -1695,10 +1706,28 @@ describe('private board 上讀取指令閉嘴', () => {
   });
 
   /**
+   * `history` 也走 `warnIfUnguarded`，所以它一起安靜了 —— 那是對的（那條保證對
+   * **每一個**讀取的人都不適用），但票面只點名了 list / show，所以行為沒有被釘住。
+   * 釘在這裡：下一個人重寫那段條件時，不會只顧著 list 而讓 history 又開始噴。
+   */
+  it('history 也一起安靜 —— 那條保證對每一個讀取的人都不適用', async () => {
+    gitInit();
+    await run(['init', '--private'], capture());
+    const created = capture();
+    await run(['new', 'Fix login redirect'], created);
+    const ref = created.out.trim();
+
+    const io = capture();
+    expect(await run(['history', ref], io)).toBe(0);
+
+    expect(io.err).toBe('');
+  });
+
+  /**
    * 順序：**先問 Sharing，再問零衝突保證**，而不是反過來。反過來（先問保證、
    * 缺了才問 Sharing）在健康的 shared board 上更便宜 —— `&&` 短路掉，連
    * info/exclude 都不必讀 —— 但它會讓 private board 去讀一個在那個模式下沒有
-   * 意義的檔案，而「沒有意義」正是這一票的語意：不需要，不是缺少。所以多付
+   * 意義的檔案，而「沒有意義」正是這一批的語意：不需要，不是缺少。所以多付
    * 的那一次 existsSync 加一個小檔的讀取落在 shared board 上，而 private board
    * 在這條路徑上一個 byte 都不讀 .gitattributes。
    *
@@ -1737,7 +1766,7 @@ describe('private board 上讀取指令閉嘴', () => {
     const shim = join(dir, 'shim');
     const marker = join(dir, 'git-calls.txt');
     mkdirSync(shim);
-    writeFileSync(join(shim, 'git'), `#!/bin/sh\necho "$@" >> "${marker}"\necho true\n`, {
+    writeFileSync(join(shim, 'git'), fakeGit(marker), {
       mode: 0o755,
     });
 
@@ -1750,11 +1779,13 @@ describe('private board 上讀取指令閉嘴', () => {
       expect(existsSync(marker)).toBe(false);
 
       // 陽性對照：doctor 確實會問 git，所以上面那個 false 不是因為探針壞了。
-      // 只問「有沒有開火」—— doctor 在 private board 上問什麼是別張票的事。
+      // 只問「有沒有開火」—— doctor 在 private board 上問什麼由 diagnose() 自己的測試管。
       await run(['doctor'], doctoring);
       expect(existsSync(marker)).toBe(true);
     } finally {
-      process.env.PATH = realPath;
+      // delete 而不是賦值：PATH 本來就沒有時，`= undefined` 會留下字串 "undefined"。
+      if (realPath === undefined) delete process.env.PATH;
+      else process.env.PATH = realPath;
     }
 
     expect(listing.err).toBe('');

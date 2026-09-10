@@ -32,6 +32,10 @@ const git = (...args: string[]): void => {
   execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
 };
 
+/** 要讀 git 的回答時用這個 —— `git()` 刻意只管「跑完沒出錯」。 */
+const gitOut = (...args: string[]): string =>
+  execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+
 describe('merge=union 那一行', () => {
   it('健康的 board 沒有任何 Diagnostic', () => {
     gitInit();
@@ -268,6 +272,57 @@ describe('fs 與 git 不一致的那兩種狀態', () => {
     expect(found[0]!.message).toContain('.gitignore:1:.issues/');
   });
 
+  /**
+   * 同一個狀態的另一種形狀，而它正是「問目錄」漏掉的那一格：規則吃的是 op-log
+   * **檔案**（`*.ndjson`）而不是那個目錄。實測（git 2.x）：這時問
+   * `.issues/issues` 沒命中、問一個真的存在的 op-log 才命中 —— 而同事 clone
+   * 下來一樣是空的，所以漏報就是漏報。
+   */
+  it('規則吃的是 op-log 檔而不是目錄時，也要報得出來', () => {
+    gitInit();
+    initBoard(dir);
+    const board = openBoard({ dir });
+    board.create({ title: '一張真的 Issue —— 規則要咬得到的是它' });
+    writeFileSync(join(dir, '.gitignore'), '*.ndjson\n', 'utf8');
+    git('add', '.gitignore');
+    git('commit', '-q', '-m', 'ignore every ndjson');
+
+    // 前提一：fs 這一側看不出異狀。前提二：git 真的在 ignore 那些 op-log
+    // （`git status` 看不到它們），但**問目錄是問不出來的**。
+    expect(inspectSharing(dir)).toBe('shared');
+    // 針對 .issues/ 問：git 連「有個沒加入的檔案」都不會提，所以同事的 clone
+    // 會是空的，而這裡什麼都不會提示。
+    expect(gitOut('status', '--porcelain', '--', '.issues')).toBe('');
+
+    const found = diagnose(dir);
+
+    expect(found.map((d) => d.kind)).toEqual(['SharingMismatch']);
+    expect(found[0]!.message).toContain('.gitignore:1:*.ndjson');
+  });
+
+  /**
+   * 反向的那一半：ignore 規則蓋著整個目錄，但 op-log 已經被 `git add -f` 進去了
+   * —— **tracked 勝過 ignore 規則**，board 真的在共享，所以狀態 2 不得開口。
+   * 拿一個不存在的檔名去問 git 就會在這裡假警報（index 查不到它，規則就生效了）。
+   */
+  it('ignore 規則蓋著目錄但 op-log 已被追蹤時，不報狀態 2', () => {
+    gitInit();
+    initBoard(dir);
+    const board = openBoard({ dir });
+    board.create({ title: '已經共享出去的那一張' });
+    writeFileSync(join(dir, '.gitignore'), '.issues/\n', 'utf8');
+    git('add', '.gitignore');
+    git('add', '-f', '.issues');
+    git('commit', '-q', '-m', 'shared anyway');
+
+    // 前提：規則在、但那些 op-log 確實在 index 裡。
+    expect(gitOut('ls-files', '.issues/issues')).not.toBe('');
+
+    // 這塊 board 的 merge=union 在（initBoard 寫的），op-log 也乾淨，所以
+    // 一條都不該有 —— 尤其不能有 SharingMismatch。
+    expect(diagnose(dir)).toEqual([]);
+  });
+
   // 這一種有**兩條**下一步，而哪一條對只有使用者知道（他是不是真的想要一塊
   // private board）。兩條都講出來，不替他選。
   it('狀態 2 的兩條下一步都講：是刻意的就 init --private，不是就拿掉那條規則', () => {
@@ -284,7 +339,7 @@ describe('fs 與 git 不一致的那兩種狀態', () => {
    * 那個形狀時，我們**沒有**可報的東西 —— 而拿一個編不出來的來源去拉警報，比不
    * 講話更糟（doctor 會進 CI，一次假警報之後就沒有人會讀它）。
    *
-   * 探針是 PATH 上一支對任何問題都答 `true` 並 exit 0 的假 git，不 mock 任何
+   * 探針是 PATH 上一支假 git，不 mock 任何
    * 內部協作者。真的 git 在 `check-ignore -v` 命中時一定給
    * `<file>:<line>:<pattern>\t<pathname>`。
    */
@@ -293,6 +348,9 @@ describe('fs 與 git 不一致的那兩種狀態', () => {
     initBoard(dir);
     const shim = join(dir, 'shim');
     mkdirSync(shim);
+    // 對任何問題都 `echo true` + exit 0 —— 這裡要的就是「答案形狀不對」，
+    // 因為這條測的正是「形狀不對就閉嘴」。其他測試的探針分指令回答，見
+    // test/cli/run.test.ts 的 fakeGit。
     writeFileSync(join(shim, 'git'), '#!/bin/sh\necho true\n', { mode: 0o755 });
 
     const realPath = process.env.PATH;
@@ -300,7 +358,9 @@ describe('fs 與 git 不一致的那兩種狀態', () => {
     try {
       expect(diagnose(dir)).toEqual([]);
     } finally {
-      process.env.PATH = realPath;
+      // delete 而不是賦值：PATH 本來就沒有時，`= undefined` 會留下字串 "undefined"。
+      if (realPath === undefined) delete process.env.PATH;
+      else process.env.PATH = realPath;
     }
   });
 });

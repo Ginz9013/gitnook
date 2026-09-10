@@ -61,36 +61,51 @@ export function boardAlerts(diagnostics: readonly Diagnostic[]): readonly BoardA
 }
 
 /**
- * 我們自己對這一種問題說的那一句，以及下一步該打的指令。
- *
- * **指錯指令的警示條比不講話更糟**，所以每一種問題的 `fix` 都要分開想：`init`
- * 補的是 `.gitattributes` 那一行，對已經寫進 op-log 的資料一點作用都沒有；
- * 反過來也一樣。
+ * 三種「op-log 上有讀不動的資料」共用同一句話與同一個指令 —— 它們的差別對看板上
+ * 的人沒有意義（都是那幾行現在不算數），而 `said` 會說出是哪一種。
  */
-function advice(kind: DiagnosticKind): { readonly headline: string; readonly fix: string } {
-  if (kind === 'MissingMergeDriver') {
-    return {
-      headline: '這塊 board 的零衝突保證不見了 —— 並行編輯會開始靜默衝突',
-      fix: 'nook init',
-    };
-  }
-  if (kind === 'SharingMismatch') {
-    return {
-      // 資料沒壞，壞的是「這塊 board 共享了嗎」有兩個互相矛盾的答案。
-      headline: '這塊 board 的共享狀態不一致 —— fs 與 git 說的不是同一件事',
-      // **這一種的下一步不是一個指令。** 兩種狀態的解法不同（已經被追蹤的
-      // board 是 `nook share`；被一條廣泛的 ignore 規則吃掉的 board 則是
-      // `nook init --private` 或把那條規則拿掉），而哪一條對只有使用者知道。
-      // `diagnose()` 的原話（`said`）已經把是哪一種說完了，所以這裡指向說那句
-      // 話的地方，而不是猜一個可能把事情弄得更糟的指令 —— `doctor --fix` 只拆
-      // 黏合行，對共享狀態完全沒有作用。
-      fix: 'nook doctor',
-    };
-  }
-  return {
-    headline: 'op-log 上有 reducer 讀不動的資料 —— 那幾行的內容現在不算數',
-    fix: 'nook doctor --fix',
-  };
+const DATA_LAYER = {
+  headline: 'op-log 上有 reducer 讀不動的資料 —— 那幾行的內容現在不算數',
+  fix: 'nook doctor --fix',
+} as const;
+
+/**
+ * 一種問題對應的那一句話與下一步。
+ *
+ * **指錯指令的警示條比不講話更糟**，所以每一種都分開想：`init` 補的是
+ * `.gitattributes` 那一行，對已經寫進 op-log 的資料一點作用都沒有；反過來也一樣。
+ *
+ * 這裡是一張**以 kind 為鍵、而且要求窮盡**的表，不是 if-cascade 加一個 fallback。
+ * 理由是這一批自己撞過的那個坑：`SharingMismatch` 剛出現時掉進 fallback，拿到
+ * 「op-log 上有 reducer 讀不動的資料」＋ `doctor --fix` —— 兩句都是錯的，而看板
+ * 上只有這裡會講話。fallback 會讓**下一個** kind 再踩一次，而且同樣沒有人會變紅。
+ * 窮盡的表則是 `tsc` 當場變紅。
+ */
+const ADVICE: Record<Exclude<DiagnosticKind, 'NotAGitRepo'>, { readonly headline: string; readonly fix: string }> = {
+  MissingMergeDriver: {
+    headline: '這塊 board 的零衝突保證不見了 —— 並行編輯會開始靜默衝突',
+    fix: 'nook init',
+  },
+  SharingMismatch: {
+    // 資料沒壞，壞的是「這塊 board 共享了嗎」有兩個互相矛盾的答案。
+    headline: '這塊 board 的共享狀態不一致 —— fs 與 git 說的不是同一件事',
+    // **這一種的下一步不是一個指令。** 兩種狀態的解法不同（已經被追蹤的 board 是
+    // `nook share`；被一條廣泛的 ignore 規則吃掉的則是 `nook init --private` 或把
+    // 那條規則拿掉），而哪一條對只有使用者知道。`said` 已經把是哪一種說完了，所以
+    // 這裡指向說那句話的地方，而不是猜一個可能把事情弄得更糟的指令。
+    fix: 'nook doctor',
+  },
+  GluedLine: DATA_LAYER,
+  UnparsableLine: DATA_LAYER,
+  UnknownOp: DATA_LAYER,
+};
+
+
+function advice(kind: Exclude<DiagnosticKind, 'NotAGitRepo'>): {
+  readonly headline: string;
+  readonly fix: string;
+} {
+  return ADVICE[kind];
 }
 
 /**

@@ -1,5 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
 /**
@@ -63,7 +71,10 @@ export class NoGitDir extends Error {
  * op-log 那個目錄，作為 git pathspec（一律 `/`，不吃平台的分隔符號）。
  * 「這塊 board 共享了嗎」問的就是這裡有沒有東西進 index。
  */
-const OP_LOG_DIR = '.issues/issues';
+export const OP_LOG_DIR = '.issues/issues';
+
+/** op-log 的副檔名。`health.ts` 也在掃同一批檔案，兩邊認的必須是同一件事。 */
+const LOG_SUFFIX = '.ndjson';
 
 /**
  * nook 自己寫進 `info/exclude` 的那一行，`/<board 相對於 work tree 頂端的路徑>/.issues/`。
@@ -197,6 +208,62 @@ export function excludeBoard(root: string): ExcludeOutcome {
   const lead = existing === '' || existing.endsWith('\n') ? '' : '\n';
   appendFileSync(file, `${lead}${pattern}\n`, 'utf8');
   return 'added';
+}
+
+/**
+ * git 自己對這塊 board 的 ignore 判斷 —— 以及**它自己指出的來源**
+ * （`<file>:<line>:<pattern>`），原封不動帶著走：那個行號是上層編不出來的東西。
+ *
+ * **會 spawn `git check-ignore -v`**，所以只准 init / doctor / share 呼叫。
+ *
+ * 問的是**一個真的存在的 op-log 檔**，不是那個目錄，也不是一個代表性的檔名 ——
+ * 三者在真實 git 下不等價（實測）：
+ *
+ * | 狀態 | 問目錄 | 問存在的 op-log | 問不存在的檔名 |
+ * |---|---|---|---|
+ * | `.gitignore` 是 `*.ndjson`、op-log 未 tracked | 沒命中 ← **漏報** | 命中 ✓ | 命中 |
+ * | `.gitignore` 是 `.issues/`、op-log 已 tracked | 沒命中 | 沒命中 ✓ | 命中 ← **假警報** |
+ *
+ * 也就是：只有「存在的檔案」兩邊都對。tracked 勝過 ignore 規則這件事要靠 index
+ * 查得到那條路徑才成立，所以路徑必須真的在 index 的視野裡。
+ *
+ * **還沒有任何 op-log 時退回問目錄**（保守）。代價是「空 board + `*.ndjson`」
+ * 這一格要等第一張 Issue 出現才報得出來 —— 那是延後，不是永久漏報，而拿不存在
+ * 的檔名去問會在上表第二列變成假警報。
+ */
+export function ignoredByGit(root: string): { readonly ignored: boolean; readonly source: string | null } {
+  let out: string;
+  try {
+    out = execFileSync('git', ['check-ignore', '-v', '--', ignoreProbe(root)], {
+      cwd: resolve(root),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch (thrown) {
+    // status 是數字就表示 git 真的跑完並自己以非 0 結束（沒命中、或這裡不是 work
+    // tree）。其餘（ENOENT、權限）是我們答不出來的，往外丟 —— 同 `opLogsTracked`：
+    // 「不知道」不能被當成「沒有」。
+    if (typeof (thrown as { status?: unknown }).status === 'number') {
+      return { ignored: false, source: null };
+    }
+    throw thrown;
+  }
+
+  // 命中了（exit 0），但來源的形狀不是 `<file>:<line>:<pattern>\t<pathname>` 時
+  // `source` 是 null：**ignored 仍然是 true** —— git 說了它 ignore，那是事實；
+  // 我們只是沒有可以引用的來源。兩件事分開，呼叫端才決定得了要不要開口。
+  const line = out.split('\n')[0] ?? '';
+  const tab = line.lastIndexOf('\t');
+  return { ignored: true, source: tab > 0 ? line.slice(0, tab) : null };
+}
+
+/** 拿去問 git 的那條路徑。見 `ignoredByGit` 的表格。 */
+function ignoreProbe(root: string): string {
+  const dir = join(resolve(root), ...OP_LOG_DIR.split('/'));
+  if (!existsSync(dir)) return OP_LOG_DIR;
+  // 排序讓答案穩定，不隨檔案系統的回傳順序漂移（同 health.ts 的 opLogNames）。
+  const first = readdirSync(dir).filter((n) => n.endsWith(LOG_SUFFIX)).sort()[0];
+  return first === undefined ? OP_LOG_DIR : `${OP_LOG_DIR}/${first}`;
 }
 
 /**

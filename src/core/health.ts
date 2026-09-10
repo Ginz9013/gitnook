@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { Diagnostic } from './types.js';
 import { MERGE_RULE, inspectMergeGuarantee } from './gitattributes.js';
 import { OP_KINDS, splitGluedLine } from './ops.js';
-import { inspectSharing, opLogsTracked } from './sharing.js';
+import { ignoredByGit, inspectSharing, opLogsTracked } from './sharing.js';
 
 /**
  * 資料健康診斷。彙整成一份 Diagnostic 清單：merge=union 那條唯一支柱是否還在、
@@ -71,8 +71,13 @@ export function diagnose(dir: string): Diagnostic[] {
     });
   } else if (sharing === 'shared' && insideGit) {
     // 反向的那一種：nook 沒有寫任何規則，git 卻把 op-log 擋在外面。
-    const source = ignoredSource(dir);
-    if (source !== null) {
+    // `ignored` 與 `source` 是兩件事：git 說它 ignore 是事實，而我們有沒有可以
+    // 引用的來源是另一回事。**答不出那個形狀就閉嘴** —— 這一條的全部價值就是帶著
+    // git 自己指出的 `<file>:<line>:<pattern>`，拿一個編不出來的來源拉警報比不
+    // 講話更糟（doctor 進 CI，而 PATH 上若有一支什麼都答 true 的假 git，它的輸出
+    // 正好是這個形狀對不上的樣子）。
+    const { ignored, source } = ignoredByGit(dir);
+    if (ignored && source !== null) {
       found.push({
         kind: 'SharingMismatch',
         message:
@@ -207,49 +212,6 @@ function opKindOf(text: string): string | null {
 
 function excerpt(text: string): string {
   return text.length <= 60 ? text : `${text.slice(0, 60)}…`;
-}
-
-/**
- * git 自己說的：這塊 board 的 op-log 被哪一條規則 ignore 了 ——
- * `<file>:<line>:<pattern>`，原封不動。沒被 ignore（或 git 自己以非 0 結束）就是 null。
- *
- * **只在 fs 已經答 shared 時才呼叫。** 這是一個子行程，而健康的 private board
- * 的 op-log 本來就該被 ignore：那裡既問不出新東西，也不得為此多付一個子行程。
- *
- * 問的是 op-log 那個**目錄**（同 `opLogsTracked` 的 pathspec），刻意不拿一條
- * 代表性的檔名去問：check-ignore 預設會查 index，所以已被追蹤的路徑一律答
- * not ignored —— 而那正是我們要的（tracked 勝過 ignore 規則）。實測（git 2.x）：
- * `.gitignore` 有 `.issues/` 且 board 被 `git add -f` 進去時，問 `.issues/issues`
- * 得到 exit 1，問一個還不存在的 `.issues/issues/01JBX.ndjson` 卻得到 exit 0 ——
- * 後者會在一塊真的共享得好好的 board 上報出假陽性。
- *
- * 答案在 exit code（實測：命中 0、沒命中 1、不在 repo 內 128）。`-v` 的輸出是
- * `<file>:<line>:<pattern>\t<pathname>`，尾端那一格是我們自己傳進去的路徑，
- * 所以由最後一個 tab 切開 —— 前面那一段一個字元都不動。
- */
-function ignoredSource(dir: string): string | null {
-  let out: string;
-  try {
-    out = execFileSync('git', ['check-ignore', '-v', '--', ISSUES_DIR], {
-      cwd: dir,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-  } catch (thrown) {
-    // status 是數字就表示 git 真的跑完並自己以非 0 結束（沒命中、或這裡不是
-    // work tree）。其餘（ENOENT、權限）是我們答不出來的，往外丟 —— 同
-    // `opLogsTracked`：「不知道」不能被當成「沒有」。
-    if (typeof (thrown as { status?: unknown }).status === 'number') return null;
-    throw thrown;
-  }
-
-  // **答不出那個形狀就閉嘴。** 這一條的全部價值是帶著 git 自己指出的來源，所以
-  // 輸出不是 `<file>:<line>:<pattern>\t<pathname>` 時我們沒有可報的東西 —— 而拿
-  // 一個編不出來的來源拉警報比不講話更糟（doctor 進 CI）。
-  const line = out.split('\n')[0] ?? '';
-  const tab = line.lastIndexOf('\t');
-  if (tab <= 0) return null;
-  return line.slice(0, tab);
 }
 
 function isInsideGitWorkTree(dir: string): boolean {
