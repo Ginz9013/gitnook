@@ -3,3 +3,4 @@
 {"id":"01M26B1WJTK01YY43YR5WQNZW6","t":3,"a":"83a1","op":"label.add","v":"workspace"}
 {"id":"01M26B1WJT049ZJBW0AJM134DQ","t":4,"a":"83a1","op":"label.add","v":"cli"}
 {"id":"01M26B6FQ4151YH6SFM9FV7ZSJ","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M26CY502X58VTD6W7Z3P176K","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}

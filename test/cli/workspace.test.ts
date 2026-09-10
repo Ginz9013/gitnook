@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBoard, initBoard } from '../../src/index.js';
@@ -56,6 +57,37 @@ function member(...parts: string[]): string {
   const dir = join(root, ...parts);
   initBoard(dir);
   return dir;
+}
+
+/**
+ * `doctor` 要測的是真實的健康狀態，所以 workspace 根目錄得是一個真的 git work
+ * tree（同 test/core/health.test.ts 的手法）—— 沒有 git，`diagnose()` 對每個
+ * 成員都會回報 `NotAGitRepo`，「一個成員不健康、其餘健康」就無從造起。只設
+ * local 設定，不依賴也不修改使用者的全域 git 設定。
+ */
+function gitInit(): void {
+  execFileSync('git', ['init', '-q'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.email', 'test@nook.invalid'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'Nook Test'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['config', 'commit.gpgsign', 'false'], { cwd: root, stdio: 'ignore' });
+}
+
+/** 覆寫掉 initBoard 寫入的 merge=union 那一行 —— 同 health.test.ts 造 MissingMergeDriver 的手法。 */
+function breakMergeGuarantee(memberDir: string): void {
+  writeFileSync(join(memberDir, '.gitattributes'), '*.png binary\n', 'utf8');
+}
+
+/** 一份黏合行 —— 同 health.test.ts，`repair()` 有東西可修才測得出 --fix 的效果。 */
+function writeGluedOpLog(memberDir: string, id: string): void {
+  const create = '{"id":"a1","t":1,"a":"k3f9","op":"create","title":"Fix login redirect"}';
+  const setOp = '{"id":"a2","t":2,"a":"k3f9","op":"set","k":"status","v":"in_progress"}';
+  const label = '{"id":"a3","t":3,"a":"k3f9","op":"label.add","v":"bug"}';
+  // 第 2 行是黏合行（缺 trailing newline 造成的兩個 op 黏一起）。
+  writeFileSync(
+    join(memberDir, '.issues', 'issues', `${id}.ndjson`),
+    `${create}\n${setOp}${label}\n`,
+    'utf8',
+  );
 }
 
 const createIn = (dir: string, prefix: string, input: CreateInput): Issue =>
@@ -207,5 +239,85 @@ describe('dispatchWorkspace list — --json', () => {
 
     const parsed = JSON.parse(io.out) as Array<{ path: string }>;
     expect(parsed.map((g) => g.path)).toEqual(['pkgs/a']);
+  });
+});
+
+describe('dispatchWorkspace doctor — 全部成員健康', () => {
+  it('完全沉默，exit 0（同單一 Board doctor 的既有慣例）', async () => {
+    gitInit();
+    member('pkgs', 'a');
+    member('pkgs', 'b');
+
+    const io = capture();
+    const code = await dispatchWorkspace(['doctor'], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toBe('');
+    expect(io.err).toBe('');
+  });
+});
+
+describe('dispatchWorkspace doctor — 空 workspace', () => {
+  it('掃不到任何成員時沉默、exit 0', async () => {
+    gitInit();
+
+    const io = capture();
+    const code = await dispatchWorkspace(['doctor'], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toBe('');
+    expect(io.err).toBe('');
+  });
+});
+
+describe('dispatchWorkspace doctor — 一個成員不健康', () => {
+  it('印出那個成員的路徑與 diagnostic，其餘健康的成員不印任何東西，exit 1', async () => {
+    gitInit();
+    const a = member('pkgs', 'a');
+    member('pkgs', 'b');
+    breakMergeGuarantee(a);
+
+    const io = capture();
+    const code = await dispatchWorkspace(['doctor'], io);
+
+    expect(code).toBe(1);
+    expect(io.out).toContain('pkgs/a');
+    expect(io.out).toContain('MissingMergeDriver');
+    expect(io.out).not.toContain('pkgs/b');
+  });
+});
+
+describe('dispatchWorkspace doctor — workspace 根目錄自己也是一個成員', () => {
+  it('那一行不是孤零零一個 . ，清楚標出是根目錄那個成員 Board 的問題', async () => {
+    gitInit();
+    member(); // 根目錄自己 init 一塊 board
+    breakMergeGuarantee(root);
+
+    const io = capture();
+    const code = await dispatchWorkspace(['doctor'], io);
+
+    expect(code).toBe(1);
+    expect(io.out).toContain('MissingMergeDriver');
+    // 不是裸的一個點：那樣讀起來像「workspace 這個工具自己」的問題。
+    expect(io.out).not.toMatch(/^\.\s{2}MissingMergeDriver/m);
+    expect(io.out).toContain('workspace 根目錄本身');
+  });
+});
+
+describe('dispatchWorkspace doctor --fix', () => {
+  it('對每個有 diagnostic 的成員各自呼叫既有 repair()，印出對應的 Repaired 行', async () => {
+    gitInit();
+    const a = member('pkgs', 'a');
+    member('pkgs', 'b');
+    writeGluedOpLog(a, '01SEED00000000000000000001');
+
+    const io = capture();
+    const code = await dispatchWorkspace(['doctor', '--fix'], io);
+
+    expect(io.out).toContain('pkgs/a');
+    expect(io.out).toContain('Repaired');
+    expect(io.out).not.toContain('pkgs/b');
+    // 修完之後那條 GluedLine 不該再出現 —— --fix 修的是真正的檔案。
+    expect(code).toBe(0);
   });
 });

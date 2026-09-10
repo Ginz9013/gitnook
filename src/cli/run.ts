@@ -15,6 +15,7 @@ import {
   inspectMergeGuarantee,
 } from '../core/gitattributes.js';
 import { repair } from '../core/health.js';
+import type { Repair } from '../core/health.js';
 import { isValidRef, shortIdLength } from '../core/ids.js';
 import { fieldWrites } from '../core/reduce.js';
 import {
@@ -37,7 +38,7 @@ import { renderSetOps, renderTable } from '../render/table.js';
 import { PortInUse, serve } from '../server/serve.js';
 import { dispatchWorkspace } from './workspace.js';
 import type { SetKey } from '../core/ops.js';
-import type { Board, Change, CreateInput, Filter } from '../core/types.js';
+import type { Board, Change, CreateInput, Diagnostic, Filter } from '../core/types.js';
 
 /**
  * argv → Board → render → exit code。
@@ -782,12 +783,29 @@ async function cmdStudio(args: Args, io: Io): Promise<number> {
  * `--fix` 先修再診斷：報告一個「可修復」卻不給任何修復途徑，等於只是在指責
  * 使用者。修完必須重跑，否則印出來的是一份已經過期的診斷。
  */
+/**
+ * `repair()` 修好一個黏合行印的那一句。export 供 `cli/workspace.ts` 重用
+ * （票 03）——同一句措辭只有一份，不在兩個 `cmdDoctor` 各自重打一次。
+ */
+export function formatRepaired(fixed: Repair): string {
+  return `Repaired  ${fixed.file}:${fixed.line}  拆回 ${fixed.ops} 個 op`;
+}
+
+/**
+ * 一條 Diagnostic 印成的那一行（不含開頭的縮排/標籤，呼叫端各自決定要不要
+ * 加）。export 供 `cli/workspace.ts` 重用（票 03），理由同 `formatRepaired`。
+ */
+export function formatDiagnostic(d: Diagnostic): string {
+  const where = d.file === undefined ? '' : `${d.file}${d.line === undefined ? '' : `:${d.line}`}  `;
+  return `${d.kind}  ${where}${d.message}`;
+}
+
 function cmdDoctor(args: Args, io: Io): number {
   if (args.has('--fix')) {
     // 修的必須是 board 根目錄那一塊。拿 io.cwd 去修，在子目錄執行時掃不到
     // 任何 op-log —— 那是靜默不修：它會 exit 0 卻什麼都沒動。
     for (const fixed of repair(boardDir(io))) {
-      line(io, `Repaired  ${fixed.file}:${fixed.line}  拆回 ${fixed.ops} 個 op`);
+      line(io, formatRepaired(fixed));
     }
   }
 
@@ -796,8 +814,7 @@ function cmdDoctor(args: Args, io: Io): number {
   // 實作。這也是 README 給 library 呼叫端的承諾：board.health() 就是 nook doctor 報的。
   const found = openBoard({ dir: io.cwd }).health();
   for (const d of found) {
-    const where = d.file === undefined ? '' : `${d.file}${d.line === undefined ? '' : `:${d.line}`}  `;
-    line(io, `${d.kind}  ${where}${d.message}`);
+    line(io, formatDiagnostic(d));
   }
   return found.length === 0 ? 0 : 1;
 }

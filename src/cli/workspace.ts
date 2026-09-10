@@ -1,17 +1,27 @@
 import { relative } from 'node:path';
 import { openWorkspace } from '../core/workspace.js';
+import { repair } from '../core/health.js';
 import { renderWorkspaceList } from '../render/table.js';
-import { displayLength, line, parseArgs, UsageError, type Args, type Io } from './run.js';
+import {
+  displayLength,
+  formatDiagnostic,
+  formatRepaired,
+  line,
+  parseArgs,
+  UsageError,
+  type Args,
+  type Io,
+} from './run.js';
 import type { Filter } from '../core/types.js';
 import type { WorkspaceGroup } from '../render/table.js';
 
 /**
- * `nook workspace <list|...>` 的 argv → Workspace → render → exit code。
+ * `nook workspace <list|doctor|...>` 的 argv → Workspace → render → exit code。
  *
  * 跟 `run.ts` 對單一 Board 的既有指令同一個薄度量級 —— 複雜度屬於
  * `openWorkspace()`（核心）與 `renderWorkspaceList()`（呈現），這裡只接線。
  *
- * 目前只認得 `list`；`doctor`/`studio` 是後續票（03/04）的範圍。
+ * 目前認得 `list`/`doctor`；`studio` 是後續票（04）的範圍。
  */
 export async function dispatchWorkspace(argv: readonly string[], io: Io): Promise<number> {
   const [sub, ...rest] = argv;
@@ -19,14 +29,17 @@ export async function dispatchWorkspace(argv: readonly string[], io: Io): Promis
   switch (sub) {
     case 'list':
       return cmdList(parseArgs(rest, LIST_FLAGS), io);
+    case 'doctor':
+      return cmdDoctor(parseArgs(rest, DOCTOR_FLAGS), io);
   }
 
   // 同 `run.ts` 的 `unknownCommand`：使用者錯誤只走 UsageError 這一條路徑，
   // 不在這裡另開一份手寫的 errLine + return 1。
-  throw new UsageError(`未知的 workspace 子指令：${sub ?? ''}（目前只有 list）`);
+  throw new UsageError(`未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor）`);
 }
 
 const LIST_FLAGS: ReadonlySet<string> = new Set(['--all', '--status', '--label', '--json']);
+const DOCTOR_FLAGS: ReadonlySet<string> = new Set(['--fix']);
 
 /**
  * 一個成員路徑相對於 workspace 根目錄的顯示形式。成員本身就是根目錄時
@@ -35,6 +48,16 @@ const LIST_FLAGS: ReadonlySet<string> = new Set(['--all', '--status', '--label',
 const relativeGroupPath = (root: string, path: string): string => {
   const rel = relative(root, path);
   return rel === '' ? '.' : rel;
+};
+
+/**
+ * `doctor` 專用的成員標籤：一個 diagnostic 前面孤零零一個 `.`，讀起來容易被
+ * 誤會成「workspace 這個工具自己的問題」，而不是「根目錄那個 Board 的問題」
+ * ——`list` 的分組表頭底下接著一串 issue，上下文夠，不需要這條加註。
+ */
+const doctorLabel = (root: string, path: string): string => {
+  const rel = relativeGroupPath(root, path);
+  return rel === '.' ? '. （workspace 根目錄本身也是一個成員 Board）' : rel;
 };
 
 /**
@@ -74,4 +97,45 @@ function cmdList(args: Args, io: Io): number {
     line(io, renderWorkspaceList(groups));
   }
   return 0;
+}
+
+/**
+ * `doctor`：對每個成員各跑一次既有、未經修改的 `member.board.health()` ——
+ * 診斷邏輯完全屬於 `src/core/health.ts`，這裡只逐一呼叫並在輸出前加上該成員的
+ * 相對路徑，讓每一行都清楚標出是哪個成員的 diagnostic（不會讓人誤以為是母
+ * 資料夾自己的問題——`doctorLabel` 特別處理了根目錄自己也是一個成員的情況）。
+ * 任一個成員不健康就整個指令 exit 1；全部健康時完全沉默 ——同單一 Board
+ * `doctor` 的既有慣例（沒消息就是好消息），因為呼叫的正是同一個 `health()`。
+ * 兩行的措辭（`formatDiagnostic`/`formatRepaired`）從 `run.ts` 重用，不重打
+ * 一份可能漂開的副本。
+ *
+ * `--fix` 對**每一個**成員都呼叫既有、未經修改的 `repair(member.path)`——同
+ * 單一 Board `cmdDoctor` 的既有寫法：`repair()` 對沒有黏合行的成員本來就是
+ * no-op（回傳空陣列、不印任何東西），效果等同「只對有 diagnostic 的成員修」，
+ * 不必在呼叫前先自己判斷一次「這個成員需不需要修」——那個判斷本來就屬於
+ * `repair()` 自己。修完才問 `health()`：`diagnose()` 每次都重新讀檔，不會拿到
+ * 修復前的舊答案。
+ */
+function cmdDoctor(args: Args, io: Io): number {
+  const workspace = openWorkspace({ dir: io.cwd });
+  const root = workspace.root();
+  let unhealthy = false;
+
+  for (const member of workspace.members) {
+    const path = doctorLabel(root, member.path);
+
+    if (args.has('--fix')) {
+      for (const fixed of repair(member.path)) {
+        line(io, `${path}  ${formatRepaired(fixed)}`);
+      }
+    }
+
+    const found = member.board.health();
+    if (found.length > 0) unhealthy = true;
+    for (const d of found) {
+      line(io, `${path}  ${formatDiagnostic(d)}`);
+    }
+  }
+
+  return unhealthy ? 1 : 0;
 }
