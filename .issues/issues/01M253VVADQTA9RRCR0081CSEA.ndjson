@@ -3,3 +3,5 @@
 {"id":"01M253VVAQ593933NPXWK14Y8B","t":3,"a":"83a1","op":"label.add","v":"private-mode"}
 {"id":"01M253VVAQEXGWZCT04MK64MFX","t":4,"a":"83a1","op":"label.add","v":"core"}
 {"id":"01M253VVAQT4G54MB4H5K7A863","t":5,"a":"83a1","op":"label.add","v":"review"}
+{"id":"01M25CX7DZEQY4N32F8YBNRC69","t":6,"a":"83a1","op":"comment","body":"**使用者於 2026-09-10 授權執行，範圍擴成兩片。**\n\n實測後果比票面原本寫的嚴重（board 在 `apps/[id]/`，Next.js 動態路由的目錄名）：寫進 `info/exclude` 的是 `/apps/[id]/.issues/`，git **沒有** ignore 它，`git status` 顯示 `?? apps/`，而 `nook list` 的 stderr 是 0 bytes、`nook doctor` 也是 0 bytes exit 0 —— **三個面都沉默，board 其實整塊進得了 git**。使用者以為零 committed bytes，下一次 `git add -A` 就把它推給全隊。\n\n所以加了片 2：**doctor 要說出「fs 說 private、git 說沒 ignore」**（沿用票 05 的 `SharingMismatch`，第三種訊息）。轉義只修掉我們想得到的成因；這條檢查抓的是整個類別 —— 日後任何讓「寫進去的規則沒生效」的原因都會被它抓到。`ignoredByGit` 已經在 `sharing.ts` 上，目前只在 fs 說 shared 時被問。"}
+{"id":"01M25CX7F36FXE9GZ0Z86VSWQX","t":7,"a":"83a1","op":"set","k":"status","v":"queued"}

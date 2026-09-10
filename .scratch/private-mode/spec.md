@@ -209,8 +209,20 @@ npx tsc --noEmit                   # static
 
 ## 共用資源與環境風險
 
-- 使用者可能正在 `127.0.0.1:4780` 跑 studio。**不要跑 `npx tsup`，也不要跑
-  `npm run bench`**（兩者都會清掉 `dist/`）。`npx vite build` 可以。
+- 使用者可能正在 `127.0.0.1:4780` 跑 studio。**不要單獨跑 `npx tsup`** ——
+  它清掉整個 `dist/` 卻不重建 `dist/studio/`（只有 `vite build` 會寫那裡）。
+
+  **2026-09-10 實測修正**：原本這裡還寫著「不要跑 `npm run bench`」，但那條在這個
+  repo 做不到 —— `test/integration/packed-smoke.test.ts` 的 `beforeAll` 會
+  `packPackage()` → `npm pack` → `prepack` → 完整 build，所以**每一次
+  `npx vitest run` 都重建了 `dist/`**（實測 mtime 每跑必前進，該檔單跑 6.3 秒）。
+  重建之後 `dist/` 是完整的（cli 與 studio 都在），所以 studio 開著也只是重新載入
+  到新的 bundle。
+
+  真正該守的是另一條：**並行的 worker 一律不跑整套** —— 兩個 `npm pack` 會搶同一個
+  `dist/`。Round 3 就撞過：兩個 worker 並行時 `packed-smoke` 紅了又自己好，害其中
+  一個 worker 花工夫把整棵樹複製去 scratchpad 自證清白。worker 只跑 focused 測試
+  加 `tsc --noEmit`，整套與六列閘門由整合者序列化地跑。
 - **不得寫入這個 repo 的 `.issues/`**，也不得對這個 repo 跑
   `nook init --private`、`nook share`、`git rm --cached` —— 那會把 nook 自己
   的 board 變成實驗品。全部測試都在 `mkdtemp` 出來的 repo 裡做。
