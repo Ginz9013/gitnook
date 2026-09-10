@@ -17,6 +17,7 @@ import {
 import { repair } from '../core/health.js';
 import { isValidRef, shortIdLength } from '../core/ids.js';
 import { fieldWrites } from '../core/reduce.js';
+import { inspectSharing } from '../core/sharing.js';
 import {
   AmbiguousRef,
   BoardNotInitialized,
@@ -183,7 +184,7 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
 
   switch (command) {
     case 'init':
-      return cmdInit(io);
+      return cmdInit(parseArgs(rest, INIT_FLAGS), io);
     case 'new':
       return cmdNew(parseArgs(rest, NEW_FLAGS), io);
     case 'list':
@@ -266,7 +267,7 @@ function displayLength(board: Board): number {
  */
 const HELP = `nook <command>
 
-init                                   建立 .issues/ 與 .gitattributes
+init [--private]                       建立 board；--private 不留 committed bytes
 new <title> [--description <text|->] [--label <l>] [--editor]
 list [--all] [--status <s>] [--label <l>] [--json]
 show <ref> [--json]
@@ -310,6 +311,7 @@ const VALUED: ReadonlySet<string> = new Set(['--status', '--label', '--descripti
 /** 每個指令認得的旗標。不在名單上的一律報錯 —— 靜默吃掉一個打錯的旗標，
  * 呼叫端會拿到一份沒過濾的答案卻以為自己過濾了。 */
 const NO_FLAGS: ReadonlySet<string> = new Set();
+const INIT_FLAGS: ReadonlySet<string> = new Set(['--private']);
 const NEW_FLAGS: ReadonlySet<string> = new Set(['--description', '--editor', '--label']);
 const LIST_FLAGS: ReadonlySet<string> = new Set(['--all', '--status', '--label', '--json']);
 const SHOW_FLAGS: ReadonlySet<string> = new Set(['--json']);
@@ -775,7 +777,9 @@ function cmdLabel(args: Args, io: Io): number {
  * 狀態必須在 initBoard 之前讀完 —— 之後再讀，看到的是它剛寫完的結果，
  * 三種結果會全部塌成「本來就在」。initBoard 丟例外時一行都不印。
  */
-function cmdInit(io: Io): number {
+function cmdInit(args: Args, io: Io): number {
+  if (args.has('--private')) return initPrivate(io);
+
   const enclosing = findBoardRoot(io.cwd);
   const boardExisted = enclosing.found && enclosing.root === io.cwd;
   const guarded = inspectMergeGuarantee(io.cwd).kind === 'union';
@@ -791,6 +795,32 @@ function cmdInit(io: Io): number {
   // 兩件事都已經在了才是 no-op。沉默在這裡會與第一次的成功長得一模一樣，
   // 而使用者問的正是「這次到底有沒有動到東西」。
   if (boardExisted && guarded) line(io, 'Unchanged  這裡已經是一塊 board，這次沒有建立任何東西');
+  return 0;
+}
+
+/**
+ * private mode 的 init。輸出沿用同一套三分法（建了 / 補了 / 什麼都沒做），
+ * 外加一條**必須**被講出來的代價：被 git ignore 的 board 是一份沒有備份的
+ * 資料，`git clean -xdf` 會把它整塊刪掉。
+ *
+ * 狀態同樣在寫入之前問完 —— 寫完再問，答案永遠是「已經在了」。
+ */
+function initPrivate(io: Io): number {
+  const enclosing = findBoardRoot(io.cwd);
+  const boardExisted = enclosing.found && enclosing.root === io.cwd;
+  const excluded = inspectSharing(io.cwd) === 'private';
+
+  initBoard(io.cwd, { sharing: 'private' });
+
+  if (!boardExisted) line(io, 'Created  .issues/issues/');
+  if (!excluded) line(io, 'Ignored  .issues/  $GIT_DIR/info/exclude（這塊 board 不會被 commit）');
+  // 兩件事都已經在了才是 no-op。沉默在這裡會與第一次的成功長得一模一樣。
+  if (boardExisted && excluded) {
+    line(io, 'Unchanged  這裡已經是一塊 private board，這次沒有建立任何東西');
+  }
+  // 每次都印：重跑 init 的人正是在問「我這塊 board 現在是什麼狀態」，而這是
+  // 那個答案裡最貴的一件事。
+  line(io, 'Note  git clean -xdf 會刪掉整塊 board，而且沒有備份');
   return 0;
 }
 

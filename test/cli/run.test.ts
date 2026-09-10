@@ -1558,3 +1558,105 @@ describe('rm 的確認在兩種擋法上各說各的話', () => {
     expect(openBoard({ dir }).get('01JBXA').deleted).toBe(false);
   });
 });
+
+/**
+ * private mode：一塊只存在於本機的 board。買到的不是技術相容性，是**社交
+ * 足跡為零** —— 團隊裡只有一個人想用時，不必先跟全隊解釋這是什麼。
+ */
+describe('init --private', () => {
+  it('建出 board、規則寫進 info/exclude、不碰 .gitattributes，且 git 看不到任何東西', async () => {
+    gitInit();
+    const io = capture();
+
+    expect(await run(['init', '--private'], io)).toBe(0);
+
+    expect(existsSync(join(dir, '.issues', 'issues'))).toBe(true);
+    // private 模式完全不碰 .gitattributes：被 ignore 的 op-log 永遠不會 merge。
+    expect(existsSync(join(dir, '.gitattributes'))).toBe(false);
+    expect(readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8').split('\n')).toContain(
+      '/.issues/',
+    );
+    // zero committed bytes —— 這整個模式存在的理由。
+    expect(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' })).toBe('');
+
+    // init 說話（與 doctor 沉默相對）：建了什麼、規則寫在哪，以及那條必須被
+    // 講出來的代價 —— private board 是一份沒有備份的資料。
+    expect(io.out).toBe(
+      'Created  .issues/issues/\n' +
+        'Ignored  .issues/  $GIT_DIR/info/exclude（這塊 board 不會被 commit）\n' +
+        'Note  git clean -xdf 會刪掉整塊 board，而且沒有備份\n',
+    );
+    expect(io.err).toBe('');
+  });
+
+  /** 寫完即綠的 guard：三分法的第三格由上一個切片交付，這裡把它釘住。 */
+  it('重跑說出這次什麼都沒做，長得與第一次不同，規則也沒被寫成第二行', async () => {
+    gitInit();
+    const first = capture();
+    await run(['init', '--private'], first);
+
+    const again = capture();
+
+    // 已經初始化過不是錯誤 —— 是 no-op，所以 exit 0 而不是 1。
+    expect(await run(['init', '--private'], again)).toBe(0);
+
+    expect(again.out).toBe(
+      'Unchanged  這裡已經是一塊 private board，這次沒有建立任何東西\n' +
+        'Note  git clean -xdf 會刪掉整塊 board，而且沒有備份\n',
+    );
+    // 「這次是不是 no-op」是使用者唯一問的問題：兩次輸出一樣就等於沒回答。
+    expect(again.out).not.toBe(first.out);
+    expect(again.err).toBe('');
+    const exclude = readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8');
+    expect(exclude.split('\n').filter((l) => l === '/.issues/')).toHaveLength(1);
+  });
+
+  it('new 與 list 在這塊 board 上照常工作，而 git 仍然什麼都看不到', async () => {
+    gitInit();
+    await run(['init', '--private'], capture());
+
+    const created = capture();
+    expect(await run(['new', 'Fix login redirect'], created)).toBe(0);
+
+    const listed = capture();
+    expect(await run(['list'], listed)).toBe(0);
+
+    expect(listed.out).toContain('Fix login redirect');
+    expect(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' })).toBe('');
+    expect(execFileSync('git', ['ls-files', '.issues'], { cwd: dir, encoding: 'utf8' })).toBe('');
+    // listed.err 刻意不下斷言：list 目前仍會警告缺少 merge=union，而讓它在
+    // private board 上閉嘴是另一張票的事，不是這一張的漏。
+  });
+});
+
+describe('--help 說得出 --private', () => {
+  it('列出旗標本身 —— --help 是語法的即時來源，且仍短到值得每次都讀', async () => {
+    const io = capture();
+
+    expect(await run(['--help'], io)).toBe(0);
+
+    // 藏起一個存在的旗標與教一個不存在的指令是同一種錯。
+    expect(io.out).toContain('--private');
+    // agent 的 token 成本是硬指標（ADR-0005）：--help 每次互動都可能被讀。
+    expect(Buffer.byteLength(io.out, 'utf8')).toBeLessThan(1024);
+  });
+});
+
+/**
+ * 寫完即綠的 guard：旗標名單由上一個切片交付，這裡把它釘住 —— 而這一條的代價
+ * 特別高：靜默吃掉一個打錯的 --private，使用者會拿到一塊 **shared** board，
+ * 也就是他正想避免的那些 committed bytes，而且沒有任何東西會提示。
+ */
+describe('init 的旗標打錯時不靜默退回 shared', () => {
+  it('exit 1、說出打錯的那個旗標，且什麼都沒建', async () => {
+    gitInit();
+    const io = capture();
+
+    expect(await run(['init', '--privte'], io)).toBe(1);
+
+    expect(io.err).toContain('--privte');
+    expect(io.out).toBe('');
+    expect(existsSync(join(dir, '.issues'))).toBe(false);
+    expect(existsSync(join(dir, '.gitattributes'))).toBe(false);
+  });
+});

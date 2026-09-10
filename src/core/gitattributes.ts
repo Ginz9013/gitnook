@@ -1,5 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { excludeBoard } from './sharing.js';
+import type { Sharing } from './sharing.js';
 
 /**
  * 整個零衝突保證的唯一支柱 —— docs/adr/0001。
@@ -93,13 +95,30 @@ export class NestedBoard extends Error {
   }
 }
 
-/** 建立 .issues/issues/ 並冪等寫入 MERGE_RULE，不覆蓋既有內容。 */
-export function initBoard(dir: string): void {
+/**
+ * 建立 .issues/issues/，並依 Sharing 補上這個模式的保證：
+ * shared 冪等寫入 MERGE_RULE（不覆蓋既有內容），private 則把整塊 board 冪等
+ * 排除在 git 之外。
+ *
+ * 為什麼是一個參數而不是另一個 `initPrivateBoard`：一塊 board 只有一種建立
+ * 方式，Sharing 是它的參數 —— 兩個入口會讓 `NestedBoard` 與建目錄的前置條件
+ * 各有兩份。
+ */
+export function initBoard(dir: string, opts?: { readonly sharing?: Sharing }): void {
   const here = resolve(dir);
   // 排在任何寫入之前。在 board 根目錄重複 init 仍然是冪等的 —— 被擋下的
   // 只有「在既有 board 底下另開一塊」。
   const enclosing = findBoardRoot(here);
   if (enclosing.found && enclosing.root !== here) throw new NestedBoard(here, enclosing.root);
+
+  if (opts?.sharing === 'private') {
+    mkdirSync(join(here, ...ISSUES_DIR), { recursive: true });
+    // 刻意**完全不碰 .gitattributes**，連讀都不讀：被 ignore 的 op-log 永遠不會
+    // merge，所以 MERGE_RULE 在這個模式下無意義，而既有的 conflicting 規則同樣
+    // 無意義 —— 因此也不得拿它來報錯。
+    excludeBoard(here);
+    return;
+  }
 
   const file = join(here, '.gitattributes');
   const guarantee = inspectMergeGuarantee(here);
