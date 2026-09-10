@@ -43,18 +43,12 @@ export function boardAlerts(diagnostics: readonly Diagnostic[]): readonly BoardA
       alerts.set(d.kind, { ...seen, more: seen.more + 1 });
       continue;
     }
-    const merge = d.kind === 'MissingMergeDriver';
     alerts.set(d.kind, {
       kind: d.kind,
-      headline: merge
-        ? '這塊 board 的零衝突保證不見了 —— 並行編輯會開始靜默衝突'
-        : 'op-log 上有 reducer 讀不動的資料 —— 那幾行的內容現在不算數',
+      ...advice(d.kind),
       where: where(d),
       said: d.message,
       more: 0,
-      // `init` 補的是 `.gitattributes` 那一行，對已經寫進 op-log 的資料
-      // 一點作用都沒有；反過來也一樣。指錯指令的警示條比不講話更糟。
-      fix: merge ? 'nook init' : 'nook doctor --fix',
     });
   }
   // `diagnose()` 的順序是它掃描的順序（先 git、再 `.gitattributes`、再逐個
@@ -64,6 +58,39 @@ export function boardAlerts(diagnostics: readonly Diagnostic[]): readonly BoardA
   return [...alerts.values()].sort(
     (a, b) => Number(b.kind === 'MissingMergeDriver') - Number(a.kind === 'MissingMergeDriver'),
   );
+}
+
+/**
+ * 我們自己對這一種問題說的那一句，以及下一步該打的指令。
+ *
+ * **指錯指令的警示條比不講話更糟**，所以每一種問題的 `fix` 都要分開想：`init`
+ * 補的是 `.gitattributes` 那一行，對已經寫進 op-log 的資料一點作用都沒有；
+ * 反過來也一樣。
+ */
+function advice(kind: DiagnosticKind): { readonly headline: string; readonly fix: string } {
+  if (kind === 'MissingMergeDriver') {
+    return {
+      headline: '這塊 board 的零衝突保證不見了 —— 並行編輯會開始靜默衝突',
+      fix: 'nook init',
+    };
+  }
+  if (kind === 'SharingMismatch') {
+    return {
+      // 資料沒壞，壞的是「這塊 board 共享了嗎」有兩個互相矛盾的答案。
+      headline: '這塊 board 的共享狀態不一致 —— fs 與 git 說的不是同一件事',
+      // **這一種的下一步不是一個指令。** 兩種狀態的解法不同（已經被追蹤的
+      // board 是 `nook share`；被一條廣泛的 ignore 規則吃掉的 board 則是
+      // `nook init --private` 或把那條規則拿掉），而哪一條對只有使用者知道。
+      // `diagnose()` 的原話（`said`）已經把是哪一種說完了，所以這裡指向說那句
+      // 話的地方，而不是猜一個可能把事情弄得更糟的指令 —— `doctor --fix` 只拆
+      // 黏合行，對共享狀態完全沒有作用。
+      fix: 'nook doctor',
+    };
+  }
+  return {
+    headline: 'op-log 上有 reducer 讀不動的資料 —— 那幾行的內容現在不算數',
+    fix: 'nook doctor --fix',
+  };
 }
 
 /**

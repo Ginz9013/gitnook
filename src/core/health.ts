@@ -14,7 +14,8 @@ export function diagnose(dir: string): Diagnostic[] {
   const found: Diagnostic[] = [];
 
   // .gitattributes 只在 git 底下生效，不是 repo 就沒有零衝突保證可言。
-  if (!isInsideGitWorkTree(dir)) {
+  const insideGit = isInsideGitWorkTree(dir);
+  if (!insideGit) {
     found.push({
       kind: 'NotAGitRepo',
       message: `${dir} 不在 git work tree 內：merge=union 不會生效`,
@@ -29,13 +30,14 @@ export function diagnose(dir: string): Diagnostic[] {
   // 閉嘴，會在「排除規則在、檔案卻被 git add -f 進去了」時漏掉一個真問題：那塊
   // board 實際上是共享的，而且真的沒有那條規則。index 才是共享狀態的權威
   // （**tracked 勝過 ignore 規則**，理由見 `opLogsTracked`），所以它有否決權。
-  // 那種矛盾狀態本身要說出什麼話是另一回事（新的 Diagnostic kind），這裡只保證
-  // 它不被壓掉。
+  // 那種矛盾狀態自己要說什麼話，見下面的 `SharingMismatch`；這裡只保證它不被壓掉。
   //
-  // `||` 的短路是刻意的：`git ls-files` 只在 fs 已經答 private 時才 spawn，而
+  // **index 只在 fs 已經答 private 時才問。** `git ls-files` 是一個子行程，而
   // doctor 本來就 spawn 一個 git rev-parse。**這個子行程絕不得進入讀取熱路徑**
   // —— list / show 唯一的問法是純 fs 的 inspectSharing。
-  const guaranteeMatters = inspectSharing(dir) === 'shared' || opLogsTracked(dir);
+  const sharing = inspectSharing(dir);
+  const trackedAnyway = sharing === 'private' && opLogsTracked(dir);
+  const guaranteeMatters = sharing === 'shared' || trackedAnyway;
 
   // 唯一的單點失效：保證不在，資料就會靜默開始衝突（docs/adr/0001）。
   if (guaranteeMatters) {
@@ -52,6 +54,32 @@ export function diagnose(dir: string): Diagnostic[] {
         file: '.gitattributes',
         line: guarantee.line,
         message: `這一行讓 op-log 拿不到 merge=union：${guarantee.rule}`,
+      });
+    }
+  }
+
+  // fs 與 git 對「這塊 board 共享了嗎」說了不同的話。一個 kind、兩種狀態，
+  // 因為要修的是同一件事：讓兩邊一致。**排在保證那一條之後** —— 唯一的單點
+  // 失效仍然排第一，這一條不把它擠下去。
+  if (trackedAnyway) {
+    found.push({
+      kind: 'SharingMismatch',
+      message:
+        `排除規則在，op-log 卻已經被 git 追蹤：這塊 board 實際上是共享的` +
+        `（被追蹤的路徑勝過 ignore 規則），而且沒有零衝突保證 —— 正在靜默累積衝突風險。` +
+        `執行 nook share 讓規則與事實一致。`,
+    });
+  } else if (sharing === 'shared' && insideGit) {
+    // 反向的那一種：nook 沒有寫任何規則，git 卻把 op-log 擋在外面。
+    const source = ignoredSource(dir);
+    if (source !== null) {
+      found.push({
+        kind: 'SharingMismatch',
+        message:
+          `沒有 nook 寫的排除規則，git 卻 ignore 了 op-log：${source}` +
+          `。這塊 board 看起來是共享的，同事 clone 下來卻會是空的。` +
+          `如果這是刻意的，執行 nook init --private 把它記下來；` +
+          `不是的話，把那一條 ignore 規則拿掉。`,
       });
     }
   }
@@ -179,6 +207,49 @@ function opKindOf(text: string): string | null {
 
 function excerpt(text: string): string {
   return text.length <= 60 ? text : `${text.slice(0, 60)}…`;
+}
+
+/**
+ * git 自己說的：這塊 board 的 op-log 被哪一條規則 ignore 了 ——
+ * `<file>:<line>:<pattern>`，原封不動。沒被 ignore（或 git 自己以非 0 結束）就是 null。
+ *
+ * **只在 fs 已經答 shared 時才呼叫。** 這是一個子行程，而健康的 private board
+ * 的 op-log 本來就該被 ignore：那裡既問不出新東西，也不得為此多付一個子行程。
+ *
+ * 問的是 op-log 那個**目錄**（同 `opLogsTracked` 的 pathspec），刻意不拿一條
+ * 代表性的檔名去問：check-ignore 預設會查 index，所以已被追蹤的路徑一律答
+ * not ignored —— 而那正是我們要的（tracked 勝過 ignore 規則）。實測（git 2.x）：
+ * `.gitignore` 有 `.issues/` 且 board 被 `git add -f` 進去時，問 `.issues/issues`
+ * 得到 exit 1，問一個還不存在的 `.issues/issues/01JBX.ndjson` 卻得到 exit 0 ——
+ * 後者會在一塊真的共享得好好的 board 上報出假陽性。
+ *
+ * 答案在 exit code（實測：命中 0、沒命中 1、不在 repo 內 128）。`-v` 的輸出是
+ * `<file>:<line>:<pattern>\t<pathname>`，尾端那一格是我們自己傳進去的路徑，
+ * 所以由最後一個 tab 切開 —— 前面那一段一個字元都不動。
+ */
+function ignoredSource(dir: string): string | null {
+  let out: string;
+  try {
+    out = execFileSync('git', ['check-ignore', '-v', '--', ISSUES_DIR], {
+      cwd: dir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch (thrown) {
+    // status 是數字就表示 git 真的跑完並自己以非 0 結束（沒命中、或這裡不是
+    // work tree）。其餘（ENOENT、權限）是我們答不出來的，往外丟 —— 同
+    // `opLogsTracked`：「不知道」不能被當成「沒有」。
+    if (typeof (thrown as { status?: unknown }).status === 'number') return null;
+    throw thrown;
+  }
+
+  // **答不出那個形狀就閉嘴。** 這一條的全部價值是帶著 git 自己指出的來源，所以
+  // 輸出不是 `<file>:<line>:<pattern>\t<pathname>` 時我們沒有可報的東西 —— 而拿
+  // 一個編不出來的來源拉警報比不講話更糟（doctor 進 CI）。
+  const line = out.split('\n')[0] ?? '';
+  const tab = line.lastIndexOf('\t');
+  if (tab <= 0) return null;
+  return line.slice(0, tab);
 }
 
 function isInsideGitWorkTree(dir: string): boolean {

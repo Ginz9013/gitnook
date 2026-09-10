@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initBoard } from '../../src/core/gitattributes.js';
@@ -201,5 +201,106 @@ describe('private board 上的零衝突保證', () => {
     openBoard({ dir, actor: 'k3f9' }).create({ title: '只存在於這台機器' });
 
     expect(openBoard({ dir }).health()).toEqual([]);
+  });
+});
+
+/**
+ * fs 與 git 對「這塊 board 共享了嗎」給出不同答案的那兩種狀態。兩者都會靜默
+ * 傷人：第一種正在累積衝突風險，第二種讓同事 clone 到一塊空 board。
+ */
+describe('fs 與 git 不一致的那兩種狀態', () => {
+  /**
+   * 狀態 1：排除規則在（fs 說 private），op-log 卻躺在 index 裡（git 說共享）。
+   * 進到這裡要一次刻意的 `git add -f` —— ignore 中的路徑不加 -f 會被擋下。
+   */
+  const forcedIntoGit = (): void => {
+    gitInit();
+    initBoard(dir, { sharing: 'private' });
+    opLog('01SEED00000000000000000005', ['{"id":"a1","t":1,"a":"k3f9","op":"create","title":"a"}']);
+    git('add', '-f', '.issues');
+    git('commit', '-q', '-m', 'add -f an ignored board');
+  };
+
+  // 這塊 board 實際上是共享的，而且真的沒有那條零衝突保證 —— 兩件事都要說。
+  // 順序也釘住：唯一的單點失效仍然排第一，新 kind 不把它擠下去。
+  it('排除規則在、op-log 卻被 tracked：SharingMismatch 與 MissingMergeDriver 一起說，保證那條仍在前', () => {
+    forcedIntoGit();
+
+    expect(inspectSharing(dir)).toBe('private');
+
+    expect(diagnose(dir).map((d) => d.kind)).toEqual(['MissingMergeDriver', 'SharingMismatch']);
+  });
+
+  // 說出狀態不等於說得出下一步。這一種的下一步只有一條：`nook share` —— 既然
+  // 這塊 board 已經共享出去了，就讓規則與事實一致，並把那條保證補上。
+  it('狀態 1 的下一步是 nook share', () => {
+    forcedIntoGit();
+
+    const mismatch = diagnose(dir).find((d) => d.kind === 'SharingMismatch');
+
+    expect(mismatch?.message).toContain('nook share');
+  });
+
+  /**
+   * 狀態 2：nook 沒有寫任何排除規則（fs 說 shared），git 卻說 op-log 被 ignore
+   * —— 例如 monorepo 的 committed `.gitignore` 有一條廣泛規則吃到了 `.issues/`。
+   * board 看起來是共享的，同事 clone 下來卻是空的。
+   */
+  const ignoredByABroadRule = (): void => {
+    gitInit();
+    initBoard(dir); // 一塊普通的 shared board：info/exclude 一個字都沒動。
+    writeFileSync(join(dir, '.gitignore'), '.issues/\n', 'utf8');
+    git('add', '.gitignore');
+    git('commit', '-q', '-m', 'a broad ignore rule');
+  };
+
+  // 行號與 pattern 是**這一層編不出來的東西**，只有 git 自己說得準，所以
+  // `git check-ignore -v` 給的 `<file>:<line>:<pattern>` 原封不動帶著走。
+  it('沒有 nook 的規則、git 卻說 op-log 被 ignore：帶上 git 自己指出的來源', () => {
+    ignoredByABroadRule();
+
+    // 前提：fs 這一側看不出任何異狀（那一行不在，所以答 shared）。
+    expect(inspectSharing(dir)).toBe('shared');
+
+    const found = diagnose(dir);
+
+    expect(found.map((d) => d.kind)).toEqual(['SharingMismatch']);
+    expect(found[0]!.message).toContain('.gitignore:1:.issues/');
+  });
+
+  // 這一種有**兩條**下一步，而哪一條對只有使用者知道（他是不是真的想要一塊
+  // private board）。兩條都講出來，不替他選。
+  it('狀態 2 的兩條下一步都講：是刻意的就 init --private，不是就拿掉那條規則', () => {
+    ignoredByABroadRule();
+
+    const said = diagnose(dir)[0]!.message;
+
+    expect(said).toContain('nook init --private');
+    expect(said).toMatch(/拿掉/);
+  });
+
+  /**
+   * 這一條的全部價值就是帶著 git 自己指出的 `<file>:<line>:<pattern>`。答案不是
+   * 那個形狀時，我們**沒有**可報的東西 —— 而拿一個編不出來的來源去拉警報，比不
+   * 講話更糟（doctor 會進 CI，一次假警報之後就沒有人會讀它）。
+   *
+   * 探針是 PATH 上一支對任何問題都答 `true` 並 exit 0 的假 git，不 mock 任何
+   * 內部協作者。真的 git 在 `check-ignore -v` 命中時一定給
+   * `<file>:<line>:<pattern>\t<pathname>`。
+   */
+  it('git 的答案不是 <file>:<line>:<pattern> 的形狀時閉嘴', () => {
+    gitInit();
+    initBoard(dir);
+    const shim = join(dir, 'shim');
+    mkdirSync(shim);
+    writeFileSync(join(shim, 'git'), '#!/bin/sh\necho true\n', { mode: 0o755 });
+
+    const realPath = process.env.PATH;
+    process.env.PATH = shim;
+    try {
+      expect(diagnose(dir)).toEqual([]);
+    } finally {
+      process.env.PATH = realPath;
+    }
   });
 });
