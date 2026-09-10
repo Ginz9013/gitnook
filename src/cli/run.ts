@@ -392,10 +392,33 @@ function boardDir(io: Io): string {
  * 問的是 inspectMergeGuarantee 而不是 diagnose：這裡只需要知道那一行還在不在，
  * 而完整診斷要再掃一次全部 op-log 並 spawn 一個 git rev-parse —— 對每一次
  * list / show 都收這筆帳，直接吃掉冷啟預算（spec.md 四個硬指標）。
+ *
+ * **private board 上完全不警告。** 那塊 board 的 op-log 被 $GIT_DIR/info/exclude
+ * 排除，永遠不會進 git、也永遠不會 merge，所以零衝突保證在那裡是「不需要」，
+ * 不是「缺少」—— 這裡的沉默不是把一個真問題藏起來。反過來說，那句警告在
+ * shared board 上永遠不是雜訊（AGENT.md），正因如此它不能在一個它不適用的
+ * 模式下繼續噴：噴到使用者學會忽略它，shared board 上真的缺了那一行時就沒有
+ * 任何東西攔得住靜默的衝突。
+ *
+ * 兩個沒有被選的做法：
+ * - **fs 與 git 不一致時（排除規則在、op-log 卻被 `git add -f` 進去了）這裡是
+ *   盲的。** 問出真相要 `git ls-files`（`opLogsTracked`），而熱路徑不准 spawn
+ *   子行程 —— 那是 spec.md 寫明接受的已知限制，說出那件事是 doctor 的工作。
+ * - **順序是先問 Sharing。** 反過來（先問保證、缺了才問 Sharing）在健康的
+ *   shared board 上更便宜，因為 `&&` 會短路掉 inspectSharing；代價是 private
+ *   board 得先去讀一個在那個模式下沒有意義的檔案。多付的那一次 existsSync 加
+ *   一個小檔的讀取因此落在 shared board 上，而 private board 在這條路徑上碰都
+ *   不碰 .gitattributes。
  */
 function warnIfUnguarded(io: Io): void {
+  // 兩個問法共用同一塊 board，也只尋根一次 —— 問的是 board 根目錄，不是
+  // io.cwd：在子目錄執行時答案必須一樣。純 fs，不 spawn 任何子行程。
+  const root = boardDir(io);
+
+  if (inspectSharing(root) === 'private') return;
+
   // absent 與 conflicting 都表示 op-log 拿不到 union，兩者同樣要警告。
-  if (inspectMergeGuarantee(boardDir(io)).kind !== 'union') {
+  if (inspectMergeGuarantee(root).kind !== 'union') {
     errLine(io, '警告：.gitattributes 缺少 merge=union，合併會衝突（nook init 補回）');
   }
 }

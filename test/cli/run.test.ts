@@ -1645,8 +1645,148 @@ describe('init --private', () => {
     expect(listed.out).toContain('Fix login redirect');
     expect(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' })).toBe('');
     expect(execFileSync('git', ['ls-files', '.issues'], { cwd: dir, encoding: 'utf8' })).toBe('');
-    // listed.err 刻意不下斷言：list 目前仍會警告缺少 merge=union，而讓它在
-    // private board 上閉嘴是另一張票的事，不是這一張的漏。
+    // listed.err 歸「private board 上讀取指令閉嘴」那一段（同一個檔案，往下幾行）
+    // 管 —— 這一條問的是 git 看不看得到，不是 stderr。
+  });
+});
+
+/**
+ * 零衝突保證在 private board 上是「不需要」，不是「缺少」—— 被 ignore 的 op-log
+ * 永遠不會 merge，所以沒有任何東西需要 union。那句警告在 shared board 上永遠
+ * 不是雜訊（AGENT.md），正因如此它不能在一個它不適用的模式下繼續噴：噴久了
+ * 使用者就學會忽略它，而在 shared board 上忽略它是會弄丟資料的。
+ */
+describe('private board 上讀取指令閉嘴', () => {
+  it('list 與 show 的 stderr 是空的，資料照常走 stdout', async () => {
+    gitInit();
+    await run(['init', '--private'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+
+    const listed = capture();
+    const shown = capture();
+
+    expect(await run(['list'], listed)).toBe(0);
+    expect(await run(['show', '01JBXA'], shown)).toBe(0);
+
+    expect(listed.err).toBe('');
+    expect(shown.err).toBe('');
+    expect(listed.out).toBe('01JBXA  backlog  Fix login redirect\n');
+    expect(shown.out).toContain('Fix login redirect');
+  });
+
+  /**
+   * 問的是 board 根目錄那一塊，不是 io.cwd —— 幾乎沒有人是站在 repo 根目錄打
+   * 指令的。拿 io.cwd 去問，使用者只要 cd 進任何子目錄，同一塊 private board
+   * 就會被當成 shared 而重新開始警告（`boardDir` 就是為這件事存在的）。
+   */
+  it('在子目錄執行時答案一樣', async () => {
+    gitInit();
+    await run(['init', '--private'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    const deep = join(dir, 'src', 'deep');
+    mkdirSync(deep, { recursive: true });
+
+    const io = capture({ cwd: deep });
+
+    expect(await run(['list'], io)).toBe(0);
+
+    expect(io.err).toBe('');
+    expect(io.out).toBe('01JBXA  backlog  Fix login redirect\n');
+  });
+
+  /**
+   * 順序：**先問 Sharing，再問零衝突保證**，而不是反過來。反過來（先問保證、
+   * 缺了才問 Sharing）在健康的 shared board 上更便宜 —— `&&` 短路掉，連
+   * info/exclude 都不必讀 —— 但它會讓 private board 去讀一個在那個模式下沒有
+   * 意義的檔案，而「沒有意義」正是這一票的語意：不需要，不是缺少。所以多付
+   * 的那一次 existsSync 加一個小檔的讀取落在 shared board 上，而 private board
+   * 在這條路徑上一個 byte 都不讀 .gitattributes。
+   *
+   * 探針是一個讀不動的 .gitattributes（同名目錄）：連讀都不讀，所以讀不動也
+   * 不影響。形狀同本檔「單點失效的監看不該把整個 Board 掃一遍」那一支。
+   */
+  it('連 .gitattributes 都不讀 —— 那個保證在這裡是不需要，不是缺少', async () => {
+    gitInit();
+    await run(['init', '--private'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    mkdirSync(join(dir, '.gitattributes'));
+
+    const io = capture();
+
+    expect(await run(['list'], io)).toBe(0);
+
+    expect(io.err).toBe('');
+    expect(io.out).toBe('01JBXA  backlog  Fix login redirect\n');
+  });
+
+  /**
+   * 判斷只走 `inspectSharing`（純 fs）。權威的問法是 `git ls-files`
+   * （`opLogsTracked`），但它要 spawn 一個子行程，而每一次 list 都付那筆錢會
+   * 直接吃掉冷啟預算 —— `boardDir` 與 `warnIfUnguarded` 的註解把「list 不
+   * spawn git」當承諾在守，這一片把它也蓋到 private board 上。
+   *
+   * 探針是 PATH 上的一支假 git：不 mock 任何內部協作者，量的是「有沒有真的生出
+   * 一個子行程」這個外部可觀察的事實。同一支探針在 doctor 底下必須開火，否則
+   * 這個測試就是空的 —— 權威的那個問法歸 doctor，它本來就會 spawn。
+   */
+  it('判斷不 spawn 任何子行程；doctor 才會', async () => {
+    gitInit();
+    await run(['init', '--private'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+
+    const shim = join(dir, 'shim');
+    const marker = join(dir, 'git-calls.txt');
+    mkdirSync(shim);
+    writeFileSync(join(shim, 'git'), `#!/bin/sh\necho "$@" >> "${marker}"\necho true\n`, {
+      mode: 0o755,
+    });
+
+    const realPath = process.env.PATH;
+    const listing = capture();
+    const doctoring = capture();
+    process.env.PATH = shim;
+    try {
+      expect(await run(['list'], listing)).toBe(0);
+      expect(existsSync(marker)).toBe(false);
+
+      // 陽性對照：doctor 確實會問 git，所以上面那個 false 不是因為探針壞了。
+      // 只問「有沒有開火」—— doctor 在 private board 上問什麼是別張票的事。
+      await run(['doctor'], doctoring);
+      expect(existsSync(marker)).toBe(true);
+    } finally {
+      process.env.PATH = realPath;
+    }
+
+    expect(listing.err).toBe('');
+    expect(listing.out).toBe('01JBXA  backlog  Fix login redirect\n');
+  });
+});
+
+/**
+ * 壓制的條件只有 private 一個。在 shared board 上那句話一個字都不能變 ——
+ * 它是「資料要開始靜默衝突了」的唯一警報（AGENT.md：那個警告永遠不是雜訊）。
+ * 刻意在真的 git repo 裡測：private 的判斷讀的是 $GIT_DIR/info/exclude，而一塊
+ * 剛 init 的 shared board 那個檔案是**存在**的（git 自己的模板），只是沒有 nook
+ * 寫的那一行 —— 把「檔案在不在」當成答案的實作會在這裡把警告一起吃掉。
+ */
+describe('shared board 上那句警告一字不變', () => {
+  it('規則在就沉默，規則被刪就照噴原句', async () => {
+    gitInit();
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+
+    const healthy = capture();
+    expect(await run(['list'], healthy)).toBe(0);
+    expect(healthy.err).toBe('');
+
+    rmSync(join(dir, '.gitattributes'));
+    const listed = capture();
+
+    expect(await run(['list'], listed)).toBe(0);
+
+    expect(listed.err).toBe(
+      '警告：.gitattributes 缺少 merge=union，合併會衝突（nook init 補回）\n',
+    );
   });
 });
 
