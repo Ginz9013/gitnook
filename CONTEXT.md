@@ -19,6 +19,20 @@ _Avoid_: task, ticket, card, story, 票
 一個 repo 內全部 Issue 的集合。
 _Avoid_: project, workspace, backlog（`backlog` 是一個 Status 值，不是集合的名稱）
 
+**Sharing（共享狀態）**:
+一塊 Board 的 Op-log 是否交給 git 追蹤。兩個值：**shared** 是預設，Op-log 被 commit，`merge=union` 是它的零衝突保證；**private** 的 Op-log 被 `$GIT_DIR/info/exclude` 排除，只存在於這一個工作目錄（ADR-0011）。
+_Avoid_: mode, local, offline, visibility（`visibility` 已經被 `archived` 佔用 —— 那是「先不要看到」，與「要不要交給 git」是兩件事）
+
+> 三條語意，講這個詞的時候要一起帶著：
+>
+> 1. **Sharing 是推導出來的，不是儲存的。** 沒有 config 檔、也沒有 marker 檔
+>    （ADR-0002：`.issues/` 底下零本機狀態）。
+> 2. **private 是被測的那一側，其餘一律算 shared。** 剛 init 還沒 commit 的
+>    Board 是 shared —— 它的意圖是共享，只是還沒送出去。
+> 3. **零衝突保證在 private Board 上是「不需要」，不是「缺少」**（保證本身見下面
+>    的**收斂**）。被 ignore 的 Op-log 永遠不會 merge，所以 `doctor` 在那裡沉默
+>    不是壓掉一個真問題，是那個問題在這個模式下不存在。
+
 **Op**:
 對單一 Issue 的一次不可變更動記錄，寫入後永不修改或刪除。
 _Avoid_: event, mutation, delta, entry

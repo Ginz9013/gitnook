@@ -136,3 +136,47 @@ describe('boardAlerts —— 唯一的單點失效排在最前面', () => {
     expect(alerts.map((a) => a.kind)).toEqual(['MissingMergeDriver', 'GluedLine']);
   });
 });
+
+describe('boardAlerts —— 共享狀態不一致是它自己一種問題', () => {
+  // fs 與 git 對「這塊 board 共享了嗎」給出不同答案。看板上的警示列是唯一會
+  // 講話的地方，而預設那一句（「op-log 上有 reducer 讀不動的資料」＋
+  // `nook doctor --fix`）在這裡兩句都是錯的：op-log 的資料好得很，而 `--fix`
+  // 只拆黏合行，對共享狀態一點作用都沒有。
+  const mismatch: Diagnostic = {
+    kind: 'SharingMismatch',
+    message:
+      '排除規則在，op-log 卻已經被 git 追蹤：這塊 board 實際上是共享的' +
+      '（被追蹤的路徑勝過 ignore 規則），而且沒有零衝突保證。執行 nook share 讓規則與事實一致。',
+  };
+
+  it('不是資料層那一句 —— 它說的是共享狀態', () => {
+    const headline = boardAlerts([mismatch])[0]?.headline ?? '';
+
+    expect(headline).not.toBe('op-log 上有 reducer 讀不動的資料 —— 那幾行的內容現在不算數');
+    expect(headline).toContain('共享');
+  });
+
+  // 下一步**不是一個指令**：兩種狀態的解法不同（`nook share` 對上
+  // `nook init --private` 或拿掉一條 ignore 規則），而選哪一條只有使用者知道。
+  // 所以指向 doctor —— 那裡會把是哪一種、以及該怎麼走說完。`--fix` 絕對不對。
+  it('下一步是 nook doctor，不是 doctor --fix', () => {
+    expect(boardAlerts([mismatch])[0]?.fix).toBe('nook doctor');
+  });
+
+  // core 自己說的那句話照樣原封不動 —— 它裡面帶著 git 指出的檔案與行號。
+  it('引用 diagnose() 的原話', () => {
+    expect(boardAlerts([mismatch])[0]?.said).toBe(mismatch.message);
+  });
+
+  // 兩條會一起出現（排除規則在、op-log 卻被 tracked：board 實際上是共享的，
+  // 而且真的缺那一行），而唯一的單點失效仍然要排在看得到的那一行 —— 新的 kind
+  // 不得把它擠下去，即使它先到。
+  it('不把缺 merge=union 擠下去', () => {
+    const alerts = boardAlerts([
+      mismatch,
+      { kind: 'MissingMergeDriver', file: '.gitattributes', message: '缺少零衝突保證' },
+    ]);
+
+    expect(alerts.map((a) => a.kind)).toEqual(['MissingMergeDriver', 'SharingMismatch']);
+  });
+});

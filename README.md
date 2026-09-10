@@ -49,7 +49,10 @@ convention to break and no round-trip to lose information.
 
 **It installs like a normal dev dependency.** One `npm i -D gitnook`, ~590 KB
 unpacked, zero runtime dependencies, no native binary per platform, no daemon,
-no account, no local state to gitignore.
+no account, no *derived* local state to gitignore. (There is one thing you can
+deliberately keep out of git — the board itself, with `nook init --private`
+below — and even that writes to `$GIT_DIR/info/exclude`, never to your
+`.gitignore`.)
 
 **Both interfaces read the same files.** The CLI is composable and terse enough
 to stay inside an agent's token budget (a measured gate, below); `nook studio`
@@ -90,11 +93,103 @@ Yjs, whose custom merge drivers cannot be enabled by a committed file alone.
   byte for byte, recoverable with `nook set <ref> deleted false`. Reclaiming the
   bytes is a separate, unimplemented operation. modify/delete is the one conflict
   `union` cannot cover, so gitNook never creates one (ADR-0009).
-- **Zero local state.** No cache, no index, no `config.json`, nothing to gitignore.
+- **Zero local state.** No cache, no index, no `config.json` — nothing *derived*
+  that a `.gitignore` entry would have to cover. The one exception is a thing you
+  ask for: `nook init --private` keeps the **authoritative data itself** out of
+  git (next section). That is a different claim from this one, and the rule that
+  nook never writes your `.gitignore` survives it.
 
 There is no cache because there is nothing to cache: a full scan and fold of 100
 issues takes 3 ms, 2,000 takes 53 ms, 10,000 takes 266 ms. Node's own startup is
 10–20 ms.
+
+## private mode
+
+```bash
+npx nook init --private      # a board with zero committed bytes
+```
+
+This creates `.issues/issues/` and writes one line — `/.issues/` — into
+`$GIT_DIR/info/exclude`. It does not touch `.gitattributes` at all. Afterwards
+`git status --porcelain` is empty and `git ls-files .issues` is empty: **zero
+committed bytes**, so nothing appears in anyone's diff, review or clone.
+
+**What that buys is a social footprint of zero, not technical compatibility.**
+Adopting gitNook was never technically hard — `nook init` adds one directory and
+one line. The problem is that those bytes are *committed*: if you are the only
+person on the team who wants to try this, there is no way to start without first
+having the "what is this thing in our repo" conversation. private mode postpones
+that conversation, and that is the whole of what it is for.
+
+So it is **not a second, equal way to run gitNook.** It is a trial / single-user
+mode that guarantees strictly *less* — and specifically, the first two reasons in
+*Why gitNook* above are switched off under it:
+
+- **Issues live in the working tree** — still true, but they no longer **travel
+  with your branches**. An excluded file is the same file on every branch, so
+  checking out another branch does not change your board, and an issue can never
+  arrive in a clone alongside the code that closes it.
+- **Two branches editing one issue merge without a conflict** — there is no
+  merge at all. The board never reaches git, so `merge=union` has nothing to
+  guarantee. The guarantee is *unneeded* here rather than missing, which is why
+  `nook doctor` is silent and exits 0 on a healthy private board, and why
+  `list` / `show` stop warning about the `.gitattributes` line.
+
+Everything else works unchanged: `new`, `list`, `show`, `history`, `set`, `mv`,
+`comment`, `label`, `studio`.
+
+### The four costs
+
+1. **`git clean -xdf` deletes the whole board, and there is no backup.**
+   Measured: `git clean -xdn` reports `Would remove .issues/`. git is normally
+   this tool's backup, and private mode is the decision to go without it — which
+   is why `init --private` prints this cost every single time it runs, including
+   the runs where it did nothing else.
+2. **Issues no longer follow a branch.** One board, visible from every branch in
+   this working tree; a branch cannot carry its own issues, and a merge or rebase
+   moves none of them.
+3. **git worktrees cannot see each other's board.** The ignore rule *is* shared
+   — it lives in the common git dir, so every linked worktree inherits it — but
+   untracked files are not. Measured: in a freshly added linked worktree `nook
+   list` says there is no board, and `nook init --private` there prints only
+   `Created  .issues/issues/` (the rule is already in place), leaving that
+   worktree with its own **empty** board. If you run parallel agents in
+   worktrees, this is a landmine.
+4. **A new machine, or a fresh clone, has nothing.** There is no sync mechanism:
+   the board exists in exactly one working tree, on one disk.
+
+### Upgrading: `nook share`
+
+```
+$ nook share
+Shared  .issues/  已從 $GIT_DIR/info/exclude 移除（這塊 board 從現在起會進 git）
+Created  .gitattributes  .issues/issues/*.ndjson merge=union
+Next  nook 不替你跑任何會寫入的 git 指令，請自己執行：
+  git add "<repo>/.issues" "<repo>/.gitattributes"
+  git commit -m "Share the nook board"
+```
+
+`share` removes exactly the one line nook borrowed — your other exclude entries,
+and the file itself, are left untouched — restores the `merge=union` line, prints
+the `git add` **you** run (with absolute paths, because the board need not sit at
+the repo root), and then stops. Those two git lines are printed only while the
+op-logs are still outside the index: on a board already committed, `share` says it
+changed nothing and stops there, because `git commit` is not idempotent — it would
+either fail or sweep your pending issue edits into a commit claiming to share the
+board. **nook runs no git command that writes**, and
+`git add` is not going to be the first: handing a board to the whole team is a
+social decision, and that decision, along with its commit message, is yours.
+If something *still* ignores
+the board at that point (a committed `.gitignore` with its own rule is the usual
+shape), `share` names the file and line that is blocking and exits 1, rather than
+printing a `git add` that git would refuse.
+
+There is no `nook unshare`. Going the other way requires `git rm -r --cached`,
+which deletes the board from your teammates' clones — destructive, so you run it
+yourself. `init --private` on an already-shared board refuses and prints that
+command for you; it does not run it. The reasoning for all of this, including why
+the rule goes in `$GIT_DIR/info/exclude` rather than a committed `.gitignore`, is
+in ADR-0011.
 
 ## The four hard metrics
 
@@ -181,7 +276,8 @@ never a silent guess. Statuses take prefixes too (`que` → `queued`).
 ## Commands
 
 ```
-init                                   create .issues/ and the .gitattributes line
+init [--private]                       create .issues/ and the .gitattributes line;
+                                       --private leaves zero committed bytes instead
 new <title> [--description <text|->] [--label <l>] [--editor]
 list [--all] [--status <s>] [--label <l>] [--json]
 show <ref> [--json]
@@ -190,6 +286,7 @@ mv <ref> <status>
 rm <ref> [--yes]                       delete: writes a tombstone, never unlinks
 comment <ref> <body|->
 label <ref> +bug -ui
+share                                  upgrade a private board back to a shared one
 doctor [--fix]                         data health check; --fix repairs glued lines
 studio [--port <n>]                    board on localhost; create, drag, edit, comment
 ```
@@ -274,9 +371,11 @@ and prefix resolution. **A caller never sees an operation.** You say
 
 Also exported: `initBoard`, `diagnose`, `repair`, `serve`, `STATUSES`, every
 type in that API, and the error types (`RefNotFound`, `AmbiguousRef`,
-`InvalidStatus`, `BoardNotInitialized`, `ConflictingGitAttributes`,
-`NestedBoard`, `PortInUse`) — so a caller can tell "you can fix this" from
-"report a bug" with `instanceof`.
+`InvalidStatus`, `BoardNotInitialized`, `IssueDeleted`, `ConflictingGitAttributes`,
+`NestedBoard`, `AlreadySharedBoard`, `NoGitDir`, `PortInUse`) — so a caller can
+tell "you can fix this" from "report a bug" with `instanceof`. That list is pinned
+by `test/index.test.ts`, which is the one that will tell you when this sentence
+goes stale.
 
 That list is deliberately short. The renderers and the studio request handler
 are **not** exported: they are presentation and plumbing, and every export is a
@@ -331,7 +430,16 @@ than being trusted to sanitise them.
 
 The `.gitattributes` line is the single point of failure: delete it and issues
 start conflicting silently. `nook doctor` checks for it, and reading commands
-warn when it is missing.
+warn when it is missing. On a **shared** board that warning is never noise; on a
+private board neither the warning nor the check applies, and the silence there is
+the correct output rather than a swallowed problem (see private mode above).
+
+`doctor` is also the only place that can see the board's **sharing state being
+inconsistent** — the exclude rule present while git already tracks the op-log, or
+no rule of nook's while git ignores the op-log anyway. `list` and `show` are
+blind to both, because answering that question properly means asking git and they
+are not allowed to spawn a subprocess. `doctor` does ask, and says which file and
+line git itself pointed at (ADR-0011).
 
 `doctor` also reports unparsable lines, unknown operation types (which are
 ignored rather than fatal — a teammate on a newer version must never make your

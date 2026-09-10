@@ -29,6 +29,11 @@ describe('src/index.ts 的公開匯出', () => {
         'IssueDeleted',
         'ConflictingGitAttributes',
         'NestedBoard',
+        // initBoard 的另外兩個出口。init --private 撞到一塊已共享的 board、或
+        // 撞到「這裡沒有 git」時丟的就是它們 —— 同上，呼叫端要 instanceof 得到
+        // 才分得出「使用者改個指令就好」與「回報一個 bug」。
+        'AlreadySharedBoard',
+        'NoGitDir',
         'PortInUse',
       ].sort(),
     );

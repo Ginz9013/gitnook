@@ -18,6 +18,14 @@ import { repair } from '../core/health.js';
 import { isValidRef, shortIdLength } from '../core/ids.js';
 import { fieldWrites } from '../core/reduce.js';
 import {
+  AlreadySharedBoard,
+  NoGitDir,
+  ignoredByGit,
+  inspectSharing,
+  opLogsTracked,
+  unexcludeBoard,
+} from '../core/sharing.js';
+import {
   AmbiguousRef,
   BoardNotInitialized,
   InvalidStatus,
@@ -150,6 +158,13 @@ const USER_ERRORS = [
   ConflictingGitAttributes,
   // 在 board 底下再 init：使用者 cd 到根目錄就修好了，而且不修也沒有壞任何東西。
   NestedBoard,
+  // init --private 撞到一塊已經共享出去的 board：使用者自己跑
+  // `git rm -r --cached .issues` 就修好了，而且什麼都沒壞 —— 那是一次被擋下
+  // 的寫入。訊息本身就是他的下一步，掛上型別名只會蓋掉它。
+  AlreadySharedBoard,
+  // init --private 在 git repo 外：沒有 git 就沒有東西需要藏，改跑 nook init
+  // 就得到他要的那塊 board。同樣是「改你的指令」，不是一個值得回報的 bug。
+  NoGitDir,
   PortInUse,
 ] as const;
 
@@ -183,7 +198,7 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
 
   switch (command) {
     case 'init':
-      return cmdInit(io);
+      return cmdInit(parseArgs(rest, INIT_FLAGS), io);
     case 'new':
       return cmdNew(parseArgs(rest, NEW_FLAGS), io);
     case 'list':
@@ -202,6 +217,10 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
       return cmdComment(parseArgs(rest, NO_FLAGS), io);
     case 'label':
       return cmdLabel(parseArgs(rest, NO_FLAGS), io);
+    case 'share':
+      // share 沒有旗標也沒有參數，但仍然過一次 parseArgs：打錯的旗標不得被
+      // 靜默吃掉（`nook share --privte` 要報錯，而不是悄悄照做）。
+      return cmdShare(parseArgs(rest, NO_FLAGS), io);
     case 'doctor':
       return cmdDoctor(parseArgs(rest, DOCTOR_FLAGS), io);
     case 'studio':
@@ -211,7 +230,7 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
   throw new UsageError(unknownCommand(command));
 }
 
-const COMMANDS = ['init', 'new', 'list', 'show', 'history', 'set', 'rm', 'mv', 'comment', 'label', 'doctor', 'studio'];
+const COMMANDS = ['init', 'new', 'list', 'show', 'history', 'set', 'rm', 'mv', 'comment', 'label', 'share', 'doctor', 'studio'];
 
 /** 打錯字與想要一個不存在的功能是兩件事，回答也該不一樣。 */
 function unknownCommand(command: string): string {
@@ -263,21 +282,25 @@ function displayLength(board: Board): number {
 /**
  * 每次互動都可能被讀，所以每一行都要付得起 token（ADR-0005）。
  * 指令一行一個，後面只留兩條「不知道就會做錯」的規則。
+ *
+ * 描述欄對齊在第 25 欄 —— 帶描述的指令裡最長的語法是 `history <ref> [<field>]`
+ * （23 欄）。對齊到更後面只是在買空白：那些 byte 每一次都要付，而它們不帶資訊。
  */
 const HELP = `nook <command>
 
-init                                   建立 .issues/ 與 .gitattributes
+init [--private]         建立 board；--private 不留 committed bytes
 new <title> [--description <text|->] [--label <l>] [--editor]
 list [--all] [--status <s>] [--label <l>] [--json]
 show <ref> [--json]
-history <ref> [<field>]                看某個 LWW 欄位被寫過哪些值
+history <ref> [<field>]  看某個 LWW 欄位被寫過哪些值
 set <ref> <title|description|status|archived|deleted> <value|-> [--editor]
-rm <ref> [--yes]                       刪除；非 TTY 需 --yes
+rm <ref> [--yes]         刪除；非 TTY 需 --yes
 mv <ref> <status>
 comment <ref> <body|->
-label <ref> +bug -ui                   加減 Label（無優先級欄位，用 Label）
-doctor [--fix]                         資料健康檢查，--fix 修復黏合行
-studio [--port <n>]                    localhost 看板，可拖拉與編輯
+label <ref> +bug -ui     加減 Label（無優先級欄位，用 Label）
+share                    private board 升級回共享；git add 要你自己跑
+doctor [--fix]           資料健康檢查，--fix 修復黏合行
+studio [--port <n>]      localhost 看板，可拖拉與編輯
 
 status: backlog todo queued in_progress review blocked done cancelled
 <ref> 與 status 都接受無歧義前綴。<value> 用 - 從 stdin 讀。
@@ -310,6 +333,7 @@ const VALUED: ReadonlySet<string> = new Set(['--status', '--label', '--descripti
 /** 每個指令認得的旗標。不在名單上的一律報錯 —— 靜默吃掉一個打錯的旗標，
  * 呼叫端會拿到一份沒過濾的答案卻以為自己過濾了。 */
 const NO_FLAGS: ReadonlySet<string> = new Set();
+const INIT_FLAGS: ReadonlySet<string> = new Set(['--private']);
 const NEW_FLAGS: ReadonlySet<string> = new Set(['--description', '--editor', '--label']);
 const LIST_FLAGS: ReadonlySet<string> = new Set(['--all', '--status', '--label', '--json']);
 const SHOW_FLAGS: ReadonlySet<string> = new Set(['--json']);
@@ -383,10 +407,33 @@ function boardDir(io: Io): string {
  * 問的是 inspectMergeGuarantee 而不是 diagnose：這裡只需要知道那一行還在不在，
  * 而完整診斷要再掃一次全部 op-log 並 spawn 一個 git rev-parse —— 對每一次
  * list / show 都收這筆帳，直接吃掉冷啟預算（spec.md 四個硬指標）。
+ *
+ * **private board 上完全不警告。** 那塊 board 的 op-log 被 $GIT_DIR/info/exclude
+ * 排除，永遠不會進 git、也永遠不會 merge，所以零衝突保證在那裡是「不需要」，
+ * 不是「缺少」—— 這裡的沉默不是把一個真問題藏起來。反過來說，那句警告在
+ * shared board 上永遠不是雜訊（AGENT.md），正因如此它不能在一個它不適用的
+ * 模式下繼續噴：噴到使用者學會忽略它，shared board 上真的缺了那一行時就沒有
+ * 任何東西攔得住靜默的衝突。
+ *
+ * 兩個沒有被選的做法：
+ * - **fs 與 git 不一致時（排除規則在、op-log 卻被 `git add -f` 進去了）這裡是
+ *   盲的。** 問出真相要 `git ls-files`（`opLogsTracked`），而熱路徑不准 spawn
+ *   子行程 —— 那是 spec.md 寫明接受的已知限制，說出那件事是 doctor 的工作。
+ * - **順序是先問 Sharing。** 反過來（先問保證、缺了才問 Sharing）在健康的
+ *   shared board 上更便宜，因為 `&&` 會短路掉 inspectSharing；代價是 private
+ *   board 得先去讀一個在那個模式下沒有意義的檔案。多付的那一次 existsSync 加
+ *   一個小檔的讀取因此落在 shared board 上，而 private board 在這條路徑上碰都
+ *   不碰 .gitattributes。
  */
 function warnIfUnguarded(io: Io): void {
+  // 兩個問法共用同一塊 board，也只尋根一次 —— 問的是 board 根目錄，不是
+  // io.cwd：在子目錄執行時答案必須一樣。純 fs，不 spawn 任何子行程。
+  const root = boardDir(io);
+
+  if (inspectSharing(root) === 'private') return;
+
   // absent 與 conflicting 都表示 op-log 拿不到 union，兩者同樣要警告。
-  if (inspectMergeGuarantee(boardDir(io)).kind !== 'union') {
+  if (inspectMergeGuarantee(root).kind !== 'union') {
     errLine(io, '警告：.gitattributes 缺少 merge=union，合併會衝突（nook init 補回）');
   }
 }
@@ -768,6 +815,25 @@ function cmdLabel(args: Args, io: Io): number {
 }
 
 /**
+ * `.gitattributes` 的那一行這次發生了什麼事，講成一行字。
+ *
+ * **狀態必須在 initBoard 之前讀完**，所以這個函式回傳的是一個「等著被印」的
+ * closure 而不是自己印 —— 寫完再讀，看到的永遠是它剛寫完的結果，三種結果會全部
+ * 塌成「本來就在」。`init` 與 `share` 共用它：補一行進別人的檔案與整個檔案都是我
+ * 建的，是兩件不同的事，而這句話的措辭在兩個指令裡必須一樣（改一處就要改兩處的
+ * 那種重複，正是會漂開的那種）。
+ */
+function guaranteeLine(dir: string): (io: Io) => void {
+  const guarded = inspectMergeGuarantee(dir).kind === 'union';
+  const existed = existsSync(join(dir, '.gitattributes'));
+  return (io) => {
+    if (guarded) return;
+    // 動詞補到等寬，路徑才對得起來。
+    line(io, `${existed ? 'Added  ' : 'Created'}  .gitattributes  ${MERGE_RULE}`);
+  };
+}
+
+/**
  * init 是一次性的建置動作，因此它說話 —— 而 doctor 不說（unix「沒消息就是好
  * 消息」，且它會進 CI）。ADR-0005 的 token 預算管的是 40 票的日常情境，init
  * 一輩子只跑一次且不在該情境內，這幾行買到的是「我到底建了什麼」。
@@ -775,22 +841,140 @@ function cmdLabel(args: Args, io: Io): number {
  * 狀態必須在 initBoard 之前讀完 —— 之後再讀，看到的是它剛寫完的結果，
  * 三種結果會全部塌成「本來就在」。initBoard 丟例外時一行都不印。
  */
-function cmdInit(io: Io): number {
+function cmdInit(args: Args, io: Io): number {
+  if (args.has('--private')) return initPrivate(io);
+
   const enclosing = findBoardRoot(io.cwd);
   const boardExisted = enclosing.found && enclosing.root === io.cwd;
   const guarded = inspectMergeGuarantee(io.cwd).kind === 'union';
-  const attributesExisted = existsSync(join(io.cwd, '.gitattributes'));
+  const sayGuarantee = guaranteeLine(io.cwd);
 
   initBoard(io.cwd);
 
   if (!boardExisted) line(io, 'Created  .issues/issues/');
-  // 補一行進別人的檔案與整個檔案都是我建的，是兩件不同的事 —— 說成 Created
-  // 會讓使用者以為原本的規則被蓋掉了。動詞補到等寬，路徑才對得起來。
-  const verb = attributesExisted ? 'Added  ' : 'Created';
-  if (!guarded) line(io, `${verb}  .gitattributes  ${MERGE_RULE}`);
+  sayGuarantee(io);
   // 兩件事都已經在了才是 no-op。沉默在這裡會與第一次的成功長得一模一樣，
   // 而使用者問的正是「這次到底有沒有動到東西」。
   if (boardExisted && guarded) line(io, 'Unchanged  這裡已經是一塊 board，這次沒有建立任何東西');
+  return 0;
+}
+
+/**
+ * private mode 的 init。輸出沿用同一套三分法（建了 / 補了 / 什麼都沒做），
+ * 外加一條**必須**被講出來的代價：被 git ignore 的 board 是一份沒有備份的
+ * 資料，`git clean -xdf` 會把它整塊刪掉。
+ *
+ * 狀態同樣在寫入之前問完 —— 寫完再問，答案永遠是「已經在了」。
+ */
+function initPrivate(io: Io): number {
+  const enclosing = findBoardRoot(io.cwd);
+  const boardExisted = enclosing.found && enclosing.root === io.cwd;
+  const excluded = inspectSharing(io.cwd) === 'private';
+
+  initBoard(io.cwd, { sharing: 'private' });
+
+  if (!boardExisted) line(io, 'Created  .issues/issues/');
+  if (!excluded) line(io, 'Ignored  .issues/  $GIT_DIR/info/exclude（這塊 board 不會被 commit）');
+  // 兩件事都已經在了才是 no-op。沉默在這裡會與第一次的成功長得一模一樣。
+  if (boardExisted && excluded) {
+    line(io, 'Unchanged  這裡已經是一塊 private board，這次沒有建立任何東西');
+  }
+  // 每次都印：重跑 init 的人正是在問「我這塊 board 現在是什麼狀態」，而這是
+  // 那個答案裡最貴的一件事。
+  line(io, 'Note  git clean -xdf 會刪掉整塊 board，而且沒有備份');
+  return 0;
+}
+
+/**
+ * private → shared 的升級路徑：拿掉 nook 借的那一行、冪等補回 MERGE_RULE，然後
+ * 把**使用者自己**要跑的 git 指令印出來。
+ *
+ * nook 沒有任何一個會寫入的 git 指令，`git add` 也不會是第一個 —— 把一塊 board
+ * 交給整個團隊是一個社交決定（spec.md：private mode 買到的是社交足跡為零），
+ * 而那個決定連同它的 commit message 都屬於使用者。
+ *
+ * **順序是先 initBoard、後移除排除規則。** 反過來的話，撞上
+ * ConflictingGitAttributes 的使用者會得到一塊 git 看得見、卻沒有零衝突保證的
+ * board，而他以為指令失敗了 —— 同 `initBoard` private 那條路「拒絕不留痕跡」的
+ * 紀律。這也是為什麼那條檢查不在這裡重寫一份：它已經在 initBoard 裡，而且排在
+ * 它自己的任何寫入之前。
+ */
+function cmdShare(args: Args, io: Io): number {
+  // `nook share 01JBXA` —— 想共享「一張 issue」的人會這樣打，而 share 是整塊
+  // board 的動作。靜默吃掉那個引數等於把一次全 board 升級回報成他要的那件事。
+  // doctor / studio 的寬鬆不轉移過來：它們**接受**參數，share 一個都不收，
+  // 所以位置引數在這裡明確是打錯了。
+  const stray = args.positional[0];
+  if (stray !== undefined) {
+    throw new UsageError(`share 不收參數（整塊 board 一起升級）：${stray}`);
+  }
+
+  // 不是一塊 board 時該說的是「不是一個 Nook board」，而不是對著一個空目錄回報
+  // 升級成功。尋根與那句話都已經在 Board 上，這裡不寫第二份。
+  const root = openBoard({ dir: io.cwd }).root();
+
+  // 狀態在寫入之前讀完 —— 之後再讀，看到的是它剛寫完的結果（同 cmdInit）。
+  const sayGuarantee = guaranteeLine(root);
+  const guarded = inspectMergeGuarantee(root).kind === 'union';
+  // **這一題只有 index 答得準**，而它決定的是下面那句 `git add` 該不該印：
+  // 「意圖共享但從來沒 commit」要那一步，「早就 commit 出去了」不要。share 是
+  // spec.md 列出的三個准 spawn git 的指令之一。
+  const alreadyOut = opLogsTracked(root);
+
+  initBoard(root);
+  const removed = unexcludeBoard(root) === 'removed';
+
+  // nook 做完自己那一半之後，git **仍然**可能在 ignore 這塊 board（committed 的
+  // `.gitignore` 也有一條是最常見的形狀）。問的是 git 自己（`ignoredByGit`）：那套
+  // pattern 與優先序規則只有它說得準，而它順手指出的 `<file>:<line>:<pattern>`
+  // 正是使用者要去改的那一行。
+  //
+  // **必須在印任何一行之前問完。** 否則第一行已經承諾「從現在起會進 git」，而
+  // 下一行才說 git 還在擋 —— 先承諾再收回比直接說不行更糟。
+  const blocked = ignoredByGit(root);
+
+  if (removed) {
+    line(
+      io,
+      blocked.ignored
+        ? 'Removed  $GIT_DIR/info/exclude 的那一行（但見下面：git 還在 ignore 這塊 board）'
+        : 'Shared  .issues/  已從 $GIT_DIR/info/exclude 移除（這塊 board 從現在起會進 git）',
+    );
+  }
+  sayGuarantee(io);
+  // 三件事都本來就對了才是 no-op。沉默在這裡會與成功長得一模一樣，而使用者問的
+  // 正是「這次到底有沒有動到東西」—— 同 init 說話、doctor 沉默的那條分界。
+  if (!removed && guarded) line(io, 'Unchanged  這裡已經是一塊共享的 board，這次沒有動到任何東西');
+
+  if (blocked.ignored) {
+    // 那時 `git add` 會被拒絕，所以照樣印出那條指令等於叫使用者去撞牆，而回 0
+    // 等於騙他升級完成了 —— 同事的 clone 仍然會是空的。
+    //
+    // source 是 null 時仍然要開口（git 說了它 ignore，那是事實），只是說不出是
+    // 哪一條 —— 兩件事分開，使用者才不會以為 nook 在亂猜。
+    errLine(
+      io,
+      blocked.source === null
+        ? `git 仍然 ignore 這塊 board，所以 git add 會被拒絕，但 git 沒有指出是哪一條規則。` +
+            `請自己跑 git check-ignore -v "${root}/.issues" 找出它，移除之後再跑一次 nook share。`
+        : `git 仍然 ignore 這塊 board：${blocked.source} 這條規則還在擋，所以 git add 會被拒絕。` +
+            `請自己移除那一行（nook 不改你的 .gitignore），再跑一次 nook share。`,
+    );
+    return 1;
+  }
+
+  // **op-log 早就在 index 裡時就不印這三行。** `git commit` 不是冪等的：使用者
+  // 手上有沒 commit 的 issue 編輯時，上面那條 git add 會把它們一起 stage，然後
+  // 落在一個謊報的訊息底下；什麼都沒待 commit 時它直接失敗。而「這次沒有動到任何
+  // 東西」緊接著「請自己執行」本身就是自相矛盾的一對。
+  if (alreadyOut) return 0;
+
+  // 指令帶完整路徑：board 可能不在 repo 根目錄（`/services/api/.issues/` 是支援
+  // 且被測試的形狀），那時貼上一條相對指令的人會在錯的目錄下執行它，而 git 只會
+  // 說 pathspec 沒命中 —— 同 AlreadySharedBoard 訊息的理由。
+  line(io, 'Next  nook 不替你跑任何會寫入的 git 指令，請自己執行：');
+  line(io, `  git add "${root}/.issues" "${root}/.gitattributes"`);
+  line(io, '  git commit -m "Share the nook board"');
   return 0;
 }
 
