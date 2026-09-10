@@ -30,7 +30,7 @@ export function LabelEditor({ labels, pending, onSubmit }: LabelEditorProps): Re
           <button
             type="button"
             aria-label={`移除 label ${label}`}
-            className="hover:text-destructive rounded-xs opacity-60 hover:opacity-100"
+            className="hover:text-destructive cursor-pointer rounded-xs opacity-60 hover:opacity-100"
             onClick={() => onSubmit(removeLabelChange(label))}
           >
             <XIcon className="size-3" />

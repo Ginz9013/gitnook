@@ -62,7 +62,7 @@ export function HistoryPanel({ issueId }: HistoryPanelProps): React.JSX.Element 
         type="button"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className="text-muted-foreground hover:text-foreground flex items-center gap-1 self-start text-xs font-medium"
+        className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1 self-start text-xs font-medium"
       >
         <ChevronRightIcon
           aria-hidden
@@ -141,7 +141,7 @@ function Row({ row }: { readonly row: HistoryRow }): React.JSX.Element {
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}
-          className="text-muted-foreground hover:text-foreground self-start text-xs underline"
+          className="text-muted-foreground hover:text-foreground cursor-pointer self-start text-xs underline"
         >
           {expanded ? '收合' : '展開'}
         </button>

@@ -427,7 +427,7 @@ function StatusBanner({
       ) : (
         <>
           <span>寫入沒送到，畫面已回到伺服器上的值：{failed}</span>
-          <button type="button" className="shrink-0 underline" onClick={onDismiss}>
+          <button type="button" className="shrink-0 cursor-pointer underline" onClick={onDismiss}>
             知道了
           </button>
         </>
