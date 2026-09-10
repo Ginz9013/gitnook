@@ -28,11 +28,15 @@ export function BoardSkeleton(): React.JSX.Element {
     >
       {/* header 的位置先佔著：logo 方塊 + 兩行字。真的 header 到達時它就在這。 */}
       <div aria-hidden className="flex shrink-0 items-center gap-3">
-        <div className="bg-muted size-7 shrink-0 animate-pulse rounded-md" />
+        <div className="bg-muted size-10.5 shrink-0 animate-pulse rounded-md" />
         {/*
           16 + 6 + 14 = 36px，剛好是真 header 那兩行字（`Git Nook` 與底下那條
           mono 小字）的高度。**這三個數字就是這個檔案的重點** —— 差 8px，資料
           到達時整條看板就往下跳 8px，而那正是骨架要消掉的東西。
+
+          左邊那個方塊放大成 42px（`size-10.5`）之後，**這一列的高度改由它
+          決定**，不再是這 36px。兩邊的方塊因此必須一起改：這裡小一號，跳的
+          就換成 6px。
         */}
         <div className="flex flex-col gap-1.5">
           <div className="bg-muted h-4 w-24 animate-pulse rounded" />

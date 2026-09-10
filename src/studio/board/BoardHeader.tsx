@@ -127,10 +127,20 @@ export function BoardHeader({
     <header className="flex shrink-0 flex-col gap-2">
       <div className="flex items-center gap-3">
         {/*
-          logo 佔位 —— 一個方塊，日後換成真的圖。`aria-hidden`：它旁邊就寫著
-          「Git Nook」，讀出來只會是同一件事講兩次。
+          logo 佔位 —— 一個方塊裡放字標 `gN`（gitnook），日後換成真的圖。
+          `aria-hidden` 連同裡面那兩個字母：它旁邊就寫著「Git Nook」，讀出來
+          只會是同一件事講兩次，而 `gN` 唸起來還更糟。
+
+          方塊是 `size-10.5`（42px = 原本 `size-7` 的 1.5 倍）。**它現在比旁邊
+          那兩行字（36px）高，於是這一列的高度由它決定** —— `BoardSkeleton`
+          裡的方塊必須是同一個尺寸，否則資料到達時整條看板會往下跳 6px。
         */}
-        <div aria-hidden className="bg-primary size-7 shrink-0 rounded-md" />
+        <div
+          aria-hidden
+          className="bg-primary text-primary-foreground flex size-10.5 shrink-0 items-center justify-center rounded-md text-sm leading-none font-semibold tracking-tight"
+        >
+          gN
+        </div>
 
         <div className="flex min-w-0 flex-col justify-center">
           <span className="text-sm leading-tight font-semibold tracking-tight">Git Nook</span>
