@@ -2,3 +2,4 @@
 {"id":"01M26B2CVETGBCY5F5305H4DC0","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：`.scratch/workspace/05-document-workspace.md`（spec 同目錄）\n\nREADME、AGENT.md 完整交代 Workspace；跟實作對一遍 CONTEXT.md 與 ADR-0012 有沒有漂移。\n\n- README 新增「## workspace」一節（比照「## private mode」／「## studio」的份量）＋ Commands 表格加一行\n- AGENT.md 從票 02 的最小一行擴充成完整一節\n- `npm run bench` 整體跑過一次，六列閘門全綠\n\nWrite ownership：`README.md`、`AGENT.md`、`CONTEXT.md`（僅有出入時）、`docs/adr/0012-*.md`（僅有出入時）\n\n不得碰：任何 `src/*`、非文件測試 —— 文件跟行為對不上要回報 blocked，不是偷改程式碼配合文件。\n\n批次（單獨跑）。Blocked by：票 04。"}
 {"id":"01M26B2CVE3WERQJ3X3QM975BW","t":3,"a":"83a1","op":"label.add","v":"workspace"}
 {"id":"01M26B2CVE7A4JFWVE808F363K","t":4,"a":"83a1","op":"label.add","v":"docs"}
+{"id":"01M26B6FVD87D31PPNV35FS1EF","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
