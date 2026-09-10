@@ -22,6 +22,8 @@ nook ref：`01M2521MV5WCSGCRW45G7J213T`
 - [ ] 壓制的條件是「private **且** op-log 沒有被 tracked」。兩者都成立才沉默 ——
       只靠 `inspectSharing` 就閉嘴會在「exclude 規則在、檔案卻被 `git add -f`
       進去了」時漏掉一個真問題（那一種狀態由票 05 負責說話）
+- [ ] 「op-log 有沒有被 tracked」**呼叫票 02 已經加好的 `opLogsTracked()`**，
+      不得在 `health.ts` 裡另寫一份 `git ls-files`
 - [ ] private board 多出來的 `git ls-files` 只在 `diagnose()` 裡 spawn。
       `diagnose` 本來就會 spawn 一個 `git rev-parse`，不得讓它進入任何讀取指令
       的路徑
@@ -47,7 +49,9 @@ nook ref：`01M2521MV5WCSGCRW45G7J213T`
 
 ## Blocked by
 
-票 01（要有 `sharing.ts` 才問得出 Sharing）。
+票 01（要有 `sharing.ts` 才問得出 Sharing）、**票 02**（它把 `opLogsTracked()`
+加進 `sharing.ts` —— 這一票只消費那個函式，不得自己加，`sharing.ts` 不在你的
+write ownership 裡）。
 
 ## Status
 

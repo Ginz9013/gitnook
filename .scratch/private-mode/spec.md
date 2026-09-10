@@ -226,9 +226,16 @@ npx tsc --noEmit                   # static
 | 批次 | 票 | 平行度 |
 |---|---|---|
 | B1 | 01 | 1 |
-| B2 | 02 ∥ 04 | 2 |
-| B3 | 03 ∥ 05 | 2 |
-| B4 | 06 ∥ 07 | 2 |
+| B2 | 02 | 1 |
+| B3 | 03 ∥ 04 | 2 |
+| B4 | 05 ∥ 06 | 2 |
+| B5 | 07 | 1 |
+
+**2026-09-10 派工時修正**：原本排 `B2 = 02 ∥ 04`，但票 04 的壓制條件要
+`opLogsTracked()`（`git ls-files` 那個權威問法），而那個函式住在
+`src/core/sharing.ts` —— 不在票 04 的 write ownership 裡，且票 02 本來就要用
+同一個函式做 `AlreadySharedBoard` 的判斷。所以它歸票 02，票 04 改成 blocked
+by 02，批次順延。票 05 與 06 的 ownership 本來就互斥，合成一批。
 
 序列化的原因是檔案不是邏輯：**`src/cli/run.ts` 被票 01、02、03、06 搶**，
 **`src/core/health.ts` 被票 04、05 搶**，`src/core/sharing.ts` 被 01、02、06 搶。

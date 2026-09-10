@@ -23,7 +23,10 @@ nook ref：`01M2521MRT22FMA2EPF3Y7J963`
 - [ ] 兩個錯誤型別都上 `src/index.ts` 的公開面，並更新 `test/index.test.ts`
       釘住的那份清單 —— `initBoard` 是公開的，它會丟的東西呼叫端必須
       `instanceof` 得到（同 `ConflictingGitAttributes` / `NestedBoard` 的理由）
-- [ ] 判斷「已被 tracked」走 `git ls-files`，**只在 init 這條路徑上 spawn**
+- [ ] 判斷「已被 tracked」走 `git ls-files`，**只在 init 這條路徑上 spawn**。
+      把它做成 `sharing.ts` 的 `opLogsTracked(root): boolean`（spec.md 的
+      Design contract 已經列了這個簽名）—— **票 04 會消費它**，所以它屬於
+      公開在模組介面上的函式，不是 init 私有的 helper
 
 ## Test seam
 
