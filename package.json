@@ -1,6 +1,6 @@
 {
   "name": "gitnook",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "KOUHEI",
   "repository": {
     "type": "git",
@@ -39,6 +39,7 @@
     "dist",
     "bin",
     "AGENT.md",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
