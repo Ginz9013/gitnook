@@ -1,0 +1,4 @@
+{"id":"01M26B1WJ8KYQGMAAHW8FPT5QD","t":1,"a":"83a1","op":"create","title":"nook workspace doctor：跨子專案的健康檢查"}
+{"id":"01M26B1WJTTG5YZCY770TW47YG","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：`.scratch/workspace/03-workspace-doctor.md`（spec 同目錄）\n\n`nook workspace doctor [--fix]`：對每個成員各跑一次既有、未經修改的 `health()`/`repair()`，任一個不健康就整體 exit 非 0；全部健康沉默、exit 0。\n\n- `--fix` 只對有 diagnostic 的成員呼叫 `repair(member.path)`\n- 空 workspace 沉默、exit 0\n- 每行輸出清楚標出是哪個成員路徑的 diagnostic\n\nWrite ownership：`src/cli/workspace.ts`（延續票 02）、`test/cli/workspace.test.ts`（延續票 02）\n\n不得碰：`src/core/health.ts`（`repair()`/`diagnose()` 原封不動重用）、`src/render/table.ts`、`src/server/*`\n\n批次（單獨跑）。Blocked by：票 02（同一個檔案 `src/cli/workspace.ts`）。"}
+{"id":"01M26B1WJTK01YY43YR5WQNZW6","t":3,"a":"83a1","op":"label.add","v":"workspace"}
+{"id":"01M26B1WJT049ZJBW0AJM134DQ","t":4,"a":"83a1","op":"label.add","v":"cli"}

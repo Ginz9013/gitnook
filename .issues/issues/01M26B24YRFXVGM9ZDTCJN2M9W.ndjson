@@ -1,0 +1,5 @@
+{"id":"01M26B24YR7HHA8FVN9RPC2782","t":1,"a":"83a1","op":"create","title":"nook workspace studio：入口頁 + 點了才啟動的子 studio"}
+{"id":"01M26B24ZCSE360AZJ94088V18","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：`.scratch/workspace/04-workspace-studio.md`（spec 同目錄）\n\n`nook workspace studio [--port <n>]`：一個 landing page 列出全部成員，點連結才啟動（並重用既有、完全不變的）`serve(member.board)`，各自獨立 ephemeral port。\n\n- 兩次點同一個成員落在同一個 port，不重複啟動\n- `close()` 一併關掉 landing server 與全部已啟動的子 studio\n- 為什麼不用 path-prefix 掛載：studio 前端的 fetch 是寫死的 root-relative path（`/api/board`、`/i/<ref>`），掛在同一個 origin 底下的不同路徑會撞同一組 API path\n\nWrite ownership：`src/server/serveWorkspace.ts`（新）、`src/cli/workspace.ts`（延續票 02/03）、`src/index.ts`、`test/server/serveWorkspace.test.ts`（新）、`test/cli/workspace.test.ts`\n\n不得碰：`src/server/serve.ts`、`src/server/handler.ts`、`src/studio/*` —— 這張票的存在意義就是重用它們、完全不改。\n\n批次（單獨跑）。Blocked by：票 03（同一個檔案 `src/cli/workspace.ts`）。"}
+{"id":"01M26B24ZCCYX49ZQN3E0BE5CK","t":3,"a":"83a1","op":"label.add","v":"workspace"}
+{"id":"01M26B24ZCT6HVJRNVJ905QYY3","t":4,"a":"83a1","op":"label.add","v":"cli"}
+{"id":"01M26B24ZCY80GFR6XPMF5CAM0","t":5,"a":"83a1","op":"label.add","v":"server"}

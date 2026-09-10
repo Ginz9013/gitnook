@@ -1,0 +1,5 @@
+{"id":"01M26B1NDC6GQZ0J9CV1JN6GND","t":1,"a":"83a1","op":"create","title":"nook workspace list：依子專案分組的彙整清單"}
+{"id":"01M26B1NDYF0KF35A9YBXQJF0T","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：`.scratch/workspace/02-workspace-list.md`（spec 同目錄）\n\n`nook workspace list [--all] [--status <s>] [--label <l>] [--json]`：依子專案分組列出全部 issue，篩選語意與單一 Board 的 `nook list` 相同，套用到每個成員上。\n\n- 篩選後整組為空的成員不列出；全部空時印一句彙整版的「沒有 issue」\n- `nook --help` 出現 `workspace`；`AGENT.md` 至少提到一次（`test/agent-doc.test.ts` 雙向比對）\n- `src/cli/workspace.ts` 不得 import 任何 studio/server 模組（ADR-0008 冷啟預算）\n\nWrite ownership：`src/cli/run.ts`（新增 `case 'workspace'`，把 `parseArgs`/`Args`/`VALUED` 加上 export）、`src/cli/workspace.ts`（新）、`src/render/table.ts`（新增 `renderWorkspaceList`）、`AGENT.md`、`test/cli/workspace.test.ts`（新）、`test/render/table.test.ts`\n\n不得碰：`src/core/*`、`src/server/*`\n\n批次（單獨跑）。Blocked by：票 01。"}
+{"id":"01M26B1NDYJ3TPJARYN0G2XZ70","t":3,"a":"83a1","op":"label.add","v":"workspace"}
+{"id":"01M26B1NDYM02WWN0E9T7X6HQJ","t":4,"a":"83a1","op":"label.add","v":"cli"}
+{"id":"01M26B1NDYMRCNHWD6700KD0FD","t":5,"a":"83a1","op":"label.add","v":"render"}

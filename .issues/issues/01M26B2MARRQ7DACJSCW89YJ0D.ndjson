@@ -1,0 +1,4 @@
+{"id":"01M26B2MAR90BQJX8GR4FFFQ4H","t":1,"a":"83a1","op":"create","title":"Workspace 可寫入 —— 跨 board 的 new/set/mv（未來，非這次範圍）"}
+{"id":"01M26B2MB9SF36MS3K0X90TGRB","t":2,"a":"83a1","op":"set","k":"description","v":"這次 Workspace（`.scratch/workspace/spec.md`）刻意只做唯讀彙整。寫入（在 workspace 層級對某個成員 board 建立/更新/搬移 issue）留給未來，理由是：一個 Change 該落在哪個成員 board，需要一套選擇機制（明確指定路徑？互動選單？當前目錄推斷？），複雜度與這次的唯讀彙整不成比例，值得單獨規劃。\n\n開這張票只是為了不要忘記——目前沒有設計，也沒有排進任何一批。"}
+{"id":"01M26B2MB9045WZZ8W4MVQZMXC","t":3,"a":"83a1","op":"label.add","v":"workspace"}
+{"id":"01M26B2MB9XZN41VTZQYACYPS2","t":4,"a":"83a1","op":"label.add","v":"future"}
