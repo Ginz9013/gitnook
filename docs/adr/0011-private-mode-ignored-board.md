@@ -2,7 +2,7 @@
 
 `nook init` 要在別人的 repo 裡留下兩樣東西才能工作：`.issues/` 這個目錄，以及 `.gitattributes` 的那一行。技術上都無害，**但它們是 committed bytes** —— 團隊裡只有一個人想用、或想先私下試用一段時間的人，沒有辦法在不進入「跟全隊解釋這是什麼」的對話之前開始用。
 
-所以 `nook init --private` 把**整塊 `.issues/`** 排除在 git 之外：在 `$GIT_DIR/info/exclude` 冪等寫進一行 `/.issues/`（board 不在 repo 根目錄時是 `/<相對路徑>/.issues/`），建出 `.issues/issues/`，並**完全不碰 `.gitattributes`，連讀都不讀**。之後 `git status --porcelain` 是空的、`git ls-files .issues` 是空的 —— **zero committed bytes**。
+所以 `nook init --private` 把**整塊 `.issues/`** 排除在 git 之外：在 `$GIT_DIR/info/exclude` 冪等寫進一行 `/.issues/`（board 不在 repo 根目錄時是 `/<相對路徑>/.issues/`，而路徑裡的 gitignore metacharacter —— `*`、`?`、`[`、`]`、`\` 與段尾的空白 —— 一律轉義成字面值），建出 `.issues/issues/`，並**完全不碰 `.gitattributes`，連讀都不讀**。之後 `git status --porcelain` 是空的、`git ls-files .issues` 是空的 —— **zero committed bytes**。
 
 **它買到的是社交足跡為零，不是技術相容性。** `nook init` 本來就只多一個目錄加一行，沒有相容性問題要解。private mode 因此不是與 shared 對等的第二種玩法，而是一個**保證明確較少**的試用／單人模式：排除在 git 之外的 op-log 不跟著分支走、不進別人的 clone、也不需要零衝突保證。`nook share` 是它的升級路徑。
 
@@ -67,14 +67,20 @@ ADR-0002 的每一項結論在 private board 上照樣成立：`.issues/` 底下
 
 **private board 是一份沒有備份的資料，`git clean -xdf` 會把它整塊刪掉。** 實測：`git clean -xdn` 回報 `Would remove .issues/`。這是四條代價裡最嚴重的一條 —— git 平常是這個工具的備份機制，而 private mode 的全部內容就是放棄那個機制。所以 `init --private` 每一次都把這句話印出來（包含什麼都沒做的那一次：重跑 init 的人正是在問「我這塊 board 現在是什麼狀態」）。README 列出全部四條。
 
-**fs 與 git 不一致時 `list` / `show` 是盲的。** 熱路徑問不起 git（上面那條理由），所以這兩種狀態它一個都看不到：
+**fs 與 git 不一致時 `list` / `show` 是盲的。** 熱路徑問不起 git（上面那條理由），所以這三種狀態它一個都看不到：
 
 - **排除規則在、op-log 卻已被 git 追蹤。** 那塊 board 實際上是共享的，而且真的沒有 `merge=union` —— 正在靜默累積衝突風險，而 `list` 不會警告，因為純 fs 的那一問回答 private。進到這個狀態要一次刻意的 `git add -f`（實測：ignore 中的路徑不加 `-f` 會被 git 擋下，並提示 `Use -f if you really want to add them`），所以它不會自己發生。
 - **沒有 nook 寫的規則、git 卻 ignore 了 op-log**（例如 committed `.gitignore` 裡一條 `*.ndjson`）。那塊 board 看起來是共享的，同事 clone 下來卻會是空的，而 `list` 一句話都不會說 —— 它唯一講得出的那句是缺少 `merge=union`，而那一行通常好端端地在。
 
-**只有 doctor 看得到，而它看得到是因為它去問 git。** 兩種狀態共用一個 Diagnostic kind `SharingMismatch` —— 要修的是同一件事（讓兩邊一致），而訊息說得出是哪一種：前者指向 `nook share`，後者帶上 `git check-ignore -v` 自己指出的 `<file>:<line>:<pattern>`。成本是 private board 上多一個 `git ls-files`、shared board 上多一個 `git check-ignore`；讀取路徑仍然是零子行程。
+- **nook 的規則在，git 卻說它沒有效果。** 最常見的成因是一條優先序更高的否定規則（committed 的 `!.issues/` 壓過 `$GIT_DIR/info/exclude`），早期也曾由 board 路徑裡未轉義的 metacharacter 造成。這一種最毒：`init` 報告成功、`list` / `show` 不警告（純 fs 那一問答 private），而整塊 board 就在 `git status` 眼前 —— 下一次 `git add -A` 就把它推給全隊。
 
-**零衝突保證在 private board 上是「不需要」，不是「缺少」**，所以 doctor 在健康的 private board 上**完全沉默**、exit 0（它會進 CI，所以正確行為是沉默，不是換一句溫和的提醒）。但**兩個條件都成立才沉默**：fs 說 private，而 index 也同意 op-log 沒出去。index 有否決權，因為**被追蹤的路徑勝過 ignore 規則** —— 實測：`git add -f` 之後 `git check-ignore` 對那條路徑回報 not ignored。這也是 `init --private` 在已共享的 board 上**拒絕**（`AlreadySharedBoard`）而不是照寫一條規則的理由：那條規則對 tracked 路徑一點效果都沒有，而使用者會以為成功了。
+**只有 doctor 看得到，而它看得到是因為它去問 git。** 三種狀態共用一個 Diagnostic kind `SharingMismatch` —— 要修的是同一件事（讓兩邊一致），而訊息說得出是哪一種：第一種指向 `nook share`；第二種帶上 `git check-ignore -v` 自己指出的 `<file>:<line>:<pattern>`；第三種指出是**哪一條規則壓過** nook 那一行（`git check-ignore -v --non-matching` 問 board 目錄本身，不帶尾斜線 —— 實測：否定規則是在目錄那一層生效的，問檔案問不出來），而**刻意不建議重跑 `nook init --private`**：那時我們那一行已經在了，`init` 會回 unchanged、什麼都不動，使用者照做之後 doctor 再說一次同一句話。第三種也刻意不連帶回報 `MissingMergeDriver` —— 那塊 board 的意圖仍然是 private，而那條保證在 private 上是「不需要」。
+
+成本：健康的 shared board 上多一個 `git check-ignore`；健康的 private board 上多一個 `git ls-files` 與一個 `git check-ignore`（fs 說 private 之後還要確認 git 同意）。第三種狀態成立時才多問一個 `--non-matching`。**讀取路徑仍然是零子行程**，而 doctor 不在冷啟預算的情境裡。
+
+**零衝突保證在 private board 上是「不需要」，不是「缺少」**，所以 doctor 在健康的 private board 上**完全沉默**、exit 0（它會進 CI，所以正確行為是沉默，不是換一句溫和的提醒）。但**三個條件都成立才沉默**：fs 說 private、index 同意 op-log 沒出去、而 git 也同意它真的被 ignore。index 有否決權，因為**被追蹤的路徑勝過 ignore 規則** —— 實測：`git add -f` 之後 `git check-ignore` 對那條路徑回報 not ignored。這也是 `init --private` 在已共享的 board 上**拒絕**（`AlreadySharedBoard`）而不是照寫一條規則的理由：那條規則對 tracked 路徑一點效果都沒有，而使用者會以為成功了。
+
+**gitignore 的 pattern 語言表達不了某些合法的路徑。** 目錄名含換行字元在 POSIX 上合法，但寫不成一條 pattern —— 那時 `init --private` 會報告成功卻寫出兩行垃圾規則，而 doctor 說的是「規則沒有效果」那一種（它說得對，只是說不出成因）。失敗方向是保守的（board 進得了 git，而 doctor 會講話），所以這裡接受它而不是去驗證路徑。
 
 **git worktree 之間互相看不到。** ignore 規則是共用的（它住在 common dir），但 untracked 的檔案不是 —— 實測：在 linked worktree 裡 `nook list` 說這裡不是一個 board，而 `nook init --private` 在那裡只印 `Created  .issues/issues/`（規則已經在了，所以沒有 `Ignored` 那一行），於是每個 worktree 各有一塊**空的** board。對並行 agent worktree 流程這是地雷。
 

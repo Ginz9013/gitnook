@@ -76,6 +76,13 @@ export class NoGitDir extends Error {
  */
 export const OP_LOG_DIR = '.issues/issues';
 
+/**
+ * board 目錄本身，作為 git pathspec。**不帶尾斜線** —— 否定規則是在目錄那一層
+ * 生效的，而 `git check-ignore` 對 `.issues/` 這種帶斜線的問法答不出東西
+ * （見 `overridingRule` 的實測）。
+ */
+const ISSUES_DIR = '.issues';
+
 /** op-log 的副檔名。`health.ts` 也在掃同一批檔案，兩邊認的必須是同一件事。 */
 const LOG_SUFFIX = '.ndjson';
 
@@ -89,7 +96,7 @@ const LOG_SUFFIX = '.ndjson';
 function boardPattern(top: string, root: string): string {
   const rel = relative(top, resolve(root));
   // Windows 的 path.relative 給的是反斜線，而 gitignore 的 pattern 只認 `/`。
-  const prefix = rel === '' ? '' : `${rel.split(sep).map(literalSegment).join('/')}/`;
+  const prefix = rel === '' ? '' : `${rel.split(sep).map(escapeSegment).join('/')}/`;
   return `/${prefix}.issues/`;
 }
 
@@ -114,7 +121,7 @@ function boardPattern(top: string, root: string): string {
  * 不變式是「寫出去的與讀回來的必須是同一條規則」，所以帶尾端空白的那一段一律
  * 轉義 —— 今天這一行以 `.issues/` 結尾、那條規則咬不到它，但那個「今天」不是契約。
  */
-const literalSegment = (segment: string): string =>
+const escapeSegment = (segment: string): string =>
   segment.replace(/[\\*?[\]]/g, '\\$&').replace(/ (?= *$)/g, '\\ ');
 
 /**
@@ -333,6 +340,47 @@ function ignoreProbe(root: string): string {
   // 排序讓答案穩定，不隨檔案系統的回傳順序漂移（同 health.ts 的 opLogNames）。
   const first = readdirSync(dir).filter((n) => n.endsWith(LOG_SUFFIX)).sort()[0];
   return first === undefined ? OP_LOG_DIR : `${OP_LOG_DIR}/${first}`;
+}
+
+/**
+ * 我們那一行**沒有效果**時，是哪一條規則壓過它 —— git 自己指出的
+ * `<file>:<line>:<pattern>`，原封不動帶著走。說不出來時是 null。
+ *
+ * **會 spawn `git check-ignore -v --non-matching`**，所以只准 doctor 呼叫，而且
+ * 只在已經知道「規則在、卻沒生效」之後才問 —— 健康的 board 不該為它多付一個
+ * 子行程。
+ *
+ * 兩個實測出來、缺一不可的細節（git 2.50.1）：
+ *
+ * - **要問 board 目錄本身，而且不能帶尾斜線。** committed 的 `!.issues/` 壓過
+ *   `info/exclude` 時：問 `.issues` 得到 `.gitignore:1:!.issues/`（exit 0）、
+ *   問 `.issues/` 或 `.issues/issues` 都只得到 `::`（exit 1，什麼都沒比對到）。
+ *   否定規則是在**目錄**那一層生效的，所以問檔案問不出來。
+ * - **要 `--non-matching`。** 沒有它，一條把路徑排除在外的否定規則就是「沒命中」，
+ *   git 不會印出來 —— 而我們要的正是那一條。
+ */
+export function overridingRule(root: string): string | null {
+  let out: string;
+  try {
+    out = execFileSync('git', ['check-ignore', '-v', '--non-matching', '--', ISSUES_DIR], {
+      cwd: resolve(root),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch (thrown) {
+    // 同 opLogsTracked：git 自己以非 0 結束是一個答案（沒有任何 pattern 命中），
+    // 其餘（ENOENT、權限）是我們答不出來的。這裡兩者都只是「說不出來」——
+    // 呼叫端已經有話要說了，這一句只是錦上添花。
+    if (typeof (thrown as { status?: unknown }).status === 'number') return null;
+    return null;
+  }
+
+  // `::\t<path>` 是 git 說「沒有任何 pattern 命中」的形狀 —— 那不是一條規則。
+  const line = out.split('\n')[0] ?? '';
+  const tab = line.lastIndexOf('\t');
+  if (tab <= 0) return null;
+  const source = line.slice(0, tab);
+  return source === '::' ? null : source;
 }
 
 /**

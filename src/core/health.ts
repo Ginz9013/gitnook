@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { Diagnostic } from './types.js';
 import { MERGE_RULE, inspectMergeGuarantee } from './gitattributes.js';
 import { OP_KINDS, splitGluedLine } from './ops.js';
-import { ignoredByGit, inspectSharing, opLogsTracked } from './sharing.js';
+import { ignoredByGit, inspectSharing, opLogsTracked, overridingRule } from './sharing.js';
 
 /**
  * 資料健康診斷。彙整成一份 Diagnostic 清單：merge=union 那條唯一支柱是否還在、
@@ -58,53 +58,7 @@ export function diagnose(dir: string): Diagnostic[] {
     }
   }
 
-  // fs 與 git 對「這塊 board 共享了嗎」說了不同的話。一個 kind、兩種狀態，
-  // 因為要修的是同一件事：讓兩邊一致。**排在保證那一條之後** —— 唯一的單點
-  // 失效仍然排第一，這一條不把它擠下去。
-  if (trackedAnyway) {
-    found.push({
-      kind: 'SharingMismatch',
-      message:
-        `排除規則在，op-log 卻已經被 git 追蹤：這塊 board 實際上是共享的` +
-        `（被追蹤的路徑勝過 ignore 規則），而且沒有零衝突保證 —— 正在靜默累積衝突風險。` +
-        `執行 nook share 讓規則與事實一致。`,
-    });
-  } else if (sharing === 'private' && insideGit) {
-    // 第三種：nook 的那一行在（fs 說 private），git 卻說它沒有效果。這是 private
-    // mode 裡唯一一種**三個面都沉默**的失敗 —— init 報告成功、list / show 不警告
-    // （它們只問得到純 fs 的那一行）、doctor 也把 MissingMergeDriver 壓掉了，而
-    // board 整塊在 `git status` 眼前。
-    //
-    // **這個子行程只在這裡 spawn。** 讀取熱路徑唯一的問法仍然是純 fs 的
-    // `inspectSharing`（`run.ts` 的 PATH 探針把那條承諾當閘門在守）。
-    if (!ignoredByGit(dir).ignored) {
-      found.push({
-        kind: 'SharingMismatch',
-        message:
-          `排除規則在，git 卻說這塊 board 沒有被 ignore：規則沒有效果，` +
-          `所以整塊 board 進得了 git —— 下一次 git add -A 就會把它推出去。` +
-          `執行 nook init --private 重寫那條規則。`,
-      });
-    }
-  } else if (sharing === 'shared' && insideGit) {
-    // 反向的那一種：nook 沒有寫任何規則，git 卻把 op-log 擋在外面。
-    // `ignored` 與 `source` 是兩件事：git 說它 ignore 是事實，而我們有沒有可以
-    // 引用的來源是另一回事。**答不出那個形狀就閉嘴** —— 這一條的全部價值就是帶著
-    // git 自己指出的 `<file>:<line>:<pattern>`，拿一個編不出來的來源拉警報比不
-    // 講話更糟（doctor 進 CI，而 PATH 上若有一支什麼都答 true 的假 git，它的輸出
-    // 正好是這個形狀對不上的樣子）。
-    const { ignored, source } = ignoredByGit(dir);
-    if (ignored && source !== null) {
-      found.push({
-        kind: 'SharingMismatch',
-        message:
-          `沒有 nook 寫的排除規則，git 卻 ignore 了 op-log：${source}` +
-          `。這塊 board 看起來是共享的，同事 clone 下來卻會是空的。` +
-          `如果這是刻意的，執行 nook init --private 把它記下來；` +
-          `不是的話，把那一條 ignore 規則拿掉。`,
-      });
-    }
-  }
+  found.push(...sharingMismatches(dir, sharing, trackedAnyway, insideGit));
 
   for (const name of opLogNames(dir)) {
     const relative = `${ISSUES_DIR}/${name}`;
@@ -146,6 +100,85 @@ export function diagnose(dir: string): Diagnostic[] {
   }
 
   return found;
+}
+
+
+/**
+ * fs 與 git 對「這塊 board 共享了嗎」說了不同的話。**一個 kind、三種狀態**，
+ * 因為要修的是同一件事：讓兩邊一致。呼叫端把它排在零衝突保證那一條之後 ——
+ * 唯一的單點失效仍然排第一，這一條不把它擠下去。
+ *
+ * 三種狀態的子行程都只在這裡 spawn，而且每一種只問它自己需要的那一個 ——
+ * 健康的 board 一個都不多付。讀取熱路徑唯一的問法仍然是純 fs 的 `inspectSharing`
+ * （`run.ts` 的 PATH 探針把那條承諾當閘門在守）。
+ */
+function sharingMismatches(
+  dir: string,
+  sharing: 'shared' | 'private',
+  trackedAnyway: boolean,
+  insideGit: boolean,
+): Diagnostic[] {
+  if (trackedAnyway) {
+    return [
+      {
+        kind: 'SharingMismatch',
+        message:
+          `排除規則在，op-log 卻已經被 git 追蹤：這塊 board 實際上是共享的` +
+          `（被追蹤的路徑勝過 ignore 規則），而且沒有零衝突保證 —— 正在靜默累積衝突風險。` +
+          `執行 nook share 讓規則與事實一致。`,
+      },
+    ];
+  }
+
+  if (!insideGit) return [];
+
+  if (sharing === 'private') {
+    // nook 的那一行在（fs 說 private），git 卻說它沒有效果。這是 private mode 裡
+    // 唯一一種**三個面都沉默**的失敗 —— init 報告成功、list / show 不警告（它們
+    // 只問得到純 fs 的那一行）、doctor 也把 MissingMergeDriver 壓掉了，而 board
+    // 整塊在 `git status` 眼前。
+    if (ignoredByGit(dir).ignored) return [];
+
+    // **下一步不能是「重跑 init --private」。** 這個狀態最常見的成因是一條優先序
+    // 更高的否定規則（committed 的 `!.issues/` 壓過 `$GIT_DIR/info/exclude`），
+    // 而那時我們那一行**已經在了** —— `init --private` 會回 unchanged、什麼都不動，
+    // 使用者照做之後 doctor 再說一次同一句話，永遠。所以問 git 是誰壓過它，並把
+    // 那一行指出來；指不出來時就說指不出來，同 `share` 的做法。
+    const rule = overridingRule(dir);
+    const why =
+      rule === null
+        ? `而 git 指不出是哪一條規則壓過它 —— 請自己跑 ` +
+          `git check-ignore -v --non-matching "${dir}/.issues" 找出來。`
+        : `你那一行被 ${rule} 壓過去了 —— 移除或調整那一條規則（nook 只動自己寫的那一行），` +
+          `再跑一次 nook doctor 確認。`;
+    return [
+      {
+        kind: 'SharingMismatch',
+        message:
+          `排除規則在，git 卻說這塊 board 沒有被 ignore：規則沒有效果，` +
+          `所以整塊 board 進得了 git —— 下一次 git add -A 就會把它推出去。${why}`,
+      },
+    ];
+  }
+
+  // 反向的那一種：nook 沒有寫任何規則，git 卻把 op-log 擋在外面。
+  // `ignored` 與 `source` 是兩件事：git 說它 ignore 是事實，而我們有沒有可以引用的
+  // 來源是另一回事。**答不出那個形狀就閉嘴** —— 這一條的全部價值就是帶著 git 自己
+  // 指出的 `<file>:<line>:<pattern>`，拿一個編不出來的來源拉警報比不講話更糟
+  // （doctor 進 CI，而 PATH 上若有一支什麼都答 true 的假 git，它的輸出正好是這個
+  // 形狀對不上的樣子）。
+  const { ignored, source } = ignoredByGit(dir);
+  if (!ignored || source === null) return [];
+  return [
+    {
+      kind: 'SharingMismatch',
+      message:
+        `沒有 nook 寫的排除規則，git 卻 ignore 了 op-log：${source}` +
+        `。這塊 board 看起來是共享的，同事 clone 下來卻會是空的。` +
+        `如果這是刻意的，執行 nook init --private 把它記下來；` +
+        `不是的話，把那一條 ignore 規則拿掉。`,
+    },
+  ];
 }
 
 /** 一條被還原回來的黏合行。 */

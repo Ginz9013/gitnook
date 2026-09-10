@@ -402,14 +402,24 @@ describe('fs 說 private、git 卻說沒 ignore', () => {
   });
 
   /**
-   * 說出狀態不等於說得出下一步。這一種只有一條：`nook init --private` —— 片 1
-   * 之後它會重寫出一條真的生效的規則，而這塊 board 的意圖本來就是 private。
+   * 說出狀態不等於說得出下一步，而**這一種的下一步不能是「重跑
+   * `nook init --private`」**：這個狀態最常見的成因是一條優先序更高的否定規則，
+   * 而那時 nook 那一行**已經在了** —— `init --private` 會回 unchanged、什麼都不動，
+   * 使用者照做之後 doctor 再說一次同一句話，永遠。所以要指出是誰壓過它。
    */
-  it('下一步是 nook init --private，重寫那條規則', () => {
+  it('指出是哪一條規則壓過 nook 那一行，而不是叫人重跑一個沒用的指令', () => {
     privateButNotIgnored();
 
     const mismatch = diagnose(dir).find((d) => d.kind === 'SharingMismatch');
 
-    expect(mismatch?.message).toContain('nook init --private');
+    // git 自己指出的那一行，原封不動 —— 檔名與行號是這一層編不出來的東西。
+    expect(mismatch?.message).toContain('.gitignore:1:!.issues/');
+    // 而且**不得**建議那個必然 unchanged 的指令。
+    expect(mismatch?.message).not.toContain('nook init --private');
   });
+
+  // `overridingRule` 回 null 的那一格（規則沒生效、git 也指不出是誰壓過它）
+  // 沒有測試：造得出來的情境裡 git 都指得出來，而硬造一個不真實的情境去釘一條
+  // 防禦性分支，釘住的會是那個假情境而不是行為。它的失敗方向是保守的 ——
+  // 少說一句「是哪一條」，後果與問法照樣講。
 });

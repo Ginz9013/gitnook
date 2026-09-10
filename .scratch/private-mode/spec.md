@@ -129,6 +129,9 @@ _Avoid_：mode、local、offline、visibility（`visibility` 已經被 `archived
     真的沒有那條規則。
   - `shared` 但 `ignoredByGit` 為 true → 回報 `SharingMismatch`，訊息帶上
     git 自己指出的來源。這塊 board 看起來共享、實際上同事的 clone 會是空的。
+  - **（票 08 追加）** `private` 但 `ignoredByGit` 說沒有被 ignore → 回報
+    `SharingMismatch`，並指出是**哪一條規則壓過** nook 那一行。三種狀態共用
+    同一個 kind。
 - 成本：private board 多 spawn 一個 `git ls-files`；shared board 多一個
   `git check-ignore`。`doctor` 本來就 spawn 一個 `git rev-parse`，而它不在
   冷啟預算的情境裡。

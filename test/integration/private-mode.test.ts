@@ -482,7 +482,7 @@ describe('轉義之前就寫下的那一行（轉換期）', () => {
     // 舊版寫出去的形狀：一模一樣的路徑，只是沒有轉義。
     writeFileSync(excludeFileOf(repo), '/apps/[id]/.issues/\n', 'utf8');
 
-    // 這一票的起點，由真實 git 確認：那條規則對這塊 board 沒有效果，board 整塊
+    // 這一批的起點，由真實 git 確認：那條規則對這塊 board 沒有效果，board 整塊
     // 在 git 眼前 —— 下一次 git add -A 就把它推出去。
     expect(tryGit(repo, 'check-ignore', '-q', 'apps/[id]/.issues/issues/x.ndjson').status).toBe(1);
     expect(git(repo, 'status', '--porcelain')).toContain('apps/');
