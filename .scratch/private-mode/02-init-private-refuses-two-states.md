@@ -56,4 +56,4 @@ nook ref：`01M2521MRT22FMA2EPF3Y7J963`
 
 ## Status
 
-todo
+done —— commit 26dd976（實作）+ 980c15f（兩軸 review 的修補）
