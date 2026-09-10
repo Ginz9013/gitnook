@@ -128,18 +128,6 @@ export function renderTable(input: readonly Issue[] | Issue, shortIdLen?: number
 }
 
 /**
- * 一張 Issue 的 Op-log 中的 set Op：誰、在哪個 lamport `t`、把哪個欄位寫成什麼。
- *
- * 不重排 —— 傳進來的順序就是 core 的 (t, a, id) 全序（`Board.opLog`）。在此
- * 複製一份比較器只會與 core 分歧，同 timeline 的理由（commit 463343d）。
- *
- * 值**不截斷**：這張表存在的理由就是把被 LWW 蓋掉的那份 description 原封不動
- * 交回讀者手上，截斷等於沒救回來。description 因此常常是多行的，而多行的值
- * 塞不進一列 —— 只要有一個值含換行，就整份改成「表頭一行、值另起、區塊間空
- * 一行」。全部一起換而不是逐列決定：讀者要能一眼看出一個值在哪裡結束，而那
- * 取決於整份輸出的形狀，不是單一列的。
- */
-/**
  * 一個成員 Board 分組後要印的份量：來源路徑（相對於 workspace 根目錄）、
  * 篩選後的 issue 清單、以及**這個成員自己**的短 ID 顯示長度 —— 每個成員
  * 完全維持自己的獨立性（CONTEXT.md 的 Workspace 詞條），不跨成員合算長度。
@@ -165,6 +153,18 @@ export function renderWorkspaceList(groups: readonly WorkspaceGroup[]): string {
     .join('\n\n');
 }
 
+/**
+ * 一張 Issue 的 Op-log 中的 set Op：誰、在哪個 lamport `t`、把哪個欄位寫成什麼。
+ *
+ * 不重排 —— 傳進來的順序就是 core 的 (t, a, id) 全序（`Board.opLog`）。在此
+ * 複製一份比較器只會與 core 分歧，同 timeline 的理由（commit 463343d）。
+ *
+ * 值**不截斷**：這張表存在的理由就是把被 LWW 蓋掉的那份 description 原封不動
+ * 交回讀者手上，截斷等於沒救回來。description 因此常常是多行的，而多行的值
+ * 塞不進一列 —— 只要有一個值含換行，就整份改成「表頭一行、值另起、區塊間空
+ * 一行」。全部一起換而不是逐列決定：讀者要能一眼看出一個值在哪裡結束，而那
+ * 取決於整份輸出的形狀，不是單一列的。
+ */
 export function renderSetOps(ops: readonly SetOp[]): string {
   if (ops.length === 0) return EMPTY_OPS;
 

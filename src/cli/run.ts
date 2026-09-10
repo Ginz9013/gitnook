@@ -135,8 +135,12 @@ function readLineFromStdin(): string {
   }
 }
 
-/** CLI 自己發現的使用者錯誤（用法不對、欄位不存在）。與領域錯誤同樣是 exit 1。 */
-class UsageError extends Error {
+/**
+ * CLI 自己發現的使用者錯誤（用法不對、欄位不存在）。與領域錯誤同樣是 exit 1。
+ * export 供 `cli/workspace.ts` 重用（票 02）——同一種錯誤只走一條路徑
+ * （`run()` 的 catch），不在新檔裡另開一條手寫 errLine + return 1。
+ */
+export class UsageError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'UsageError';
@@ -275,8 +279,9 @@ function distance(a: string, b: string): number {
   return previous[b.length]!;
 }
 
-const line = (io: Io, text: string): void => io.write(`${text}\n`);
-const errLine = (io: Io, text: string): void => io.writeError(`${text}\n`);
+/** export 供 `cli/workspace.ts` 重用（票 02），不在新檔裡重寫一份同樣的兩行。 */
+export const line = (io: Io, text: string): void => io.write(`${text}\n`);
+export const errLine = (io: Io, text: string): void => io.writeError(`${text}\n`);
 
 /**
  * Ref 的分工：**顯示用短的，交付用完整的。**
@@ -292,8 +297,11 @@ const errLine = (io: Io, text: string): void => io.writeError(`${text}\n`);
  * 來源是 `board.refs()`（票 15）而不是 `list({ all: true })`：算長度只需要一串
  * Ref，而 list 會把整塊 Board 的 Op-log 摺一遍。走 refs() 只列目錄，所以連
  * `show` 都付得起 —— 票 13 的「show 只讀它要的那一張」因此仍然成立。
+ *
+ * export 供 `cli/workspace.ts` 重用（票 02）——ADR-0006「長度只有一個算法」，
+ * 兩處各自重算同一個公式正是那條規則要擋的漂移。
  */
-function displayLength(board: Board): number {
+export function displayLength(board: Board): number {
   return shortIdLength(board.refs());
 }
 

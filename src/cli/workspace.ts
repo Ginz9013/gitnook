@@ -1,8 +1,7 @@
 import { relative } from 'node:path';
 import { openWorkspace } from '../core/workspace.js';
-import { shortIdLength } from '../core/ids.js';
 import { renderWorkspaceList } from '../render/table.js';
-import { parseArgs, type Args, type Io } from './run.js';
+import { displayLength, line, parseArgs, UsageError, type Args, type Io } from './run.js';
 import type { Filter } from '../core/types.js';
 import type { WorkspaceGroup } from '../render/table.js';
 
@@ -22,14 +21,12 @@ export async function dispatchWorkspace(argv: readonly string[], io: Io): Promis
       return cmdList(parseArgs(rest, LIST_FLAGS), io);
   }
 
-  errLine(io, `未知的 workspace 子指令：${sub ?? ''}（目前只有 list）`);
-  return 1;
+  // 同 `run.ts` 的 `unknownCommand`：使用者錯誤只走 UsageError 這一條路徑，
+  // 不在這裡另開一份手寫的 errLine + return 1。
+  throw new UsageError(`未知的 workspace 子指令：${sub ?? ''}（目前只有 list）`);
 }
 
 const LIST_FLAGS: ReadonlySet<string> = new Set(['--all', '--status', '--label', '--json']);
-
-const line = (io: Io, text: string): void => io.write(`${text}\n`);
-const errLine = (io: Io, text: string): void => io.writeError(`${text}\n`);
 
 /**
  * 一個成員路徑相對於 workspace 根目錄的顯示形式。成員本身就是根目錄時
@@ -67,7 +64,7 @@ function cmdList(args: Args, io: Io): number {
   const groups: WorkspaceGroup[] = workspace.members.map((member) => ({
     path: relativeGroupPath(root, member.path),
     issues: member.board.list(filter),
-    shortIdLen: shortIdLength(member.board.refs()),
+    shortIdLen: displayLength(member.board),
   }));
 
   if (args.has('--json')) {
