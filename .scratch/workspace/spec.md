@@ -1,6 +1,6 @@
 # Spec — Workspace：跨子專案的唯讀彙整檢視
 
-> **執行模式：parallel。** 發布目標：既有的 nook board（`.issues/`）。Branch：`workspace`（待建立）。
+> **執行模式：parallel。** 發布目標：既有的 nook board（`.issues/`）。Branch：`monorepo-mode`（已存在）。
 >
 > **誠實的警語**：這次的五張票因為共用同一個新檔案 `src/cli/workspace.ts`，
 > 除了票 01（純 core，無共用檔案）之外，票 02→03→04→05 是一條全序鏈
