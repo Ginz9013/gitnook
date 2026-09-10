@@ -45,7 +45,9 @@ export function IssueDetail({ projected, onSubmit }: IssueDetailProps): React.JS
 
   return (
     <>
-      <SheetHeader className="gap-3 border-b pr-12">
+      {/* 內距一律是 sheet.tsx 預設的兩倍：p-4 → p-8、pr-12 → pr-16（右邊多留的
+          那一截是讓開右上角的關閉鈕，它在 IssueDrawer 裡跟著挪到 top-8/right-8）。 */}
+      <SheetHeader className="gap-3 border-b p-8 pr-16">
         {/*
           對話框的可及名稱。可見的那個是下面的 input —— 把 input 塞進 Radix
           的 Title 會讓可及名稱變成空字串（input 沒有文字內容）。
@@ -79,7 +81,7 @@ export function IssueDetail({ projected, onSubmit }: IssueDetailProps): React.JS
         />
       </SheetHeader>
 
-      <div className="flex flex-col gap-6 px-4 pb-6">
+      <div className="flex flex-col gap-6 px-8 pb-12">
         {/* 寫入失敗的訊息在 App 的橫幅上：拖曳失敗時 drawer 可能根本沒開著。 */}
         <DescriptionField
           description={shown.description}

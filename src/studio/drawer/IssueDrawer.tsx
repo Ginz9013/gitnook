@@ -57,6 +57,9 @@ export function IssueDrawer({
   if (issue !== null) last.current = issue;
   const shown = issue ?? last.current;
 
+  // 開啟時焦點的落點（見下面的 onOpenAutoFocus）。
+  const panel = useRef<HTMLDivElement>(null);
+
   return (
     <Sheet
       open={issue !== null}
@@ -67,6 +70,17 @@ export function IssueDrawer({
       <SheetContent
         side="right"
         data-slot="issue-drawer"
+        ref={panel}
+        tabIndex={-1}
+        onOpenAutoFocus={(event) => {
+          // Radix 的預設是「焦點給第一個可聚焦的元素」，在這個 drawer 裡那是
+          // 標題輸入框 —— 於是每次點開卡片都變成「準備改標題」，而使用者多數
+          // 時候只是想讀。改成把焦點放在面板本身（`tabIndex={-1}` 就是為了讓
+          // 它收得下）：focus trap、Esc、Tab 的起點都還在 drawer 裡，但沒有
+          // 任何輸入框被搶進編輯狀態。
+          event.preventDefault();
+          panel.current?.focus();
+        }}
         onCloseAutoFocus={(event) => {
           // 一律接手（見上）。`preventDefault` 擋掉的是 Radix 那句
           // `triggerRef.current?.focus()` —— `composeEventHandlers` 看到
@@ -74,7 +88,14 @@ export function IssueDrawer({
           event.preventDefault();
           if (shown !== null) onCloseFocus(shown.id);
         }}
-        className="gap-4 overflow-y-auto sm:max-w-xl"
+        // 圓角只給左側兩角：drawer 貼著右緣、上下滿版，右邊兩角圓不起來（也
+        // 沒有東西看得到它）。用 `rounded-l-lg`（`--radius`，0.625rem）——
+        // 跟 AlertDialog、看板的欄位同一級，主題裡「一塊面板」就是這個圓角。
+        // 寬度：桌面上固定佔螢幕的 2/5（`sm:max-w-none` 是為了解除 sheet.tsx
+        // 那道 `sm:max-w-lg` 上限，否則 2/5 在寬螢幕上會被夾回 32rem）。窄螢幕
+        // 維持 3/4 —— 2/5 在手機上放不下一行標題。
+        // 關閉鈕跟著內距一起往內縮，才不會孤零零貼在角落。
+        className="w-3/4 gap-4 rounded-l-lg overflow-y-auto sm:w-2/5 sm:max-w-none [&>[data-slot=sheet-close]]:top-8 [&>[data-slot=sheet-close]]:right-8"
       >
         {shown === null ? (
           <SheetHeader>
