@@ -487,9 +487,8 @@ unlike `openBoard()`, which throws when there is no board at all.
 **This cannot write anything.** There is no `nook workspace new`, `set`, or
 `mv` — deciding which member a write belongs to is a real design question
 that this round of work deliberately leaves open. `workspace` only ever reads
-what already exists on disk; `new`, `list`, `show`, `set`, `mv`, `comment`,
-`label`, `doctor`, and `studio` on a single board are unaffected and work
-exactly as documented above.
+what already exists on disk; every single-board command works exactly as
+documented above, unaffected.
 
 ## doctor
 
