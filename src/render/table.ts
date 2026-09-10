@@ -139,6 +139,32 @@ export function renderTable(input: readonly Issue[] | Issue, shortIdLen?: number
  * 一行」。全部一起換而不是逐列決定：讀者要能一眼看出一個值在哪裡結束，而那
  * 取決於整份輸出的形狀，不是單一列的。
  */
+/**
+ * 一個成員 Board 分組後要印的份量：來源路徑（相對於 workspace 根目錄）、
+ * 篩選後的 issue 清單、以及**這個成員自己**的短 ID 顯示長度 —— 每個成員
+ * 完全維持自己的獨立性（CONTEXT.md 的 Workspace 詞條），不跨成員合算長度。
+ */
+export interface WorkspaceGroup {
+  readonly path: string;
+  readonly issues: readonly Issue[];
+  readonly shortIdLen: number;
+}
+
+/**
+ * 依來源路徑分組印出，組合既有 `renderTable`，不重新發明表格版面。
+ *
+ * 篩選後一張都沒有的成員整組不列出（不印一個空表頭）；全部成員都是空的
+ * 才印一句彙整版的 `EMPTY`，不是逐組重複同一句話。
+ */
+export function renderWorkspaceList(groups: readonly WorkspaceGroup[]): string {
+  const nonEmpty = groups.filter((g) => g.issues.length > 0);
+  if (nonEmpty.length === 0) return EMPTY;
+
+  return nonEmpty
+    .map((g) => `${g.path}\n${renderTable(g.issues, g.shortIdLen)}`)
+    .join('\n\n');
+}
+
 export function renderSetOps(ops: readonly SetOp[]): string {
   if (ops.length === 0) return EMPTY_OPS;
 

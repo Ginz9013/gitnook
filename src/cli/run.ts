@@ -35,6 +35,7 @@ import {
 import { renderJson } from '../render/json.js';
 import { renderSetOps, renderTable } from '../render/table.js';
 import { PortInUse, serve } from '../server/serve.js';
+import { dispatchWorkspace } from './workspace.js';
 import type { SetKey } from '../core/ops.js';
 import type { Board, Change, CreateInput, Filter } from '../core/types.js';
 
@@ -225,12 +226,29 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
       return cmdDoctor(parseArgs(rest, DOCTOR_FLAGS), io);
     case 'studio':
       return cmdStudio(parseArgs(rest, STUDIO_FLAGS), io);
+    case 'workspace':
+      return dispatchWorkspace(rest, io);
   }
 
   throw new UsageError(unknownCommand(command));
 }
 
-const COMMANDS = ['init', 'new', 'list', 'show', 'history', 'set', 'rm', 'mv', 'comment', 'label', 'share', 'doctor', 'studio'];
+const COMMANDS = [
+  'init',
+  'new',
+  'list',
+  'show',
+  'history',
+  'set',
+  'rm',
+  'mv',
+  'comment',
+  'label',
+  'share',
+  'doctor',
+  'studio',
+  'workspace',
+];
 
 /** 打錯字與想要一個不存在的功能是兩件事，回答也該不一樣。 */
 function unknownCommand(command: string): string {
@@ -297,14 +315,15 @@ set <ref> <title|description|status|archived|deleted> <value|-> [--editor]
 rm <ref> [--yes]         刪除；非 TTY 需 --yes
 mv <ref> <status>
 comment <ref> <body|->
-label <ref> +bug -ui     加減 Label（無優先級欄位，用 Label）
-share                    private board 升級回共享；git add 要你自己跑
-doctor [--fix]           資料健康檢查，--fix 修復黏合行
-studio [--port <n>]      localhost 看板，可拖拉與編輯
+label <ref> +bug -ui     加減 Label
+share                    升級 private board 為 shared；git add 你自己跑
+doctor [--fix]           健康檢查，--fix 修復黏合行
+studio [--port <n>]      localhost 看板
+workspace list [flags]   依子專案分組，篩選旗標同 list
 
 status: backlog todo queued in_progress review blocked done cancelled
-<ref> 與 status 都接受無歧義前綴。<value> 用 - 從 stdin 讀。
-queued 是授權邊界：進入 queued 表示已授權 agent 直接動手。
+<ref>/status 接受無歧義前綴，<value> 用 - 從 stdin 讀。
+queued 是授權邊界：進入即表示已授權 agent 動手。
 list 預設隱藏 archived / done / cancelled。
 `;
 
@@ -327,8 +346,12 @@ function version(): string {
   }
 }
 
-/** 需要接一個值的旗標。其餘以 `--` 開頭者都是開關。 */
-const VALUED: ReadonlySet<string> = new Set(['--status', '--label', '--description', '--port']);
+/**
+ * 需要接一個值的旗標。其餘以 `--` 開頭者都是開關。
+ * export 供 `cli/workspace.ts` 重用（票 02）—— 兩處指令共用同一份判斷，
+ * 不重寫一份可能漂開的副本。
+ */
+export const VALUED: ReadonlySet<string> = new Set(['--status', '--label', '--description', '--port']);
 
 /** 每個指令認得的旗標。不在名單上的一律報錯 —— 靜默吃掉一個打錯的旗標，
  * 呼叫端會拿到一份沒過濾的答案卻以為自己過濾了。 */
@@ -342,7 +365,8 @@ const RM_FLAGS: ReadonlySet<string> = new Set(['--yes']);
 const DOCTOR_FLAGS: ReadonlySet<string> = new Set(['--fix']);
 const STUDIO_FLAGS: ReadonlySet<string> = new Set(['--port']);
 
-interface Args {
+/** 供 `cli/workspace.ts` 重用（票 02），不在新檔裡重寫一份參數解析器。 */
+export interface Args {
   readonly positional: readonly string[];
   has(flag: string): boolean;
   /** 可重複的旗標 —— `--label a --label b` 是收斂條件（AND）。 */
@@ -350,7 +374,7 @@ interface Args {
   one(flag: string): string | undefined;
 }
 
-function parseArgs(args: readonly string[], allowed: ReadonlySet<string>): Args {
+export function parseArgs(args: readonly string[], allowed: ReadonlySet<string>): Args {
   const positional: string[] = [];
   const switches = new Set<string>();
   const values = new Map<string, string[]>();
