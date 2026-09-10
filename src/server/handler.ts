@@ -305,9 +305,12 @@ function boardSnapshot(board: Board): BoardSnapshot {
 /**
  * 開場抓一次的那份東西：這塊 board 在磁碟上的位置。
  *
- * **與快照分開，而且只在開場抓一次。** `board.health()` 會 spawn 一個
- * `git rev-parse`（health.ts:167），摺進 `/api/board` 等於每次全量讀取都多一個
- * 子行程 —— 而快照在 ACK 落空時還會被重抓。
+ * **與快照分開，而且只在開場抓一次。** `board.health()` 會 spawn 子行程 ——
+ * 一個 `git rev-parse`，而在 private board 上還多一個 `git ls-files`（`diagnose`
+ * 要確認那塊被排除的 board 是不是其實已經共享出去了）。摺進 `/api/board` 等於
+ * 每次全量讀取都付這筆帳 —— 而快照在 ACK 落空時還會被重抓。
+ *
+ * （刻意不寫行號：上一版寫了 health.ts:167，一次改動就讓它指到別的地方。）
  */
 export interface BoardInfo {
   /** board 的絕對路徑。同時開兩個 repo 的 studio 時，這是唯一分得出來的東西。 */
