@@ -47,7 +47,7 @@ with no `git config` for anyone on the team.
 fields — not prose to be parsed back into fields, so there is no heading
 convention to break and no round-trip to lose information.
 
-**It installs like a normal dev dependency.** One `npm i -D gitnook`, ~590 KB
+**It installs like a normal dev dependency.** One `npm i -D gitnook`, ~649 KB
 unpacked, zero runtime dependencies, no native binary per platform, no daemon,
 no account, no *derived* local state to gitignore. (There is one thing you can
 deliberately keep out of git — the board itself, with `nook init --private`
@@ -198,7 +198,7 @@ structural rows below them — and exits non-zero if any is over budget.
 
 | Metric | Budget | Measured |
 |---|---|---|
-| Package size, unpacked | < 3 MB | **604,531 B** (19% of the gate) |
+| Package size, unpacked | < 3 MB | **648,770 B** (21% of the gate) |
 | Cold start, `nook --version` from the packed tarball | < 500 ms | **≈25 ms** |
 | Concurrent merge of one issue on two branches | zero conflicts | **0** |
 | Agent tokens, 40-issue scenario | < 4.5 KB | **4,102 B** |
@@ -218,7 +218,7 @@ Two more rows exist because those four cannot see what they need to see:
 
 | Row | Budget | Measured |
 |---|---|---|
-| studio assets, `dist/studio/` | < 768 KB | **440,322 B** |
+| studio assets, `dist/studio/` | < 768 KB | **441,497 B** |
 | React markers in `dist/cli/run.js` | 0 | **0** |
 
 studio is three quarters of the package, so it could grow by half and package

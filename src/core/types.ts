@@ -80,7 +80,7 @@ export interface Filter {
 
 export type DiagnosticKind =
   | 'MissingMergeDriver'
-  /** fs 與 git 對「這塊 board 共享了嗎」給出不同的答案 —— 兩種狀態共用一個 kind。 */
+  /** fs 與 git 對「這塊 board 共享了嗎」給出不同的答案 —— 三種狀態共用一個 kind。 */
   | 'SharingMismatch'
   | 'NotAGitRepo'
   | 'GluedLine'

@@ -8,6 +8,71 @@ While the major version is `0`, a minor bump may contain changes that would be
 breaking after `1.0.0`. Any such change is listed under **Changed** or
 **Removed** with what it means for you.
 
+## [0.3.0] - 2026-09-10
+
+The theme of this release is **private mode**: a board that never enters git at
+all, so you can adopt gitNook inside someone else's repository without asking
+anyone first. What it buys is a **social footprint of zero** — not technical
+compatibility, which plain `nook init` already had, since it only ever added one
+directory and one line.
+
+### Added
+
+- **`nook init --private`** — creates the board and excludes it through
+  `$GIT_DIR/info/exclude`, never your `.gitignore`, because that file is itself
+  committed bytes. `.gitattributes` is not read and not written: an ignored
+  op-log never merges, so `merge=union` is *unneeded* there rather than missing.
+  Afterwards `git status --porcelain` and `git ls-files .issues` are both empty.
+  It refuses, rather than writing a rule that would do nothing, when the op-logs
+  are already tracked (a tracked path beats an ignore rule) or when there is no
+  git work tree at all.
+- **`nook share`** — the upgrade back to a shared board. Removes exactly the one
+  line nook borrowed, leaving the rest of your `info/exclude` untouched, restores
+  the `merge=union` line, and prints the `git add` **you** run. nook still runs
+  no git command that writes. When a rule outside nook's control still ignores
+  the board it exits 1 naming that rule, instead of printing a command git would
+  reject.
+- **`SharingMismatch`, a new `Diagnostic` kind** — `nook doctor` now speaks when
+  the filesystem and git disagree about whether a board is shared. Three states,
+  one kind, because the fix is the same in each: make the two agree. Op-logs
+  tracked despite the exclude rule; a board that looks shared but is hidden by a
+  broad ignore rule, so a colleague's clone would be empty; or nook's own rule
+  present but overridden by a higher-precedence one. The last two carry git's own
+  `<file>:<line>:<pattern>` verbatim, because that line number is not something
+  this layer can invent.
+- **`AlreadySharedBoard` and `NoGitDir` are exported from the package entry** —
+  the two ways `initBoard(dir, { sharing: 'private' })` refuses, so callers can
+  `instanceof` them like the other error types.
+- **`initBoard(dir, { sharing })`** — the library entry point gained the
+  parameter. There is one way to create a board; sharing is an argument to it.
+
+### Changed
+
+- **`DiagnosticKind` gained a member.** A TypeScript caller that switches
+  exhaustively over it will stop compiling until it handles `SharingMismatch`.
+  Under the 0.x rule at the top of this file, that is a minor bump.
+- **`list`, `show` and `history` stay silent on a private board** about a missing
+  `merge=union` line. On a shared board the warning is unchanged, word for word —
+  and that is the point: a warning that fires where it does not apply teaches
+  people to ignore it, and on a shared board it is never noise.
+- **`nook doctor` is silent on a healthy private board**, exit 0. It suppresses
+  that diagnostic only when the filesystem *and* git and the index all agree the
+  op-logs are out of git; any disagreement is reported instead.
+- **`nook --help`'s description column moved 14 characters left** to fit `share`
+  inside the byte budget the agent-token gate holds it to. Same information,
+  less padding.
+
+### Internal
+
+- **ADR-0011** records why the rule lives in `$GIT_DIR/info/exclude` rather than
+  a committed `.gitignore`, why sharing state is derived on every read instead of
+  stored, and why the fast path deliberately recognises only the exact line nook
+  writes — git's own pattern precedence is the authority, and it lives in
+  `doctor`, which may spawn a subprocess where `list` may not.
+- The exclude rule is written as a **literal path**: gitignore metacharacters in
+  the board's own path are escaped, so a board under `apps/[id]/` is actually
+  ignored rather than matching `apps/i/`.
+
 ## [0.2.0] - 2026-09-10
 
 The theme of this release is that **studio stopped being a read-only viewer**,
