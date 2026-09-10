@@ -3,3 +3,4 @@
 {"id":"01M2522HTPG4S1N6GXM873RGJV","t":3,"a":"83a1","op":"label.add","v":"private-mode"}
 {"id":"01M2522HTP8BXFK45YFWW65ZXR","t":4,"a":"83a1","op":"label.add","v":"docs"}
 {"id":"01M2523SA8NH59QJABHE1N8QEJ","t":5,"a":"83a1","op":"comment","body":"**批次 B4（與票 06 並行）。Blocked by：票 05**（ADR 的 Consequences 要寫進不一致狀態的最終行為）、**票 06**（README 要寫到 share 的實際行為）。\n\nWrite ownership：`README.md`、`CONTEXT.md`、`docs/adr/0011-private-mode-ignored-board.md`（新）\n不得碰：`AGENT.md`（票 06）、任何 src / test\n\n已定調：**token 閘門的 `SKILL_DOC` 不動**（`test/render/token-budget.test.ts`）。目前 4102 B / 上限 4608 B，只剩 506 B 餘裕，而 agent 幾乎不會執行 init。AGENT.md 不在那個量測範圍內，所以它照寫不花預算。\n\n定位寫法：private mode 是保證明確**較少**的試用／單人模式，不是與 shared 對等的第二種玩法。"}
+{"id":"01M252AGWW2G9687DA9C65NF6F","t":6,"a":"83a1","op":"set","k":"status","v":"queued"}

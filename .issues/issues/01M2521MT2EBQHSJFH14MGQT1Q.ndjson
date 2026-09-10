@@ -3,3 +3,4 @@
 {"id":"01M2521MTBXEQNKW3VGQZ9BCQZ","t":3,"a":"83a1","op":"label.add","v":"private-mode"}
 {"id":"01M2521MTBWCRSPE1QXAQJB24W","t":4,"a":"83a1","op":"label.add","v":"cli"}
 {"id":"01M2523S5P2C4G5WSZSVQG05N9","t":5,"a":"83a1","op":"comment","body":"**批次 B3（與票 05 並行）。Blocked by：票 01、票 02**（同一個 `src/cli/run.ts`）。\n\nWrite ownership：`src/cli/run.ts`、`test/cli/run.test.ts`\n不得碰：`src/core/**`、任何文件\n\n硬約束：**絕不在 list / show / new / set / mv / comment / label 的路徑上 spawn git。** 冷啟 25ms 與四個硬指標不能破。git 子行程只准出現在 init / doctor / share。"}
+{"id":"01M252AGRA203E8X7SJ7XBBRAB","t":6,"a":"83a1","op":"set","k":"status","v":"queued"}

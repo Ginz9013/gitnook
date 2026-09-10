@@ -3,3 +3,4 @@
 {"id":"01M2521MVES2W5KT6GR4G9ECBX","t":3,"a":"83a1","op":"label.add","v":"private-mode"}
 {"id":"01M2521MVEJ81JK4299HP8EAMV","t":4,"a":"83a1","op":"label.add","v":"core"}
 {"id":"01M2523S6TJ6ZWAP5GGWY6VMFP","t":5,"a":"83a1","op":"comment","body":"**批次 B2（與票 02 並行）。Blocked by：票 01**（要有 sharing.ts 才問得出 Sharing）。\n\nWrite ownership：`src/core/health.ts`、`test/core/health.test.ts`\n不得碰：`src/core/types.ts`（新 kind 是票 05）、`src/core/sharing.ts` / `gitattributes.ts` / `run.ts`（票 02 同批）、`src/studio/**`\n\n已定調：private 模式下 doctor **壓掉 MissingMergeDriver 之後就閉嘴**，不換一句溫和的提醒。doctor 進 CI，沒消息就是好消息；代價的說明由 `init --private` 的輸出與 README 承擔。"}
+{"id":"01M252AGSEPKZ83YSCST1HJWRD","t":6,"a":"83a1","op":"set","k":"status","v":"queued"}
