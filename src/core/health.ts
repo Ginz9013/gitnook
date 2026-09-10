@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { Diagnostic } from './types.js';
 import { MERGE_RULE, inspectMergeGuarantee } from './gitattributes.js';
 import { OP_KINDS, splitGluedLine } from './ops.js';
+import { inspectSharing, opLogsTracked } from './sharing.js';
 
 /**
  * 資料健康診斷。彙整成一份 Diagnostic 清單：merge=union 那條唯一支柱是否還在、
@@ -20,21 +21,39 @@ export function diagnose(dir: string): Diagnostic[] {
     });
   }
 
+  // **零衝突保證在 private board 上是「不需要」，不是「缺少」** —— 被 ignore 的
+  // op-log 永遠不會 merge。所以這裡的沉默不是壓掉一個真問題，是那個問題在這個
+  // 模式下不存在。而 doctor 會進 CI，所以正確行為是沉默，不是換一句溫和的提醒。
+  //
+  // **兩個條件都成立才沉默。** 只靠 inspectSharing（純 fs 的那一行在不在）就
+  // 閉嘴，會在「排除規則在、檔案卻被 git add -f 進去了」時漏掉一個真問題：那塊
+  // board 實際上是共享的，而且真的沒有那條規則。index 才是共享狀態的權威
+  // （**tracked 勝過 ignore 規則**，理由見 `opLogsTracked`），所以它有否決權。
+  // 那種矛盾狀態本身要說出什麼話是另一回事（新的 Diagnostic kind），這裡只保證
+  // 它不被壓掉。
+  //
+  // `||` 的短路是刻意的：`git ls-files` 只在 fs 已經答 private 時才 spawn，而
+  // doctor 本來就 spawn 一個 git rev-parse。**這個子行程絕不得進入讀取熱路徑**
+  // —— list / show 唯一的問法是純 fs 的 inspectSharing。
+  const guaranteeMatters = inspectSharing(dir) === 'shared' || opLogsTracked(dir);
+
   // 唯一的單點失效：保證不在，資料就會靜默開始衝突（docs/adr/0001）。
-  const guarantee = inspectMergeGuarantee(dir);
-  if (guarantee.kind === 'absent') {
-    found.push({
-      kind: 'MissingMergeDriver',
-      file: '.gitattributes',
-      message: `缺少零衝突保證：${MERGE_RULE}（執行 nook init 補回）`,
-    });
-  } else if (guarantee.kind === 'conflicting') {
-    found.push({
-      kind: 'MissingMergeDriver',
-      file: '.gitattributes',
-      line: guarantee.line,
-      message: `這一行讓 op-log 拿不到 merge=union：${guarantee.rule}`,
-    });
+  if (guaranteeMatters) {
+    const guarantee = inspectMergeGuarantee(dir);
+    if (guarantee.kind === 'absent') {
+      found.push({
+        kind: 'MissingMergeDriver',
+        file: '.gitattributes',
+        message: `缺少零衝突保證：${MERGE_RULE}（執行 nook init 補回）`,
+      });
+    } else if (guarantee.kind === 'conflicting') {
+      found.push({
+        kind: 'MissingMergeDriver',
+        file: '.gitattributes',
+        line: guarantee.line,
+        message: `這一行讓 op-log 拿不到 merge=union：${guarantee.rule}`,
+      });
+    }
   }
 
   for (const name of opLogNames(dir)) {
