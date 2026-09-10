@@ -189,3 +189,29 @@ export class InvalidStatus extends Error {
   }
 }
 
+/**
+ * 遞迴掃描檔案系統找出的一塊子 Board。純粹是觀察的角度 —— 不建立任何新的
+ * 儲存或狀態，`board` 完全維持自己的獨立性（見 CONTEXT.md 的 Workspace 詞條）。
+ */
+export interface WorkspaceMember {
+  /** 絕對路徑，同 Board.root()。 */
+  readonly path: string;
+  /** `openBoard({ dir: path })` 的產物。 */
+  readonly board: Board;
+}
+
+/**
+ * 從一個根目錄往下遞迴掃描找到的一組 Board，供跨 Board 檢視（列表、篩選、
+ * 健康檢查）之用 —— 不合併任何 Op-log，見 ADR-0012。
+ */
+export interface Workspace {
+  /** 依 path 字典序排序。 */
+  readonly members: readonly WorkspaceMember[];
+  root(): string;
+}
+
+export interface OpenWorkspaceOptions {
+  /** 預設 process.cwd()。 */
+  readonly dir?: string;
+}
+

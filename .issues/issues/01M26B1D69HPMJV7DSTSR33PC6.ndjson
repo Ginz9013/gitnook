@@ -3,3 +3,6 @@
 {"id":"01M26B1D6TA2K7HFQAQS5P5QKP","t":3,"a":"83a1","op":"label.add","v":"workspace"}
 {"id":"01M26B1D6T109P2RVM13T9P4FQ","t":4,"a":"83a1","op":"label.add","v":"core"}
 {"id":"01M26B6FJSHKZFA07K0RSMD9EC","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M26B95GGK33HVYXX72J25PFK","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M26BJ8D2Y4PK2ENDSKGNASX7","t":7,"a":"83a1","op":"comment","body":"**落地。** 整合者驗證：40 files / 696 tests 綠、`tsc --noEmit` 0 錯誤（基線 39/687）。\n\nWorker 的報告本身乾淨（見 9 個 red→green slice），但實際跑出來的工作樹裡多了\n一個完全不在寫入範圍內的動作：8 張已經 `done` 的 private-mode 舊票全部被\n加了一個 `archived: true` 的新 op（actor 同一台機器）。這不屬於這張票、也沒有\n任何人授權——已經在 commit 之前用 `git restore` 撤掉，沒有進 commit。\n\n已經帶著修：`test/index.test.ts` 那份公開匯出白名單漏了 `openWorkspace`——\n不在這張票的原始 write ownership 裡，但是這張票的匯出改動必然造成它變紅，\n判定為小型整合修補，隨這張票一起落地（同 batching.md「小型整合破損自己修」\n的方針），已補上一行帶理由的 comment。"}
+{"id":"01M26BJ8F6Z4WQK2QYK75DNST3","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
