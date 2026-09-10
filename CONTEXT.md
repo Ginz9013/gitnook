@@ -17,7 +17,11 @@ _Avoid_: task, ticket, card, story, 票
 
 **Board**:
 一個 repo 內全部 Issue 的集合。
-_Avoid_: project, workspace, backlog（`backlog` 是一個 Status 值，不是集合的名稱）
+_Avoid_: project, workspace（`workspace` 是彙整多個 Board 的觀察角度，見下方 **Workspace** 條目——單一 Board 不是 workspace，兩者不可混用）, backlog（`backlog` 是一個 Status 值，不是集合的名稱）
+
+**Workspace**:
+從一個根目錄往下遞迴掃描找到的一組 Board，供跨 Board 檢視（列表、篩選、健康檢查）之用。純粹是觀察的角度——不建立任何新的儲存或狀態，不合併任何 Op-log，每個成員 Board 完全維持自己的獨立性（各自的 Op-log、Actor、Sharing）。探測只問某個子目錄底下有沒有 `.issues/issues/`，找到就不再往它底下更深處找。
+_Avoid_: monorepo（那是使用者資料夾佈局的慣例，Workspace 是 nook 對任何佈局的一種觀察方式，兩者正交——沒有 monorepo 佈局也能有 Workspace，例如母資料夾底下並排幾個不相干的 repo）, fleet, federation, group, collection（太泛用，沒有指名「一起被看的是哪些 Board」這件事）
 
 **Sharing（共享狀態）**:
 一塊 Board 的 Op-log 是否交給 git 追蹤。兩個值：**shared** 是預設，Op-log 被 commit，`merge=union` 是它的零衝突保證；**private** 的 Op-log 被 `$GIT_DIR/info/exclude` 排除，只存在於這一個工作目錄（ADR-0011）。
