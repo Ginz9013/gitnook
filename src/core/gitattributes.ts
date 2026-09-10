@@ -46,8 +46,13 @@ export function inspectMergeGuarantee(dir: string): MergeGuarantee {
   return { kind: 'conflicting', line: setting.line, rule: setting.rule };
 }
 
-/** board 的資料目錄，相對於 board 的根目錄。 */
-const ISSUES_DIR = ['.issues', 'issues'] as const;
+/**
+ * board 的資料目錄，相對於 board 的根目錄。
+ *
+ * 匯出給 `workspace.ts` 重用同一個「這裡有沒有一塊 board」的判斷——兩處各自
+ * 寫一份 `.issues/issues` 字面路徑，其中一份改了資料目錄名稱就會漏改。
+ */
+export const ISSUES_DIR = ['.issues', 'issues'] as const;
 
 /** 由某個目錄向上尋根的結果。 */
 export type BoardRoot =
