@@ -8,3 +8,5 @@
 {"id":"01M23JW7VRG59ST3E46P2A2J5V","t":8,"a":"83a1","op":"comment","body":"實作完成且七個切片都有紅燈證據，但**本輪不可提交**，已隔離在 `git stash` 的\n`wip/studio-gui-v2/A5`。\n\n原因是規劃時的排序錯誤，不是實作問題：`App.tsx` 寫著\n`type Client = ClientState<IssueView>`，泛型約束 `I extends ReconcileIssue`\n會結構性地把 `IssueView` 拉進來。`ReconcileIssue` 一旦要求 `deleted`，\n還沒有那個欄位的 `IssueView` 就不再滿足約束 —— 21 個 typecheck 錯誤，\n散在 7 個檔案，全部在 A5 的寫入範圍之外。\n\nA4 讓 `IssueView` 長出 `deleted` 之後取回 stash，錯誤會自行消失。\nA5 因此改成 blocked-by-A4。"}
 {"id":"01M23MHAT4JZ2WV2C5VSWM5BYC","t":9,"a":"83a1","op":"set","k":"status","v":"review"}
 {"id":"01M23MHAW3K34749282C0P7A3K","t":10,"a":"83a1","op":"comment","body":"A4 落地後取回隔離，21 個 typecheck 錯誤自行歸零，507 個測試全過。commit f425e9b。"}
+{"id":"01M24MFV2VQ9KVWQEC2CBZTF4A","t":11,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M24MFV3YKCZQNX554YPDGYZX","t":12,"a":"83a1","op":"set","k":"archived","v":true}

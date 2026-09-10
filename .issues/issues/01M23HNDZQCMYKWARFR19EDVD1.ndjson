@@ -6,3 +6,5 @@
 {"id":"01M23HNE00R00RG9BASYYHYGRV","t":6,"a":"83a1","op":"label.add","v":"design"}
 {"id":"01M23HTDC061NGE4TXWWDZKMRK","t":7,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M23JW7SF3EV8RZXZ22YMJ2BA","t":8,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M24MFV51FDDE38NY67PE1EG7","t":9,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M24MFV64EKMDTDGZTAZXCTPY","t":10,"a":"83a1","op":"set","k":"archived","v":true}

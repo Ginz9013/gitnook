@@ -5,3 +5,5 @@
 {"id":"01M23HNECEW0DKSBJ02WMPDWAZ","t":5,"a":"83a1","op":"label.add","v":"studio"}
 {"id":"01M23HTDRBV4BF6B06ZB6EP2XP","t":6,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M23VVEBMMSDKDT44608J5F17","t":7,"a":"83a1","op":"set","k":"status","v":"review"}
+{"id":"01M24MFVXA5DXXEH2ZBABHPV9P","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M24MFVYEPK3Q6A0ZB0JYTFKT","t":9,"a":"83a1","op":"set","k":"archived","v":true}
