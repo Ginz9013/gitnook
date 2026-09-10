@@ -1,5 +1,7 @@
 # gitNook
 
+*[繁體中文](README.zh-TW.md)*
+
 A git-native, agent-first issue tracker. Issues are plain text files inside your
 repository, they travel with your branches, and **two people editing the same
 issue on two branches merge without a conflict**.
@@ -10,6 +12,12 @@ npx nook init                                     # .issues/ + the .gitattribute
 npx nook new "Fix login redirect loop on Safari"
 npx nook list
 ```
+
+Adopting this in a repository that is not yours to change? `npx nook init
+--private` gives you the same board with **zero committed bytes** — nothing in
+anyone's diff, review or clone, so nobody has to be told about it yet. It
+guarantees strictly less, and [private mode](#private-mode) spells out exactly
+what it gives up.
 
 No database. No native binary. No daemon. No account. **The CLI has zero runtime
 dependencies** — every import in `nook`'s shipped bundle is either a `node:`
@@ -47,7 +55,7 @@ with no `git config` for anyone on the team.
 fields — not prose to be parsed back into fields, so there is no heading
 convention to break and no round-trip to lose information.
 
-**It installs like a normal dev dependency.** One `npm i -D gitnook`, ~649 KB
+**It installs like a normal dev dependency.** One `npm i -D gitnook`, ~675 KB
 unpacked, zero runtime dependencies, no native binary per platform, no daemon,
 no account, no *derived* local state to gitignore. (There is one thing you can
 deliberately keep out of git — the board itself, with `nook init --private`
@@ -198,7 +206,7 @@ structural rows below them — and exits non-zero if any is over budget.
 
 | Metric | Budget | Measured |
 |---|---|---|
-| Package size, unpacked | < 3 MB | **648,770 B** (21% of the gate) |
+| Package size, unpacked | < 3 MB | **675,267 B** (21% of the gate) |
 | Cold start, `nook --version` from the packed tarball | < 500 ms | **≈25 ms** |
 | Concurrent merge of one issue on two branches | zero conflicts | **0** |
 | Agent tokens, 40-issue scenario | < 4.5 KB | **4,102 B** |
@@ -262,8 +270,10 @@ lane**. `queued` is the handoff gate: moving an issue into `queued` means the
 requirements are settled and **the agent is authorised to act without asking**.
 It is an authorisation boundary, not a bucket.
 
-`blocked` requires a comment saying why — that comment carries the "what was I
-doing before I got stuck" that a flat status list would lose.
+**`blocked` is just a status**, with nothing attached: no required comment, no
+gate. A flat status list does lose "what was I doing before I got stuck", and
+ADR-0003 accepts that loss — leaving a comment is a choice anyone can make, not
+a rule the tool enforces.
 
 **`archived` is a field, not a status.** Archiving is *visibility*;
 `done`/`cancelled` are *outcome*. They are orthogonal, and collapsing them would
@@ -281,6 +291,7 @@ init [--private]                       create .issues/ and the .gitattributes li
 new <title> [--description <text|->] [--label <l>] [--editor]
 list [--all] [--status <s>] [--label <l>] [--json]
 show <ref> [--json]
+history <ref> [<field>]                every write to an LWW field, read-only
 set <ref> <title|description|status|archived|deleted> <value|->  [--editor]
 mv <ref> <status>
 rm <ref> [--yes]                       delete: writes a tombstone, never unlinks
