@@ -111,12 +111,21 @@ export function initBoard(dir: string, opts?: { readonly sharing?: Sharing }): v
   const enclosing = findBoardRoot(here);
   if (enclosing.found && enclosing.root !== here) throw new NestedBoard(here, enclosing.root);
 
-  if (opts?.sharing === 'private') {
-    mkdirSync(join(here, ...ISSUES_DIR), { recursive: true });
+  // 預設值收在一處：`undefined`、`{}`、`{ sharing: 'shared' }` 是同一件事的三種
+  // 寫法，分散比對會讓日後多出來的第三個 Sharing 值靜默走進 shared 那一條。
+  const sharing: Sharing = opts?.sharing ?? 'shared';
+
+  if (sharing === 'private') {
+    // **先排除、再建目錄。** 反過來的話，excludeBoard 拒絕時（不在 git work
+    // tree 內 —— 票 02 會把它變成一條給使用者看的錯誤）會留下一個 git 看得見
+    // 的 .issues/，那與使用者要的「不留痕跡」正好相反。shared 路徑的
+    // ConflictingGitAttributes 同樣排在 mkdir 之前，是同一條紀律。
+    //
     // 刻意**完全不碰 .gitattributes**，連讀都不讀：被 ignore 的 op-log 永遠不會
     // merge，所以 MERGE_RULE 在這個模式下無意義，而既有的 conflicting 規則同樣
     // 無意義 —— 因此也不得拿它來報錯。
     excludeBoard(here);
+    mkdirSync(join(here, ...ISSUES_DIR), { recursive: true });
     return;
   }
 

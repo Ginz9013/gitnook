@@ -126,6 +126,58 @@ describe('exclude 的寫入是冪等的', () => {
   });
 });
 
+describe('那一行的字面意義 —— 左右兩側不對稱', () => {
+  /**
+   * 這一條守的是整個不變式的**失敗方向**。`trim()` 比對會把 git 不承認的規則
+   * 當成 nook 的那一行：`inspectSharing` 回答 private（list / show 因此停止
+   * 警告）、`excludeBoard` 回答 unchanged（因此永遠不補上一條生效的規則）——
+   * 使用者得到一塊「nook 說 private、git 說沒 ignore」的 board，而沒有任何
+   * 東西會提示。基準一律是真實的 git check-ignore，不是我們對 gitignore 的記憶。
+   */
+  it('前導空白的規則 git 不承認，所以 nook 也不得承認', () => {
+    for (const written of [' /.issues/', '\t/.issues/']) {
+      const repo = makeRepo();
+      initBoard(repo);
+      writeFileSync(excludeFileOf(repo), `${written}\n`, 'utf8');
+
+      // 先確認前提：git 真的不 ignore 它（前導空白是 pattern 的一部分）。
+      expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/x.ndjson').status).toBe(1);
+      expect(inspectSharing(repo)).toBe('shared');
+      // 而且補得上去 —— 答 shared 之後還回 unchanged 等於永遠不修。
+      expect(excludeBoard(repo)).toBe('added');
+      expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/x.ndjson').status).toBe(0);
+    }
+  });
+
+  it('尾端空白與 CR 是 git 自己就忽略的，所以那仍然是 nook 的那一行', () => {
+    for (const written of ['/.issues/   ', '/.issues/\r']) {
+      const repo = makeRepo();
+      initBoard(repo);
+      writeFileSync(excludeFileOf(repo), `${written}\n`, 'utf8');
+
+      // 前提同上，但這次 git 說它生效 —— 所以答 private 才與 git 一致。
+      expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/x.ndjson').status).toBe(0);
+      expect(inspectSharing(repo)).toBe('private');
+      expect(excludeBoard(repo)).toBe('unchanged');
+    }
+  });
+});
+
+describe('拒絕時不留痕跡', () => {
+  /**
+   * 排除失敗（這裡是不在 git work tree 內）時若已經 mkdir 過，使用者會得到
+   * 一個 **git 看得見的** .issues/ —— 與他要的正好相反，而他以為指令失敗了。
+   * 那條拒絕的使用者訊息屬於票 02；這一條守的是順序。
+   */
+  it('不在 git work tree 內時丟錯，且不留下 .issues/', () => {
+    const loose = mkdtempSync(join(tmpdir(), 'nook-private-norepo-'));
+    dirs.push(loose);
+
+    expect(() => initBoard(loose, { sharing: 'private' })).toThrow();
+    expect(existsSync(join(loose, '.issues'))).toBe(false);
+  });
+});
+
 describe('inspectSharing 推導 Sharing', () => {
   it('private board 回答 private，shared board 與不是 repo 的目錄回答 shared', () => {
     const priv = makeRepo();

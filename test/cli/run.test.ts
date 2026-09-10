@@ -1611,6 +1611,27 @@ describe('init --private', () => {
     expect(exclude.split('\n').filter((l) => l === '/.issues/')).toHaveLength(1);
   });
 
+  /**
+   * 三分法的中間格：board 已經在了（先跑過一次 shared 的 init），這次只補上
+   * 排除規則。少了它，把那一行刪掉不會讓任何測試變紅 —— 而這正是使用者從
+   * 「先試著共享」改成「先自己用」時會走的那一條路。
+   */
+  it('既有的 board 改成 private 時只說排除那一件事，不重報建立', async () => {
+    gitInit();
+    await run(['init'], capture());
+    const io = capture();
+
+    expect(await run(['init', '--private'], io)).toBe(0);
+
+    expect(io.out).toBe(
+      'Ignored  .issues/  $GIT_DIR/info/exclude（這塊 board 不會被 commit）\n' +
+        'Note  git clean -xdf 會刪掉整塊 board，而且沒有備份\n',
+    );
+    // 第一次 init 寫的 .gitattributes 留在原地 —— private 不碰它，也不拿它報錯。
+    expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toContain('merge=union');
+    expect(io.err).toBe('');
+  });
+
   it('new 與 list 在這塊 board 上照常工作，而 git 仍然什麼都看不到', async () => {
     gitInit();
     await run(['init', '--private'], capture());

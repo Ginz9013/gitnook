@@ -12,7 +12,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
  */
 export type Sharing = 'shared' | 'private';
 
-/** 這次寫入實際做了什麼。`init` 的輸出要講的就是這件事。 */
+/** 這次寫入實際動了什麼。消費者見 `excludeBoard` 的註解。 */
 export type ExcludeOutcome = 'created' | 'added' | 'unchanged';
 
 /**
@@ -85,9 +85,19 @@ const excludeFileOf = (layout: GitLayout): string => join(layout.commonDir, 'inf
  * 規則（目錄排除、否定、後行覆蓋前行）—— 那套規則只有 git 自己說得準，而讀取
  * 熱路徑不能 spawn git。手寫成別的形狀的 ignore 規則因此不算 private：那是
  * 保守的失敗（照舊警告、照舊回報），不是靜默的失敗。
+ *
+ * **右側照 git 的規則收，左側一個字元都不收。** 實測（git 2.x）：`/.issues/   `
+ * 與 `/.issues/\r` 照樣生效（尾端空白與 CR 被 git 忽略），而 ` /.issues/` 與
+ * `\t/.issues/` **不生效** —— 前導空白是 pattern 的一部分。拿 trim() 比對會把
+ * 後兩種當成 nook 的那一行：`inspectSharing` 回答 private，`excludeBoard` 回答
+ * unchanged，於是使用者永遠等不到一條生效的規則，而 list / show 還順手停止
+ * 警告。那正是這個不變式要避開的靜默失敗，所以左側必須逐字比。
+ *
+ * 尾端只收空白與 CR，不收 tab：git 的文件只承諾忽略尾端空白，少收一種的
+ * 代價是答 shared（保守），多收一種的代價是上面那種靜默失敗。
  */
 const hasLine = (content: string, pattern: string): boolean =>
-  content.split('\n').some((line) => line.trim() === pattern);
+  content.split('\n').some((line) => line.replace(/ *\r?$/, '') === pattern);
 
 /**
  * 這塊 board 是 shared 還是 private。**純 fs，不 spawn 任何子行程** ——
@@ -106,7 +116,15 @@ export function inspectSharing(root: string): Sharing {
   return hasLine(readFileSync(file, 'utf8'), boardPattern(layout.top, root)) ? 'private' : 'shared';
 }
 
-/** 冪等地把 board 排除在 git 之外。回傳值是 `init` 的輸出要講的那件事。 */
+/**
+ * 冪等地把 board 排除在 git 之外。
+ *
+ * 回傳值說的是這次**實際動了什麼**。`init --private` 刻意不把 created 與 added
+ * 分開印：`.gitattributes` 要分是因為那是使用者**自己 commit 的檔案**，他得知道
+ * 自己接下來要 commit 的是一個全新檔案還是被加了一行；`info/exclude` 從不進
+ * git，這個差別對他的下一步沒有任何影響。三分值仍然在介面上，因為 `share`
+ * （票 06）要靠它講出「這次把規則拿掉了」還是「本來就不在」。
+ */
 export function excludeBoard(root: string): ExcludeOutcome {
   const layout = gitLayout(root);
   // 不在 git work tree 內就沒有 info/exclude 可寫。這條拒絕的使用者訊息
