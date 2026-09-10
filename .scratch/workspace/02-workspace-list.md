@@ -1,5 +1,7 @@
 # 02 `nook workspace list`：依子專案分組的彙整清單
 
+nook ref：`01M26B1NDC2TAFWTEJAT9D72TQ`
+
 ## Outcome
 
 在母資料夾底下跑 `nook workspace list`，看到每個子專案各自一段、標著來源

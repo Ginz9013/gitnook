@@ -1,5 +1,7 @@
 # 05 README 與 AGENT.md 完整交代 Workspace
 
+nook ref：`01M26B2CTX0773F0G4F081PW7E`
+
 ## Outcome
 
 一個沒讀過這次規劃過程的人，光看 README 與 AGENT.md 就知道 Workspace

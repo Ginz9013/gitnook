@@ -1,5 +1,7 @@
 # 04 `nook workspace studio`：入口頁 + 點了才啟動的子 studio
 
+nook ref：`01M26B24YRFXVGM9ZDTCJN2M9W`
+
 ## Outcome
 
 `nook workspace studio` 印出一個 landing page 的網址；打開它看到全部子

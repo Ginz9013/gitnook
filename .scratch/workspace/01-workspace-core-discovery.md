@@ -1,5 +1,7 @@
 # 01 Workspace 核心：遞迴掃描找出全部成員 Board
 
+nook ref：`01M26B1D69HPMJV7DSTSR33PC6`
+
 ## Outcome
 
 `openWorkspace({ dir })` 能對一棵真實的目錄樹，掃出全部含 `.issues/issues/`

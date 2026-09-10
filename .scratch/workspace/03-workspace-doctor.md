@@ -1,5 +1,7 @@
 # 03 `nook workspace doctor`：跨子專案的健康檢查
 
+nook ref：`01M26B1WJ8S8KT5D0C50X0TVAR`
+
 ## Outcome
 
 `nook workspace doctor` 一次檢查母資料夾底下每個子專案的資料健康狀態，
