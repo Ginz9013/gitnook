@@ -30,7 +30,10 @@ export class AlreadySharedBoard extends Error {
       `${dir} 的 op-log 已經被 git 追蹤：這塊 board 已經共享出去了。\n` +
         `被追蹤的路徑勝過 ignore 規則（git check-ignore 會查 index），` +
         `所以寫一條排除規則不會有任何效果 —— 它只會讓你以為成功了。\n` +
-        `要降級成 private，請自己執行 git rm -r --cached .issues 並 commit；` +
+        // 指令帶上完整路徑而不是相對的 `.issues`：board 可能不在 repo 根目錄
+        // （`/services/api/.issues/` 是支援且被測試的形狀），那時貼上一條相對
+        // 指令的人會在錯的目錄下執行它，而 git 只會說 pathspec 沒命中。
+        `要降級成 private，請自己執行 git rm -r --cached "${dir}/.issues" 並 commit；` +
         `那會從同事的 clone 裡刪掉這塊 board，所以 nook 不替你跑任何會寫入的 git 指令。`,
     );
     this.name = 'AlreadySharedBoard';
@@ -55,6 +58,12 @@ export class NoGitDir extends Error {
     this.name = 'NoGitDir';
   }
 }
+
+/**
+ * op-log 那個目錄，作為 git pathspec（一律 `/`，不吃平台的分隔符號）。
+ * 「這塊 board 共享了嗎」問的就是這裡有沒有東西進 index。
+ */
+const OP_LOG_DIR = '.issues/issues';
 
 /**
  * nook 自己寫進 `info/exclude` 的那一行，`/<board 相對於 work tree 頂端的路徑>/.issues/`。
@@ -203,24 +212,38 @@ export function excludeBoard(root: string): ExcludeOutcome {
  * 完全沒有效果的動作，而使用者會以為成功了。那是靜默失敗，所以 init 寧可拒絕
  * （`AlreadySharedBoard`）。
  *
- * 問的是整個 `.issues/` 而不只 `.issues/issues/*.ndjson`：exclude 規則排除的是
- * 整個目錄，使用者要跑的解法（`git rm -r --cached .issues`）也是整個目錄。問得
- * 窄一點，一塊「git 還追蹤著 `.issues/` 底下某個東西」的 board 就會靜默通過，
- * 而那正是要避開的那種失敗。
+ * **問的是 op-log 那個目錄，不是整個 `.issues/`。** 這個函式有兩個消費者，而寬
+ * 一格對它們不是同一個答案：對 init 的拒絕，多拒是保守的；但 doctor 拿它當否決權
+ * （答 true 就是「不要壓掉 `MissingMergeDriver`」），寬一格就變成假陽性 ——
+ * 一塊 private board 底下有個被 commit 過的 `.gitkeep` 或 `README`，op-log 本身
+ * 仍然沒被追蹤（git 不會走進被排除的目錄），board 其實是 private，doctor 卻會
+ * 吐出診斷並 exit 1。實測（git 2.x）：只有 `.gitkeep` 進 index 時，問
+ * `.issues` 得到 exit 0（算 tracked），問 `.issues/issues` 得到 exit 1。
+ * 共享狀態問的是 op-log 有沒有出去，所以窄的那一個才是兩邊都對的答案。
  *
- * 不在 git work tree 內（git 自己以非 0 結束）時回 false：這個函式只回答一個是非
- * 題，而「沒有 repo」不是「有東西被追蹤」。那條拒絕是呼叫端的事，見 `NoGitDir`。
+ * **答案全在 exit code，不讀輸出。** `--error-unmatch` 讓 git 在 pathspec 一個都
+ * 沒命中時以非 0 結束，所以這裡不必把檔案清單收進 buffer —— 一塊兩萬張 issue 的
+ * board 會撐爆 `execFileSync` 預設的 maxBuffer，而那個失敗會被 catch 吃掉、答成
+ * false，正是這條拒絕存在的理由。把問題問成 exit code 就沒有那個 buffer。
+ *
+ * **只有「git 跑起來了、而它說非 0」才回 false。** git 不在 PATH 上、`.git`
+ * 讀不動這類失敗一律往外丟：那時我們**不知道**這塊 board 是否已共享，而「不知道」
+ * 絕不能被當成「沒共享」—— 那會讓 init 在一塊真的已共享的 board 上寫下一條無效
+ * 規則。不在 git work tree 內走的也是這條非 0（git 自己回 128），而它不是
+ * 「有東西被追蹤」，所以回 false；那條拒絕是呼叫端的事，見 `NoGitDir`。
  */
 export function opLogsTracked(root: string): boolean {
   try {
     // 路徑相對於 cwd，所以問到的只會是這一塊 board —— 不是上層那一塊。
-    const out = execFileSync('git', ['ls-files', '--', '.issues'], {
+    execFileSync('git', ['ls-files', '--error-unmatch', '--', OP_LOG_DIR], {
       cwd: resolve(root),
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: 'ignore',
     });
-    return out.trim() !== '';
-  } catch {
-    return false;
+    return true;
+  } catch (thrown) {
+    // status 是數字就表示 git 真的跑完並自己以非 0 結束（沒命中 pathspec、或
+    // 這裡不是 work tree）。其餘（ENOENT、權限）是我們答不出來的情況，往外丟。
+    if (typeof (thrown as { status?: unknown }).status === 'number') return false;
+    throw thrown;
   }
 }

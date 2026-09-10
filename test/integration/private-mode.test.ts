@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
@@ -16,6 +16,7 @@ import { initBoard } from '../../src/core/gitattributes.js';
 import { run } from '../../src/cli/run.js';
 import type { Io } from '../../src/cli/run.js';
 import { openBoard } from '../../src/core/board.js';
+import { diagnose } from '../../src/core/health.js';
 import {
   AlreadySharedBoard,
   NoGitDir,
@@ -71,7 +72,7 @@ function makeRepo(prefix = 'nook-private-'): string {
  * 一塊**已經共享出去的** board：op-log 真的躺在 git 的 index 裡。
  *
  * 刻意走 openBoard().create() 而不是手寫一個 ndjson —— 要 tracked 的是 nook
- * 自己會寫出來的那個形狀的檔案，而 op-log 的格式不是這張票發明得出來的。
+ * 自己會寫出來的那個形狀的檔案，而 op-log 的格式不是這一批發明得出來的。
  * `initBoard` 之後的空 `.issues/issues/` 是 git 看不見的（git 不追蹤空目錄），
  * 所以一定要先有一張 Issue 才 commit 得到東西。
  */
@@ -430,7 +431,7 @@ describe('op-log 已經被 git 追蹤時，init --private 拒絕', () => {
    * 這裡拒絕，並把使用者**自己**要跑的那一行講出來：降級是破壞性的，nook 不替
    * 他執行任何會寫入的 git 指令（spec.md 的 non-goal `nook unshare`）。
    */
-  it('丟 AlreadySharedBoard，訊息講出使用者自己要跑的 git rm -r --cached .issues', () => {
+  it('丟 AlreadySharedBoard，訊息講出使用者自己要跑的 git rm -r --cached', () => {
     const repo = makeSharedBoard();
     // 前提：git 真的在追蹤 op-log，而且因此不認那條 ignore 規則會有任何效果。
     expect(git(repo, 'ls-files', '.issues')).not.toBe('');
@@ -438,9 +439,82 @@ describe('op-log 已經被 git 追蹤時，init --private 拒絕', () => {
     const error = caught(() => initBoard(repo, { sharing: 'private' }));
 
     expect(error).toBeInstanceOf(AlreadySharedBoard);
-    expect((error as Error).message).toContain('git rm -r --cached .issues');
+    // 指令帶完整路徑：board 不在 repo 根目錄時，一條相對指令會在錯的目錄下
+    // 執行，而 git 只會說 pathspec 沒命中 —— 貼得上去才算講出解法。
+    expect((error as Error).message).toContain(`git rm -r --cached "${repo}/.issues"`);
     // 「你自己跑」這件事必須寫在訊息裡，否則使用者會等 nook 動手。
     expect((error as Error).message).toContain('自己');
+  });
+});
+
+describe('答不出來時不得答「沒共享」', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /**
+   * 只有「git 真的跑完、而它自己以非 0 結束」才算「沒有被追蹤」。git 不在 PATH 上
+   * 這類失敗表示我們**不知道**這塊 board 是否已共享，而「不知道」被當成「沒共享」
+   * 會讓 init 在一塊真的已共享的 board 上寫下一條無效規則 —— 正是這條拒絕存在的
+   * 理由。所以那種失敗往外丟，不吞。
+   */
+  it('git 根本跑不起來時往外丟，而不是回 false', () => {
+    const repo = makeSharedBoard();
+    const nowhere = mkdtempSync(join(tmpdir(), 'nook-private-nopath-'));
+    dirs.push(nowhere);
+    // PATH 上沒有 git：execFileSync 以 ENOENT 失敗，那不是 git 的答案。
+    vi.stubEnv('PATH', nowhere);
+
+    expect(() => opLogsTracked(repo)).toThrow();
+  });
+});
+
+describe('共享狀態問的是 op-log，不是整個 .issues/', () => {
+  /**
+   * `opLogsTracked` 有兩個消費者，而寬一格對它們不是同一個答案：對 init 的拒絕，
+   * 多拒是保守的；但 doctor 拿它當否決權（答 true 就是「不要壓掉
+   * MissingMergeDriver」），寬一格就變成**假陽性** —— 一塊 private board 底下有個
+   * 被 commit 過的 .gitkeep，op-log 本身仍然沒被追蹤，board 其實是 private，
+   * doctor 卻會吐出診斷並 exit 1，直接打破「健康的 private board 上 doctor 沉默」。
+   *
+   * 前提由真實的 git 確認，不靠我們對 pathspec 的記憶。
+   */
+  it('只有 .gitkeep 進了 index 時不算共享，doctor 因此仍然沉默', () => {
+    const repo = makeRepo();
+    initBoard(repo, { sharing: 'private' });
+    writeFileSync(join(repo, '.issues', '.gitkeep'), '', 'utf8');
+    // -f 是必要的：整個 .issues/ 已經被排除了。
+    git(repo, 'add', '-f', '.issues/.gitkeep');
+    git(repo, 'commit', '-qm', 'keep the dir');
+
+    // 前提一：git 確實追蹤著 .issues/ 底下的某個東西（寬的問法會答 true）。
+    expect(git(repo, 'ls-files', '.issues')).not.toBe('');
+    // 前提二：op-log 本身仍然沒有被追蹤，而且仍然被 ignore。
+    expect(git(repo, 'ls-files', '.issues/issues')).toBe('');
+
+    expect(opLogsTracked(repo)).toBe(false);
+    expect(inspectSharing(repo)).toBe('private');
+    expect(diagnose(repo)).toEqual([]);
+  });
+});
+
+describe('拒絕時一個目錄都不建', () => {
+  /**
+   * 「什麼都沒寫」的另一半：git 看不見空目錄，所以只比對 info/exclude 與
+   * `git status` 的話，把 mkdir 搬到拒絕之前不會讓任何測試變紅。這個情境
+   * （index 裡有 .issues，工作目錄那一份被 rm -rf 掉了）讓那一半也有斷言。
+   */
+  it('op-log 在 index 裡、工作目錄卻沒有那個目錄時，拒絕不會順手把它建回來', () => {
+    const repo = makeSharedBoard();
+    rmSync(join(repo, '.issues'), { recursive: true, force: true });
+    const before = readFileSync(excludeFileOf(repo), 'utf8');
+
+    expect(caught(() => initBoard(repo, { sharing: 'private' }))).toBeInstanceOf(
+      AlreadySharedBoard,
+    );
+
+    expect(existsSync(join(repo, '.issues'))).toBe(false);
+    expect(readFileSync(excludeFileOf(repo), 'utf8')).toBe(before);
   });
 });
 
@@ -475,7 +549,7 @@ describe('兩條拒絕在 CLI 上都是 exit 1', () => {
 
     expect(await run(['init', '--private'], io)).toBe(1);
 
-    expect(io.err).toContain('git rm -r --cached .issues');
+    expect(io.err).toContain('git rm -r --cached');
     // 沒有型別名前綴 —— 那是 exit 2（內部錯誤）那條路才加的。
     expect(io.err.startsWith('AlreadySharedBoard:')).toBe(false);
     // init 說話的那三行一個字都沒印：它根本沒有建立任何東西。
