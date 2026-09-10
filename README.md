@@ -162,7 +162,7 @@ Everything else works unchanged: `new`, `list`, `show`, `history`, `set`, `mv`,
 
 ```
 $ nook share
-Removed  .issues/  $GIT_DIR/info/exclude（這塊 board 從現在起會進 git）
+Shared  .issues/  已從 $GIT_DIR/info/exclude 移除（這塊 board 從現在起會進 git）
 Created  .gitattributes  .issues/issues/*.ndjson merge=union
 Next  nook 不替你跑任何會寫入的 git 指令，請自己執行：
   git add "<repo>/.issues" "<repo>/.gitattributes"
@@ -172,7 +172,11 @@ Next  nook 不替你跑任何會寫入的 git 指令，請自己執行：
 `share` removes exactly the one line nook borrowed — your other exclude entries,
 and the file itself, are left untouched — restores the `merge=union` line, prints
 the `git add` **you** run (with absolute paths, because the board need not sit at
-the repo root), and then stops. **nook runs no git command that writes**, and
+the repo root), and then stops. Those two git lines are printed only while the
+op-logs are still outside the index: on a board already committed, `share` says it
+changed nothing and stops there, because `git commit` is not idempotent — it would
+either fail or sweep your pending issue edits into a commit claiming to share the
+board. **nook runs no git command that writes**, and
 `git add` is not going to be the first: handing a board to the whole team is a
 social decision, and that decision, along with its commit message, is yours.
 If something *still* ignores
@@ -367,9 +371,11 @@ and prefix resolution. **A caller never sees an operation.** You say
 
 Also exported: `initBoard`, `diagnose`, `repair`, `serve`, `STATUSES`, every
 type in that API, and the error types (`RefNotFound`, `AmbiguousRef`,
-`InvalidStatus`, `BoardNotInitialized`, `ConflictingGitAttributes`,
-`NestedBoard`, `PortInUse`) — so a caller can tell "you can fix this" from
-"report a bug" with `instanceof`.
+`InvalidStatus`, `BoardNotInitialized`, `IssueDeleted`, `ConflictingGitAttributes`,
+`NestedBoard`, `AlreadySharedBoard`, `NoGitDir`, `PortInUse`) — so a caller can
+tell "you can fix this" from "report a bug" with `instanceof`. That list is pinned
+by `test/index.test.ts`, which is the one that will tell you when this sentence
+goes stale.
 
 That list is deliberately short. The renderers and the studio request handler
 are **not** exported: they are presentation and plumbing, and every export is a

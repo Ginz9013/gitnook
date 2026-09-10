@@ -162,12 +162,12 @@ const excludeFileOf = (layout: GitLayout): string => join(layout.commonDir, 'inf
  * 尾端只收空白與 CR，不收 tab：git 的文件只承諾忽略尾端空白，少收一種的
  * 代價是答 shared（保守），多收一種的代價是上面那種靜默失敗。
  */
-const isLine = (line: string, pattern: string): boolean =>
+const matchesExcludeRule = (line: string, pattern: string): boolean =>
   line.replace(/ *\r?$/, '') === pattern;
 
 /** 那一行在不在（`inspectSharing` 與 `excludeBoard` 的問法）。 */
 const hasLine = (content: string, pattern: string): boolean =>
-  content.split('\n').some((line) => isLine(line, pattern));
+  content.split('\n').some((line) => matchesExcludeRule(line, pattern));
 
 /**
  * 這塊 board 是 shared 還是 private。**純 fs，不 spawn 任何子行程** ——
@@ -226,7 +226,7 @@ export function excludeBoard(root: string): ExcludeOutcome {
  * 留在原地：`info/exclude` 是使用者的檔案，nook 在 `init --private` 時只借了一行。
  * 清空或刪掉它會順手丟掉他排除 build 產物的設定，而那與共享這塊 board 無關。
  *
- * 認的是 `isLine` —— 與 `inspectSharing` / `excludeBoard` **同一個**判斷，包含
+ * 認的是 `matchesExcludeRule` —— 與 `inspectSharing` / `excludeBoard` **同一個**判斷，包含
  * 它左右不對稱的那一面（尾端空白與 CR 收、前導空白不收）。兩邊各寫一套比對會
  * 長出兩種不一致：寬的一邊（trim）會刪掉使用者自己寫的 ` /.issues/`，窄的一邊
  * 會留下一條 git 仍然承認的 `/.issues/   ` —— 那時 `inspectSharing` 照樣回答
@@ -246,7 +246,7 @@ export function unexcludeBoard(root: string): UnexcludeOutcome {
 
   const pattern = boardPattern(layout.top, root);
   const lines = readFileSync(file, 'utf8').split('\n');
-  const kept = lines.filter((line) => !isLine(line, pattern));
+  const kept = lines.filter((line) => !matchesExcludeRule(line, pattern));
   if (kept.length === lines.length) return 'unchanged';
 
   // split/join 成對，所以結尾那個換行（split 後是最後一格空字串）原樣還原 ——

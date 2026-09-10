@@ -1881,7 +1881,7 @@ describe('share：private → shared', () => {
 
     // 說話的三分法同 init：動了什麼、以及**使用者自己**要跑的那兩行。
     expect(io.out).toBe(
-      'Removed  .issues/  $GIT_DIR/info/exclude（這塊 board 從現在起會進 git）\n' +
+      'Shared  .issues/  已從 $GIT_DIR/info/exclude 移除（這塊 board 從現在起會進 git）\n' +
         'Created  .gitattributes  .issues/issues/*.ndjson merge=union\n' +
         'Next  nook 不替你跑任何會寫入的 git 指令，請自己執行：\n' +
         `  git add "${dir}/.issues" "${dir}/.gitattributes"\n` +
@@ -1895,7 +1895,7 @@ describe('share：private → shared', () => {
    * 問的正是「這次到底有沒有動到東西」（同 init 說話、doctor 沉默的理由）。
    * 不是錯誤，所以 exit 0 而不是 1。
    */
-  it('已經是共享的 board 上是個說得出話的 no-op，exit 0', async () => {
+  it('意圖共享但還沒 commit 的 board 上是 no-op，但 git add 那一步仍然要講', async () => {
     gitInit();
     await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
@@ -1910,6 +1910,65 @@ describe('share：private → shared', () => {
         '  git commit -m "Share the nook board"\n',
     );
     expect(io.err).toBe('');
+  });
+
+  /**
+   * op-log 早就在 index 裡的 board：什麼都不用動，**而那兩行 git 指令也不該印**。
+   * `git commit` 不是冪等的 —— 使用者手上有沒 commit 的 issue 編輯時，那條
+   * `git add` 會把它們一起 stage，然後落在一個謊報的訊息（`Share the nook
+   * board`）底下；什麼都沒待 commit 時它直接失敗。而「這次沒有動到任何東西」
+   * 緊接著「請自己執行」本身就是自相矛盾的一對。
+   */
+  it('op-log 早就 commit 出去的 board 上不印那兩行 git 指令', async () => {
+    gitInit();
+    await run(['init'], capture());
+    createWith('01JBXA', { title: 'Fix login redirect' });
+    execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-qm', 'share the board'], { cwd: dir, stdio: 'ignore' });
+    const io = capture();
+
+    expect(await run(['share'], io)).toBe(0);
+
+    expect(io.out).toBe('Unchanged  這裡已經是一塊共享的 board，這次沒有動到任何東西\n');
+    expect(io.out).not.toContain('git add');
+    expect(io.err).toBe('');
+  });
+
+  /**
+   * `nook share 01JBXA` —— 想共享「一張 issue」的人會這樣打。靜默吃掉那個引數
+   * 等於把一次**全 board** 升級回報成他要的那件事。doctor / studio 的寬鬆不轉移
+   * 過來：它們接受參數，share 一個都不收。
+   */
+  it('share 不收參數 —— 多餘的位置引數是打錯，不是被忽略', async () => {
+    gitInit();
+    await run(['init', '--private'], capture());
+    const io = capture();
+
+    expect(await run(['share', '01JBXA'], io)).toBe(1);
+
+    expect(io.err).toContain('01JBXA');
+    expect(io.out).toBe('');
+    // 什麼都沒動：那條排除規則還在。
+    expect(readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8').split('\n')).toContain(
+      '/.issues/',
+    );
+  });
+
+  /**
+   * `.gitattributes` 已經存在但缺那一行時，動詞是 Added 而不是 Created ——
+   * 補一行進別人的檔案與整個檔案都是我建的，是兩件不同的事（同 init 的三分法）。
+   */
+  it('.gitattributes 已存在但缺那一行時，說的是 Added 而不是 Created', async () => {
+    gitInit();
+    await run(['init', '--private'], capture());
+    writeFileSync(join(dir, '.gitattributes'), '*.png binary\n', 'utf8');
+    const io = capture();
+
+    expect(await run(['share'], io)).toBe(0);
+
+    expect(io.out).toContain('Added    .gitattributes  .issues/issues/*.ndjson merge=union');
+    // 使用者原本那一行留在原地。
+    expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toContain('*.png binary');
   });
 
   /**

@@ -30,11 +30,11 @@ Issues are plain text files in the repo. They travel with the branch, merge with
 | `nook mv <ref> <status>` | status transition (the common case) |
 | `nook comment <ref> <body\|->` | append a comment |
 | `nook label <ref> +bug -ui` | add and remove labels |
-| `nook share` | upgrade a private board back to a shared one; prints the `git add` **you** run |
+| `nook share` | upgrade a private board back to a shared one; prints the `git add` **you** run (or exits 1 naming the rule that still ignores it) |
 | `nook doctor [--fix]` | data health; `--fix` repairs glued lines |
 | `nook studio [--port <n>]` | localhost board for a human: drag, edit, comment |
 
-**Whether a board is shared or private is the human's decision, not yours.** `nook init --private` keeps a board out of git entirely — zero committed bytes, so nobody on the team has to be told about it yet — and `nook share` puts it back. Both change what everyone else can see, so never run either on your own initiative; it is the same boundary as `queued`. If the human asks for one of them, run it and then hand them the `git add` it prints, because nook runs no git command that writes.
+**Whether a board is shared or private is the human's decision, not yours.** `nook init --private` keeps a board out of git entirely — zero committed bytes, so nobody on the team has to be told about it yet — and `nook share` puts it back. Both change what everyone else can see, so never run either on your own initiative — the same rule as `queued`, though not the same shape: `queued` is a grant the human makes, while here there is no granting form at all, just the prohibition. If the human asks for one of them, run it and hand them what it prints, because nook runs no git command that writes. `share` exits 1 without printing any `git add` when a rule outside nook's control (a committed `.gitignore`, usually) still ignores the board — that message names the file and line, and removing it is the human's call too.
 
 `<value>` and `<body>` accept `-` to read stdin — **use this for anything multi-line**. Shell-escaping a markdown body is a bug source; piping is not.
 

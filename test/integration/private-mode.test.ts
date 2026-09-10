@@ -703,6 +703,9 @@ describe('share 之後 git 仍然 ignore 那些檔案時', () => {
     expect(io.err).toContain('.gitignore:2:.issues/');
     // 不假裝成功：那條 git add 會被 git 拒絕，印出來就是叫使用者去撞牆。
     expect(io.out).not.toContain('git add');
+    // **也不得先承諾再收回。** stdout 那一行不能說「從現在起會進 git」，因為
+    // 下一行 stderr 正要說 git 還在擋 —— 先承諾再收回比直接說不行更糟。
+    expect(io.out).not.toContain('從現在起會進 git');
   });
 });
 

@@ -22,6 +22,7 @@ import {
   NoGitDir,
   ignoredByGit,
   inspectSharing,
+  opLogsTracked,
   unexcludeBoard,
 } from '../core/sharing.js';
 import {
@@ -219,8 +220,7 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
     case 'share':
       // share 沒有旗標也沒有參數，但仍然過一次 parseArgs：打錯的旗標不得被
       // 靜默吃掉（`nook share --privte` 要報錯，而不是悄悄照做）。
-      parseArgs(rest, NO_FLAGS);
-      return cmdShare(io);
+      return cmdShare(parseArgs(rest, NO_FLAGS), io);
     case 'doctor':
       return cmdDoctor(parseArgs(rest, DOCTOR_FLAGS), io);
     case 'studio':
@@ -815,6 +815,25 @@ function cmdLabel(args: Args, io: Io): number {
 }
 
 /**
+ * `.gitattributes` 的那一行這次發生了什麼事，講成一行字。
+ *
+ * **狀態必須在 initBoard 之前讀完**，所以這個函式回傳的是一個「等著被印」的
+ * closure 而不是自己印 —— 寫完再讀，看到的永遠是它剛寫完的結果，三種結果會全部
+ * 塌成「本來就在」。`init` 與 `share` 共用它：補一行進別人的檔案與整個檔案都是我
+ * 建的，是兩件不同的事，而這句話的措辭在兩個指令裡必須一樣（改一處就要改兩處的
+ * 那種重複，正是會漂開的那種）。
+ */
+function guaranteeLine(dir: string): (io: Io) => void {
+  const guarded = inspectMergeGuarantee(dir).kind === 'union';
+  const existed = existsSync(join(dir, '.gitattributes'));
+  return (io) => {
+    if (guarded) return;
+    // 動詞補到等寬，路徑才對得起來。
+    line(io, `${existed ? 'Added  ' : 'Created'}  .gitattributes  ${MERGE_RULE}`);
+  };
+}
+
+/**
  * init 是一次性的建置動作，因此它說話 —— 而 doctor 不說（unix「沒消息就是好
  * 消息」，且它會進 CI）。ADR-0005 的 token 預算管的是 40 票的日常情境，init
  * 一輩子只跑一次且不在該情境內，這幾行買到的是「我到底建了什麼」。
@@ -828,15 +847,12 @@ function cmdInit(args: Args, io: Io): number {
   const enclosing = findBoardRoot(io.cwd);
   const boardExisted = enclosing.found && enclosing.root === io.cwd;
   const guarded = inspectMergeGuarantee(io.cwd).kind === 'union';
-  const attributesExisted = existsSync(join(io.cwd, '.gitattributes'));
+  const sayGuarantee = guaranteeLine(io.cwd);
 
   initBoard(io.cwd);
 
   if (!boardExisted) line(io, 'Created  .issues/issues/');
-  // 補一行進別人的檔案與整個檔案都是我建的，是兩件不同的事 —— 說成 Created
-  // 會讓使用者以為原本的規則被蓋掉了。動詞補到等寬，路徑才對得起來。
-  const verb = attributesExisted ? 'Added  ' : 'Created';
-  if (!guarded) line(io, `${verb}  .gitattributes  ${MERGE_RULE}`);
+  sayGuarantee(io);
   // 兩件事都已經在了才是 no-op。沉默在這裡會與第一次的成功長得一模一樣，
   // 而使用者問的正是「這次到底有沒有動到東西」。
   if (boardExisted && guarded) line(io, 'Unchanged  這裡已經是一塊 board，這次沒有建立任何東西');
@@ -883,33 +899,57 @@ function initPrivate(io: Io): number {
  * 紀律。這也是為什麼那條檢查不在這裡重寫一份：它已經在 initBoard 裡，而且排在
  * 它自己的任何寫入之前。
  */
-function cmdShare(io: Io): number {
+function cmdShare(args: Args, io: Io): number {
+  // `nook share 01JBXA` —— 想共享「一張 issue」的人會這樣打，而 share 是整塊
+  // board 的動作。靜默吃掉那個引數等於把一次全 board 升級回報成他要的那件事。
+  // doctor / studio 的寬鬆不轉移過來：它們**接受**參數，share 一個都不收，
+  // 所以位置引數在這裡明確是打錯了。
+  const stray = args.positional[0];
+  if (stray !== undefined) {
+    throw new UsageError(`share 不收參數（整塊 board 一起升級）：${stray}`);
+  }
+
   // 不是一塊 board 時該說的是「不是一個 Nook board」，而不是對著一個空目錄回報
   // 升級成功。尋根與那句話都已經在 Board 上，這裡不寫第二份。
   const root = openBoard({ dir: io.cwd }).root();
 
   // 狀態在寫入之前讀完 —— 之後再讀，看到的是它剛寫完的結果（同 cmdInit）。
+  const sayGuarantee = guaranteeLine(root);
   const guarded = inspectMergeGuarantee(root).kind === 'union';
-  const attributesExisted = existsSync(join(root, '.gitattributes'));
+  // **這一題只有 index 答得準**，而它決定的是下面那句 `git add` 該不該印：
+  // 「意圖共享但從來沒 commit」要那一步，「早就 commit 出去了」不要。share 是
+  // spec.md 列出的三個准 spawn git 的指令之一。
+  const alreadyOut = opLogsTracked(root);
 
   initBoard(root);
   const removed = unexcludeBoard(root) === 'removed';
 
-  if (removed) line(io, 'Removed  .issues/  $GIT_DIR/info/exclude（這塊 board 從現在起會進 git）');
-  // 動詞同 init：補一行進別人的檔案與整個檔案都是我建的，是兩件不同的事。
-  const verb = attributesExisted ? 'Added  ' : 'Created';
-  if (!guarded) line(io, `${verb}  .gitattributes  ${MERGE_RULE}`);
-  // 兩件事都本來就對了才是 no-op。沉默在這裡會與成功長得一模一樣，而使用者問的
+  // nook 做完自己那一半之後，git **仍然**可能在 ignore 這塊 board（committed 的
+  // `.gitignore` 也有一條是最常見的形狀）。問的是 git 自己（`ignoredByGit`）：那套
+  // pattern 與優先序規則只有它說得準，而它順手指出的 `<file>:<line>:<pattern>`
+  // 正是使用者要去改的那一行。
+  //
+  // **必須在印任何一行之前問完。** 否則第一行已經承諾「從現在起會進 git」，而
+  // 下一行才說 git 還在擋 —— 先承諾再收回比直接說不行更糟。
+  const blocked = ignoredByGit(root);
+
+  if (removed) {
+    line(
+      io,
+      blocked.ignored
+        ? 'Removed  $GIT_DIR/info/exclude 的那一行（但見下面：git 還在 ignore 這塊 board）'
+        : 'Shared  .issues/  已從 $GIT_DIR/info/exclude 移除（這塊 board 從現在起會進 git）',
+    );
+  }
+  sayGuarantee(io);
+  // 三件事都本來就對了才是 no-op。沉默在這裡會與成功長得一模一樣，而使用者問的
   // 正是「這次到底有沒有動到東西」—— 同 init 說話、doctor 沉默的那條分界。
   if (!removed && guarded) line(io, 'Unchanged  這裡已經是一塊共享的 board，這次沒有動到任何東西');
 
-  // nook 做完自己那一半之後，git **仍然**可能在 ignore 這塊 board（committed 的
-  // `.gitignore` 也有一條是最常見的形狀）。那時 `git add` 會被拒絕，所以照樣印出
-  // 那條指令等於叫使用者去撞牆，而回 0 等於騙他升級完成了 —— 同事的 clone 仍然
-  // 會是空的。問的是 git 自己（`ignoredByGit`）：那套 pattern 與優先序規則只有它
-  // 說得準，而它順手指出的 `<file>:<line>:<pattern>` 正是使用者要去改的那一行。
-  const blocked = ignoredByGit(root);
   if (blocked.ignored) {
+    // 那時 `git add` 會被拒絕，所以照樣印出那條指令等於叫使用者去撞牆，而回 0
+    // 等於騙他升級完成了 —— 同事的 clone 仍然會是空的。
+    //
     // source 是 null 時仍然要開口（git 說了它 ignore，那是事實），只是說不出是
     // 哪一條 —— 兩件事分開，使用者才不會以為 nook 在亂猜。
     errLine(
@@ -922,6 +962,12 @@ function cmdShare(io: Io): number {
     );
     return 1;
   }
+
+  // **op-log 早就在 index 裡時就不印這三行。** `git commit` 不是冪等的：使用者
+  // 手上有沒 commit 的 issue 編輯時，上面那條 git add 會把它們一起 stage，然後
+  // 落在一個謊報的訊息底下；什麼都沒待 commit 時它直接失敗。而「這次沒有動到任何
+  // 東西」緊接著「請自己執行」本身就是自相矛盾的一對。
+  if (alreadyOut) return 0;
 
   // 指令帶完整路徑：board 可能不在 repo 根目錄（`/services/api/.issues/` 是支援
   // 且被測試的形狀），那時貼上一條相對指令的人會在錯的目錄下執行它，而 git 只會
