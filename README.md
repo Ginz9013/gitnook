@@ -1,4 +1,4 @@
-# nook
+# gitNook
 
 A git-native, agent-first issue tracker. Issues are plain text files inside your
 repository, they travel with your branches, and **two people editing the same
@@ -18,7 +18,7 @@ builtin or a file inside the package.
 `npm i -D gitnook` installs **zero transitive packages**. `dependencies` is
 empty and stays empty: studio's frontend (React 19, Radix, Tailwind) is a set of
 `devDependencies` compiled ahead of time into two static files —
-`dist/studio/studio.js` and `studio.css`, 421 KB together — that ship inside the
+`dist/studio/studio.js` and `studio.css`, 431 KB together — that ship inside the
 tarball and are read from disk when a browser asks for them. Nothing resolves,
 downloads or executes at install time.
 
@@ -26,26 +26,34 @@ The half of that claim which genuinely weakened: **React's and Radix's CVE
 surface now lives inside our tarball.** Your `npm audit` cannot see it and no
 Dependabot PR will open in your repo, because as far as npm is concerned there
 is nothing there. Keeping that bundle current is *our* job, and shipping a fixed
-one means cutting a nook release — not an `npm update` on your side. If you only
+one means cutting a gitNook release — not an `npm update` on your side. If you only
 use the CLI, `nook studio` is the only thing that ever loads those bytes.
 
-## Why another one
+## Why gitNook
 
-| | Where issues live | Merges cleanly | Ships as |
-|---|---|---|---|
-| Linear / Jira + MCP | someone else's server | n/a | SaaS |
-| [git-bug](https://github.com/git-bug/git-bug) (10,023★) | `refs/bugs/*`, outside the working tree | yes | Go binary |
-| [backlog.md](https://github.com/MrLesk/Backlog.md) (6,668★) | markdown, `## Status` headings as database columns | **no** | 67.5 MB Bun binary, one per platform |
-| **nook** | `.issues/issues/*.ndjson`, in the working tree | **yes** | ~572 KB npm package, 421 KB of it studio's prebuilt frontend |
+**Issues live in the working tree.** `.issues/issues/*.ndjson` are ordinary
+committed files. GitHub's web UI shows them in the diff, `grep` finds them, an
+agent can `cat` one without a tool call to anywhere, and a branch carries its
+issues along with the code that closes them.
 
-git-bug's issues are not in the working tree, so GitHub's web UI does not show
-them, `grep` does not find them, and an agent cannot `cat` them. backlog.md's
-issues *are* files, but markdown is its storage format — parsing headings back
-into fields is a recurring bug source, and two branches touching one issue
-produce a hand-merged conflict every time.
+**Two branches editing one issue merge without a conflict.** Each issue is an
+**append-only op-log**, one immutable operation per line, and reading it folds
+the *set* of operations — order in the file is irrelevant. That is what lets
+git's built-in `union` merge driver do the merging, and `union` ships inside
+git: committing one `.gitattributes` line is the entire setup, for every clone,
+with no `git config` for anyone on the team.
 
-nook stores an **append-only op-log** per issue instead, and lets git's built-in
-`union` merge driver do the merging.
+**The storage format is the data model.** One JSON object per line, with typed
+fields — not prose to be parsed back into fields, so there is no heading
+convention to break and no round-trip to lose information.
+
+**It installs like a normal dev dependency.** One `npm i -D gitnook`, ~590 KB
+unpacked, zero runtime dependencies, no native binary per platform, no daemon,
+no account, no local state to gitignore.
+
+**Both interfaces read the same files.** The CLI is composable and terse enough
+to stay inside an agent's token budget (a measured gate, below); `nook studio`
+is a local board for humans. Neither is a cache of the other.
 
 ## How it works
 
@@ -72,7 +80,7 @@ converges. Nothing has to be resolved by hand.
 
 `merge=union` is a driver that ships *inside* git. Committing the
 `.gitattributes` line is enough: every clone gets the behaviour, and nobody has
-to run `git config`. That is the whole reason nook is not built on Automerge or
+to run `git config`. That is the whole reason gitNook is not built on Automerge or
 Yjs, whose custom merge drivers cannot be enabled by a committed file alone.
 
 - **Actor identity** is derived from `git config user.email`; nothing is stored.
@@ -81,7 +89,7 @@ Yjs, whose custom merge drivers cannot be enabled by a committed file alone.
   stops there: the issue leaves every listing, and its `.ndjson` stays on disk,
   byte for byte, recoverable with `nook set <ref> deleted false`. Reclaiming the
   bytes is a separate, unimplemented operation. modify/delete is the one conflict
-  `union` cannot cover, so nook never creates one (ADR-0009).
+  `union` cannot cover, so gitNook never creates one (ADR-0009).
 - **Zero local state.** No cache, no index, no `config.json`, nothing to gitignore.
 
 There is no cache because there is nothing to cache: a full scan and fold of 100
@@ -95,7 +103,7 @@ structural rows below them — and exits non-zero if any is over budget.
 
 | Metric | Budget | Measured |
 |---|---|---|
-| Package size, unpacked | < 3 MB | **597,116 B** (19% of the gate) |
+| Package size, unpacked | < 3 MB | **604,531 B** (19% of the gate) |
 | Cold start, `nook --version` from the packed tarball | < 500 ms | **≈25 ms** |
 | Concurrent merge of one issue on two branches | zero conflicts | **0** |
 | Agent tokens, 40-issue scenario | < 4.5 KB | **4,102 B** |
@@ -126,7 +134,7 @@ that only by proxy, and timing drifts — on a noisy machine it says "a bit slow
 where counting `react` / `createRoot` / `radix` / `tailwind` in the shipped CLI
 bundle says "React is in the CLI bundle".
 
-## What nook refuses to do
+## What gitNook refuses to do
 
 The moat is the ability to **refuse to become a project management tool**. Being
 small and being correct are consequences of that refusal, not features bolted on
@@ -229,7 +237,7 @@ stays for scripts that genuinely need to parse.
 
 `AGENT.md` ships with the package. The block above is the minimum an agent needs
 in every interaction; `AGENT.md` is the complete reference — every command, the
-`queued` authorization boundary, how refs work, and what nook refuses to do.
+`queued` authorization boundary, how refs work, and what gitNook refuses to do.
 
 It is plain Markdown with a YAML header, so point any agent at it:
 
@@ -262,7 +270,7 @@ board.health();                             // what `nook doctor` reports
 `Board` owns the whole CRDT: op generation, the lamport clock, ULIDs, the
 trailing-newline discipline, dedupe, total ordering, the fold, OR-Set bookkeeping
 and prefix resolution. **A caller never sees an operation.** You say
-`{ labels: { add: ['bug'] } }`; add-wins is nook's problem.
+`{ labels: { add: ['bug'] } }`; add-wins is gitNook's problem.
 
 Also exported: `initBoard`, `diagnose`, `repair`, `serve`, `STATUSES`, every
 type in that API, and the error types (`RefNotFound`, `AmbiguousRef`,
@@ -339,8 +347,10 @@ script, no `git config` for anyone on the team.
 ## Known limits
 
 - **`description` is last-writer-wins.** Concurrent edits of the same
-  description keep one version; the loser is still in the op-log, but v1 has no
-  interface to fetch it back.
+  description keep one version. The loser is not lost — every write is still in
+  the op-log, and `nook history <ref>` (or `Board.opLog()`) prints it back with
+  its actor and lamport clock — but the fold shows one value, and re-instating
+  the other one is a copy-paste by hand.
 - **No cross-branch atomicity.** Two agents in two worktrees can pick up the
   same issue. Both operations survive and converge — but the work may be
   duplicated.
