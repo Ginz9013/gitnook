@@ -21,7 +21,11 @@ nook 目前沒有任何一個會寫入的 git 指令，這一票不得破這個�
       （同票 05「init 說話」的理由）
 - [ ] 移除規則之後 git **仍然**說那些檔案被 ignore 時（例如 committed
       `.gitignore` 也有一條），說出是哪個檔案第幾行在擋，並且**不要**假裝成功 ——
-      這時 `git add` 會失敗，而使用者需要的是那條規則的位置
+      這時 `git add` 會失敗，而使用者需要的是那條規則的位置。
+      **`ignoredByGit(root)` 已經在 `src/core/sharing.ts` 上**（票 05 的 review
+      修補 502ae5b 把它搬上介面），回傳 `{ ignored, source }`，`source` 就是
+      `git check-ignore -v` 給的 `<file>:<line>:<pattern>` 原文 —— 直接用它，
+      不得再抄一份子行程或解析
 - [ ] `.gitattributes` 有衝突規則時照樣丟 `ConflictingGitAttributes`
       （exit 1）—— 不靜默改變別人的 merge 設定，這條在 shared 模式下回來生效
 - [ ] 不是一塊 board 的目錄上 exit 1，訊息是「不是一個 Nook board」

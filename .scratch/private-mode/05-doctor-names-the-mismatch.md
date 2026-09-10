@@ -62,4 +62,4 @@ nook ref：`01M2522HR3XD9460B5BQTDZSNW`
 
 ## Status
 
-todo
+done —— commit eda9006（實作）+ 502ae5b（兩軸 review 的修補）
