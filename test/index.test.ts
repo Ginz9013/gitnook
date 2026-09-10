@@ -24,6 +24,9 @@ describe('src/index.ts 的公開匯出', () => {
         'RefNotFound',
         'AmbiguousRef',
         'InvalidStatus',
+        // board.apply() 對一張已刪的 Issue 丟的就是它 —— 同一家族的其餘四個都在
+        // 這裡，少它一個，呼叫端就只能去比對 err.name 或訊息字串。
+        'IssueDeleted',
         'ConflictingGitAttributes',
         'NestedBoard',
         'PortInUse',

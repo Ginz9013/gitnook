@@ -37,6 +37,7 @@ export {
   RefNotFound,
   AmbiguousRef,
   InvalidStatus,
+  IssueDeleted,
 } from './core/types.js';
 
 export type {
