@@ -74,4 +74,4 @@ None.
 
 ## Status
 
-todo
+done —— commit 94fa7d9（實作）+ 3ce3146（兩軸 review 的修補）

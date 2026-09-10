@@ -1,0 +1,5 @@
+{"id":"01M253VVADZK8VB2GGBCEJTYZK","t":1,"a":"83a1","op":"create","title":"private mode：exclude 規則必須是字面路徑，不是 glob"}
+{"id":"01M253VVAQF7RN6CKPZKSCHM0F","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：`.scratch/private-mode/08-exclude-pattern-is-a-literal-path.md`\n\n**兩軸 review 在票 01 之後追加的範圍，狀態刻意留在 backlog —— 未授權執行。**\n\n`boardPattern()` 把 board 的相對路徑直接拼進 gitignore pattern，沒有轉義 metacharacter。board 在 `a[b]/` 或 `weird*dir/` 底下時，寫出去的是一個 glob 而不是那條路徑：可能比對到別的東西，也可能什麼都不比對 —— 後者就是一塊「使用者以為 private、git 照樣看得見」的 board。\n\n這與票 01 修掉的 `hasLine` 是同一件事的另一半：**寫出去的規則與讀回來的規則必須是同一條，而基準是 git 而不是我們對 gitignore 的記憶。**\n\n與票 02、06 搶 `src/core/sharing.ts`，不得同批。"}
+{"id":"01M253VVAQ593933NPXWK14Y8B","t":3,"a":"83a1","op":"label.add","v":"private-mode"}
+{"id":"01M253VVAQEXGWZCT04MK64MFX","t":4,"a":"83a1","op":"label.add","v":"core"}
+{"id":"01M253VVAQT4G54MB4H5K7A863","t":5,"a":"83a1","op":"label.add","v":"review"}
