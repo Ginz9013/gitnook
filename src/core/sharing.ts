@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
@@ -14,6 +15,46 @@ export type Sharing = 'shared' | 'private';
 
 /** 這次寫入實際動了什麼。消費者見 `excludeBoard` 的註解。 */
 export type ExcludeOutcome = 'created' | 'added' | 'unchanged';
+
+/**
+ * 這塊 board 的 op-log 已經被 git 追蹤 —— 它已經共享出去了，所以 `init --private`
+ * 拒絕而不是照寫一條沒有效果的規則（為什麼沒有效果，見 `opLogsTracked`）。
+ *
+ * 訊息講出解法，但**不執行它**：`git rm -r --cached` 會從同事的 clone 裡刪掉這塊
+ * board，那是破壞性的，由使用者自己決定並自己執行（spec.md 的 non-goal
+ * `nook unshare`）。nook 從不跑任何會寫入的 git 指令。
+ */
+export class AlreadySharedBoard extends Error {
+  constructor(readonly dir: string) {
+    super(
+      `${dir} 的 op-log 已經被 git 追蹤：這塊 board 已經共享出去了。\n` +
+        `被追蹤的路徑勝過 ignore 規則（git check-ignore 會查 index），` +
+        `所以寫一條排除規則不會有任何效果 —— 它只會讓你以為成功了。\n` +
+        `要降級成 private，請自己執行 git rm -r --cached .issues 並 commit；` +
+        `那會從同事的 clone 裡刪掉這塊 board，所以 nook 不替你跑任何會寫入的 git 指令。`,
+    );
+    this.name = 'AlreadySharedBoard';
+  }
+}
+
+/**
+ * 這個目錄不在任何 git work tree 內，所以沒有 `$GIT_DIR/info/exclude` 可寫。
+ *
+ * private mode 整個建立在那個檔案上：**沒有 git 就沒有共享可言，也就沒有 private
+ * 可言**。所以訊息不繞路叫他先 `git init`，而是直接叫他 `nook init` —— 他要的
+ * 「一塊 board」在這裡本來就不需要 `--private`，而 board 在 `git init` 之前也
+ * 照樣能用。
+ */
+export class NoGitDir extends Error {
+  constructor(readonly dir: string) {
+    super(
+      `${dir} 不在任何 git work tree 內：private mode 靠 $GIT_DIR/info/exclude ` +
+        `把 board 藏起來，沒有 git 就沒有東西需要藏。\n` +
+        `這裡直接跑 nook init 就有一塊可用的 board。`,
+    );
+    this.name = 'NoGitDir';
+  }
+}
 
 /**
  * nook 自己寫進 `info/exclude` 的那一行，`/<board 相對於 work tree 頂端的路徑>/.issues/`。
@@ -127,9 +168,9 @@ export function inspectSharing(root: string): Sharing {
  */
 export function excludeBoard(root: string): ExcludeOutcome {
   const layout = gitLayout(root);
-  // 不在 git work tree 內就沒有 info/exclude 可寫。這條拒絕的使用者訊息
-  // （以及它該是 exit 1 而不是 exit 2）屬於下一張票，這裡先不假裝處理得好。
-  if (layout === null) throw new Error(`${resolve(root)} 不在任何 git work tree 內`);
+  // 不在 git work tree 內就沒有 info/exclude 可寫。**排在任何寫入之前** ——
+  // 反過來的話，呼叫端會留下一個 git 看得見的 .issues/（見 `initBoard`）。
+  if (layout === null) throw new NoGitDir(resolve(root));
 
   const pattern = boardPattern(layout.top, root);
   const file = excludeFileOf(layout);
@@ -147,4 +188,39 @@ export function excludeBoard(root: string): ExcludeOutcome {
   const lead = existing === '' || existing.endsWith('\n') ? '' : '\n';
   appendFileSync(file, `${lead}${pattern}\n`, 'utf8');
   return 'added';
+}
+
+/**
+ * op-log 是否已經躺在 git 的 index 裡 —— 也就是這塊 board 是不是真的已經共享出去了。
+ *
+ * **會 spawn `git ls-files`**，所以只准 init / doctor / share 呼叫，**絕不得進入
+ * list / show 這些讀取熱路徑**（那裡唯一的問法是純 fs 的 `inspectSharing`，而
+ * `run.ts` 的 `boardDir` 與 `warnIfUnguarded` 把「list 不 spawn git」當承諾在守）。
+ *
+ * 為什麼 index 才是權威、而不是 `info/exclude` 裡那一行：**tracked 勝過 ignore
+ * 規則**。實測（git 2.x）：已被追蹤的路徑 `git check-ignore` 預設回報 not
+ * ignored —— 它會查 index。所以在一塊已共享的 board 上照寫 exclude 規則是一個
+ * 完全沒有效果的動作，而使用者會以為成功了。那是靜默失敗，所以 init 寧可拒絕
+ * （`AlreadySharedBoard`）。
+ *
+ * 問的是整個 `.issues/` 而不只 `.issues/issues/*.ndjson`：exclude 規則排除的是
+ * 整個目錄，使用者要跑的解法（`git rm -r --cached .issues`）也是整個目錄。問得
+ * 窄一點，一塊「git 還追蹤著 `.issues/` 底下某個東西」的 board 就會靜默通過，
+ * 而那正是要避開的那種失敗。
+ *
+ * 不在 git work tree 內（git 自己以非 0 結束）時回 false：這個函式只回答一個是非
+ * 題，而「沒有 repo」不是「有東西被追蹤」。那條拒絕是呼叫端的事，見 `NoGitDir`。
+ */
+export function opLogsTracked(root: string): boolean {
+  try {
+    // 路徑相對於 cwd，所以問到的只會是這一塊 board —— 不是上層那一塊。
+    const out = execFileSync('git', ['ls-files', '--', '.issues'], {
+      cwd: resolve(root),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return out.trim() !== '';
+  } catch {
+    return false;
+  }
 }

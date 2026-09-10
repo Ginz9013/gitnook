@@ -17,7 +17,7 @@ import {
 import { repair } from '../core/health.js';
 import { isValidRef, shortIdLength } from '../core/ids.js';
 import { fieldWrites } from '../core/reduce.js';
-import { inspectSharing } from '../core/sharing.js';
+import { AlreadySharedBoard, NoGitDir, inspectSharing } from '../core/sharing.js';
 import {
   AmbiguousRef,
   BoardNotInitialized,
@@ -151,6 +151,13 @@ const USER_ERRORS = [
   ConflictingGitAttributes,
   // 在 board 底下再 init：使用者 cd 到根目錄就修好了，而且不修也沒有壞任何東西。
   NestedBoard,
+  // init --private 撞到一塊已經共享出去的 board：使用者自己跑
+  // `git rm -r --cached .issues` 就修好了，而且什麼都沒壞 —— 那是一次被擋下
+  // 的寫入。訊息本身就是他的下一步，掛上型別名只會蓋掉它。
+  AlreadySharedBoard,
+  // init --private 在 git repo 外：沒有 git 就沒有東西需要藏，改跑 nook init
+  // 就得到他要的那塊 board。同樣是「改你的指令」，不是一個值得回報的 bug。
+  NoGitDir,
   PortInUse,
 ] as const;
 

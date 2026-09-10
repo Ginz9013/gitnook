@@ -13,7 +13,16 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { initBoard } from '../../src/core/gitattributes.js';
-import { excludeBoard, inspectSharing } from '../../src/core/sharing.js';
+import { run } from '../../src/cli/run.js';
+import type { Io } from '../../src/cli/run.js';
+import { openBoard } from '../../src/core/board.js';
+import {
+  AlreadySharedBoard,
+  NoGitDir,
+  excludeBoard,
+  inspectSharing,
+  opLogsTracked,
+} from '../../src/core/sharing.js';
 
 // ADR-0004：**不得以 in-memory fake 取代 git**。private mode 的整個賣點是
 // 「git 看不到這塊 board」—— 那只有真實的 git（status / ls-files /
@@ -59,6 +68,23 @@ function makeRepo(prefix = 'nook-private-'): string {
 }
 
 /**
+ * 一塊**已經共享出去的** board：op-log 真的躺在 git 的 index 裡。
+ *
+ * 刻意走 openBoard().create() 而不是手寫一個 ndjson —— 要 tracked 的是 nook
+ * 自己會寫出來的那個形狀的檔案，而 op-log 的格式不是這張票發明得出來的。
+ * `initBoard` 之後的空 `.issues/issues/` 是 git 看不見的（git 不追蹤空目錄），
+ * 所以一定要先有一張 Issue 才 commit 得到東西。
+ */
+function makeSharedBoard(): string {
+  const repo = makeRepo('nook-private-shared-');
+  initBoard(repo);
+  openBoard({ dir: repo, actor: 'aaaa' }).create({ title: 'Fix login redirect' });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'share the board');
+  return repo;
+}
+
+/**
  * git 自己說 info/exclude 在哪 —— 這是 linked worktree 那一條的實測基準。
  *
  * realpath 是必要的而不是保險：macOS 的 $TMPDIR 在 /var（一條指向 /private/var
@@ -71,6 +97,46 @@ function excludeFileOf(cwd: string): string {
 }
 
 const linesOf = (file: string): string[] => readFileSync(file, 'utf8').split('\n');
+
+/**
+ * 捕獲輸出的 `Io`。CLI 的行為測在這個檔案裡而不是 `test/cli/run.test.ts`，因為
+ * 這兩條拒絕要的前提是一塊**真的被 commit 過的** board，而造那個前提的
+ * `makeSharedBoard()` 住在這裡。`Io` 本身仍然是注入的 adapter（ADR-0004 的兩個
+ * 真實接縫之一）—— 被 spawn 的只有 git，不是 nook 自己。
+ */
+interface Capture extends Io {
+  out: string;
+  err: string;
+}
+
+function capture(cwd: string): Capture {
+  return {
+    out: '',
+    err: '',
+    cwd,
+    env: {},
+    isTty: false,
+    write(text: string) {
+      this.out += text;
+    },
+    writeError(text: string) {
+      this.err += text;
+    },
+    readStdin() {
+      throw new Error('測試未提供 stdin');
+    },
+  };
+}
+
+/** 丟出來的那個東西本身 —— 型別與訊息都要下斷言，`toThrow` 只給得起一半。 */
+function caught(fn: () => void): unknown {
+  try {
+    fn();
+  } catch (thrown) {
+    return thrown;
+  }
+  throw new Error('預期會丟出例外，但它正常回傳了');
+}
 
 describe('init --private 的核心路徑', () => {
   it('建出 board、把 /.issues/ 寫進 info/exclude，而 git 看不到任何東西', () => {
@@ -175,6 +241,26 @@ describe('拒絕時不留痕跡', () => {
 
     expect(() => initBoard(loose, { sharing: 'private' })).toThrow();
     expect(existsSync(join(loose, '.issues'))).toBe(false);
+  });
+
+  /**
+   * 已共享的 board 上那條拒絕守的是同一件事，只是「痕跡」換了形狀：board 目錄
+   * 本來就在，所以會被留下的是 **info/exclude 多出來的那一行** —— 一條對
+   * tracked 的路徑毫無效果、卻讓 `inspectSharing` 從此回答 private 的規則。
+   * 那會讓 list / show 停止警告一塊其實共享中的 board，正是要避開的靜默失敗。
+   */
+  it('op-log 已被追蹤時丟錯，且 info/exclude 一個 byte 都沒多', () => {
+    const repo = makeSharedBoard();
+    const file = excludeFileOf(repo);
+    const before = readFileSync(file, 'utf8');
+
+    expect(() => initBoard(repo, { sharing: 'private' })).toThrow(AlreadySharedBoard);
+
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    // 那塊 board 還是共享的 —— 拒絕沒有順手把它變成「nook 說 private」的狀態。
+    expect(inspectSharing(repo)).toBe('shared');
+    // 工作目錄也沒被動過：沒有新檔案、沒有新目錄。
+    expect(git(repo, 'status', '--porcelain')).toBe('');
   });
 });
 
@@ -306,5 +392,107 @@ describe('linked worktree', () => {
     // 代價三：ignore 規則是共用的，untracked 的檔案不是 —— 每個 worktree 各有
     // 一塊空 board。這裡把那個事實釘住，README 要講的就是它。
     expect(existsSync(join(main, '.issues'))).toBe(false);
+  });
+});
+
+describe('opLogsTracked —— git 的 index 才是共享狀態的權威', () => {
+  /**
+   * 這是模組介面上的函式，不是 init 私有的 helper：票 04 的 doctor 要靠同一個
+   * 問法決定該不該壓掉 MissingMergeDriver。基準一律是真實的 `git ls-files`，
+   * 因為 index 的內容只有 git 自己答得出來。
+   */
+  it('op-log 進了 index 就回 true；還沒 commit 的 board 與不是 repo 的目錄回 false', () => {
+    const shared = makeSharedBoard();
+    // 前提成立才有這一條可言：git 真的在追蹤那些檔案。
+    expect(git(shared, 'ls-files', '.issues')).not.toBe('');
+
+    const fresh = makeRepo();
+    initBoard(fresh);
+    // 剛 init 還沒 commit 的 board：意圖是共享，但 index 裡還沒有東西。
+    openBoard({ dir: fresh, actor: 'bbbb' }).create({ title: 'not committed yet' });
+
+    const loose = mkdtempSync(join(tmpdir(), 'nook-private-norepo-'));
+    dirs.push(loose);
+    initBoard(loose);
+
+    expect(opLogsTracked(shared)).toBe(true);
+    expect(opLogsTracked(fresh)).toBe(false);
+    // 不在 git work tree 內時沒有 index 可問 —— 答 false（沒有東西被追蹤）而
+    // 不是拋出例外：這個函式回答的是一個是非題，拒絕是呼叫端的事。
+    expect(opLogsTracked(loose)).toBe(false);
+  });
+});
+
+describe('op-log 已經被 git 追蹤時，init --private 拒絕', () => {
+  /**
+   * 這塊 board 已經共享出去了，而 **tracked 勝過 ignore 規則** —— 照寫 exclude
+   * 規則會是一個完全沒有效果的動作，使用者卻會以為成功了。那是靜默失敗，所以
+   * 這裡拒絕，並把使用者**自己**要跑的那一行講出來：降級是破壞性的，nook 不替
+   * 他執行任何會寫入的 git 指令（spec.md 的 non-goal `nook unshare`）。
+   */
+  it('丟 AlreadySharedBoard，訊息講出使用者自己要跑的 git rm -r --cached .issues', () => {
+    const repo = makeSharedBoard();
+    // 前提：git 真的在追蹤 op-log，而且因此不認那條 ignore 規則會有任何效果。
+    expect(git(repo, 'ls-files', '.issues')).not.toBe('');
+
+    const error = caught(() => initBoard(repo, { sharing: 'private' }));
+
+    expect(error).toBeInstanceOf(AlreadySharedBoard);
+    expect((error as Error).message).toContain('git rm -r --cached .issues');
+    // 「你自己跑」這件事必須寫在訊息裡，否則使用者會等 nook 動手。
+    expect((error as Error).message).toContain('自己');
+  });
+});
+
+describe('不在 git work tree 內時，init --private 拒絕', () => {
+  /**
+   * 沒有 git 就沒有共享可言，也就沒有 private 可言 —— 這個模式整個建立在
+   * `$GIT_DIR/info/exclude` 上。所以訊息不給 `git init` 那種迂迴，直接叫他跑
+   * `nook init`：他要的「一塊 board」在這裡本來就不需要 `--private`。
+   */
+  it('丟 NoGitDir，訊息叫人直接 nook init', () => {
+    const loose = mkdtempSync(join(tmpdir(), 'nook-private-norepo-'));
+    dirs.push(loose);
+
+    const error = caught(() => initBoard(loose, { sharing: 'private' }));
+
+    expect(error).toBeInstanceOf(NoGitDir);
+    expect((error as Error).message).toContain('nook init');
+    // 說得出是哪個目錄 —— 尋根是向上走的，使用者未必站在他以為的那一層。
+    expect((error as Error).message).toContain(loose);
+  });
+});
+
+describe('兩條拒絕在 CLI 上都是 exit 1', () => {
+  /**
+   * exit 1 與 exit 2 的差別不是好看：**1 是「改你的指令」，2 是「回報一個 nook
+   * bug」**。這兩條都是使用者自己修得好的，所以它們屬於 USER_ERRORS —— 而 exit 2
+   * 的那條路還會在訊息前面掛上型別名，那是寫給維護者、不是寫給使用者的。
+   */
+  it('op-log 已被追蹤：exit 1，stderr 就是那句講得出解法的話', async () => {
+    const repo = makeSharedBoard();
+    const io = capture(repo);
+
+    expect(await run(['init', '--private'], io)).toBe(1);
+
+    expect(io.err).toContain('git rm -r --cached .issues');
+    // 沒有型別名前綴 —— 那是 exit 2（內部錯誤）那條路才加的。
+    expect(io.err.startsWith('AlreadySharedBoard:')).toBe(false);
+    // init 說話的那三行一個字都沒印：它根本沒有建立任何東西。
+    expect(io.out).toBe('');
+  });
+
+  it('不在 git work tree 內：exit 1，stderr 叫人直接 nook init', async () => {
+    const loose = mkdtempSync(join(tmpdir(), 'nook-private-norepo-'));
+    dirs.push(loose);
+    const io = capture(loose);
+
+    expect(await run(['init', '--private'], io)).toBe(1);
+
+    expect(io.err).toContain('nook init');
+    expect(io.err.startsWith('NoGitDir:')).toBe(false);
+    expect(io.out).toBe('');
+    // 拒絕不留痕跡的那一半，在 CLI 這一層也成立。
+    expect(existsSync(join(loose, '.issues'))).toBe(false);
   });
 });

@@ -18,6 +18,9 @@
  *   `SHORT_ID_MIN`。Ref 的解析是 Board 的責任（`board.get()` 收任何無歧義前綴），
  *   呼叫端不需要自己算。
  * - `inspectMergeGuarantee`。`diagnose()` 已經回報同一件事，且格式一致。
+ * - `inspectSharing` 與 `opLogsTracked`。同上：Sharing 是推導出來的，而
+ *   `diagnose()` 已經把「這塊 board 的共享狀態不一致」說成一條 Diagnostic。
+ *   公開它們等於把「怎麼問」也凍結成承諾，而呼叫端要的是答案。
  * - `SetOp` 等 `Op` 的各個成員。discriminated union 的縮小（`o.op === 'set'`）
  *   不需要成員的名字，而每多一個名字就多凍結一份儲存格式的細節。
  *
@@ -29,6 +32,12 @@
  */
 export { openBoard } from './core/board.js';
 export { initBoard, ConflictingGitAttributes, NestedBoard } from './core/gitattributes.js';
+/**
+ * `initBoard(dir, { sharing: 'private' })` 的兩個出口。理由同
+ * `ConflictingGitAttributes` / `NestedBoard`：`initBoard` 是公開的，它會丟的
+ * 東西呼叫端必須 `instanceof` 得到，否則只能去比對 `err.name` 或訊息字串。
+ */
+export { AlreadySharedBoard, NoGitDir } from './core/sharing.js';
 export { diagnose, repair } from './core/health.js';
 export { serve, PortInUse } from './server/serve.js';
 export {

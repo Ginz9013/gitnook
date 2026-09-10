@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { excludeBoard } from './sharing.js';
+import { AlreadySharedBoard, excludeBoard, opLogsTracked } from './sharing.js';
 import type { Sharing } from './sharing.js';
 
 /**
@@ -116,14 +116,22 @@ export function initBoard(dir: string, opts?: { readonly sharing?: Sharing }): v
   const sharing: Sharing = opts?.sharing ?? 'shared';
 
   if (sharing === 'private') {
-    // **先排除、再建目錄。** 反過來的話，excludeBoard 拒絕時（不在 git work
-    // tree 內 —— 票 02 會把它變成一條給使用者看的錯誤）會留下一個 git 看得見
-    // 的 .issues/，那與使用者要的「不留痕跡」正好相反。shared 路徑的
+    // **兩條拒絕都排在任何寫入之前，然後才是排除，最後才建目錄。** 反過來的話，
+    // 拒絕會留下一個 git 看得見的 .issues/（NoGitDir）或一條對 tracked 路徑毫無
+    // 效果、卻讓 inspectSharing 從此回答 private 的規則（AlreadySharedBoard）——
+    // 兩者都與使用者要的「不留痕跡」正好相反，而他以為指令失敗了。shared 路徑的
     // ConflictingGitAttributes 同樣排在 mkdir 之前，是同一條紀律。
+    //
+    // op-log 已被追蹤就是「這塊 board 已經共享出去了」，而 **index 勝過 ignore
+    // 規則**：照寫排除規則是一個完全沒有效果的動作（理由見 `opLogsTracked`）。
+    // 這是 init 這條路徑唯一 spawn git 的地方 —— 讀取熱路徑只問純 fs 的
+    // inspectSharing，list 不得為此付一個子行程的錢。
     //
     // 刻意**完全不碰 .gitattributes**，連讀都不讀：被 ignore 的 op-log 永遠不會
     // merge，所以 MERGE_RULE 在這個模式下無意義，而既有的 conflicting 規則同樣
     // 無意義 —— 因此也不得拿它來報錯。
+    if (opLogsTracked(here)) throw new AlreadySharedBoard(here);
+    // 不在 git work tree 內時這裡丟 NoGitDir，同樣在 mkdir 之前。
     excludeBoard(here);
     mkdirSync(join(here, ...ISSUES_DIR), { recursive: true });
     return;
