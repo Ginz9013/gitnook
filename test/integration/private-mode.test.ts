@@ -370,6 +370,142 @@ describe('board 不在 work tree 頂端', () => {
   });
 });
 
+/**
+ * board 的相對路徑是一條**字面路徑**，而 `info/exclude` 收的是 gitignore 的
+ * **pattern 語言**。目錄名裡的 metacharacter 不轉義，寫出去的就是一條**別的**
+ * 規則：`/apps/[id]/.issues/`（Next.js 動態路由那種目錄名）不比對
+ * `apps/[id]/` —— `[id]` 是一個字元類別 —— 卻會比對 `apps/i/`。實測
+ * （git 2.50.1）那個狀態下 `git status` 看得到整塊 board，而 nook 三個面都沉默。
+ *
+ * 期望的形狀不是這一層發明的：`git check-ignore -v` 自己回寫的就是
+ * `/apps/\[id\]/.issues/`。
+ */
+describe('board 路徑含 gitignore metacharacter', () => {
+  /** [board 的目錄名, 該寫出去的那一行, 未轉義的規則會誤中的鄰居] */
+  const shapes: ReadonlyArray<readonly [string, string, string]> = [
+    ['a[bc]d', '/a\\[bc\\]d/.issues/', 'abd'],
+    ['a*b', '/a\\*b/.issues/', 'aXb'],
+    ['q?z', '/q\\?z/.issues/', 'qAz'],
+    ['back\\slash', '/back\\\\slash/.issues/', 'backslash'],
+  ];
+
+  it('寫出去的是轉義過的字面路徑，git 只咬得到那一個目錄', () => {
+    for (const [name, rule, decoy] of shapes) {
+      const repo = makeRepo();
+      const board = join(repo, name);
+      mkdirSync(board, { recursive: true });
+      // 鄰居只建目錄、不放檔案：git 看不見空目錄，所以下面 status 那條斷言
+      // 量的仍然只有 board 自己。
+      mkdirSync(join(repo, decoy), { recursive: true });
+
+      initBoard(board, { sharing: 'private' });
+
+      expect(linesOf(excludeFileOf(repo))).toContain(rule);
+      // 基準一律是真實的 git：規則真的咬得到這塊 board。
+      expect(tryGit(repo, 'check-ignore', '-q', `${name}/.issues/issues/x.ndjson`).status).toBe(0);
+      // 而且只咬得到它 —— 未轉義的那一行會誤中這個鄰居，那才是 pattern 而不是路徑。
+      expect(tryGit(repo, 'check-ignore', '-q', `${decoy}/.issues/issues/x.ndjson`).status).toBe(1);
+      // zero committed bytes 在這種目錄名上同樣成立。
+      expect(git(repo, 'status', '--porcelain')).toBe('');
+    }
+  });
+});
+
+/**
+ * 尾端空白是 gitignore 唯一一種會**改寫我們寫出去的那一行**的規則（git 會吃掉
+ * 未轉義的尾端空白），而票 01 釘住的不變式就是：**寫出去的與讀回來的必須是
+ * 同一條規則**。所以路徑裡帶尾端空白的那一段一律轉義，不讓那條規則有機會
+ * 咬到 nook 自己的行 —— 這一行今天以 `.issues/` 結尾，那個「今天」不是契約。
+ */
+describe('board 路徑含尾端空白', () => {
+  it('那一段的尾端空白也轉義，而且三個問法認的仍是同一行', () => {
+    const repo = makeRepo();
+    const board = join(repo, 'trail ');
+    mkdirSync(board);
+
+    initBoard(board, { sharing: 'private' });
+
+    expect(linesOf(excludeFileOf(repo))).toContain('/trail\\ /.issues/');
+    // 基準是真實的 git：轉義過的那一行照樣咬得到這塊 board。
+    expect(tryGit(repo, 'check-ignore', '-q', 'trail /.issues/issues/x.ndjson').status).toBe(0);
+    expect(git(repo, 'status', '--porcelain')).toBe('');
+
+    // 寫什麼就認什麼 —— 認得它、補不重複、也移得掉。
+    expect(inspectSharing(board)).toBe('private');
+    expect(excludeBoard(board)).toBe('unchanged');
+    expect(unexcludeBoard(board)).toBe('removed');
+    expect(tryGit(repo, 'check-ignore', '-q', 'trail /.issues/issues/x.ndjson').status).toBe(1);
+    expect(inspectSharing(board)).toBe('shared');
+  });
+});
+
+/**
+ * `#`（註解）與 `!`（否定）只在**行首**有特殊意義，而 nook 寫的這一行永遠以 `/`
+ * 開頭 —— 所以推論上不必轉義。**推論要由真實的 git 確認**，不靠我們對 gitignore
+ * 的記憶：多轉義一個字元是有代價的（寫出去的與 `matchesExcludeRule` 讀回來的
+ * 多一次錯開的機會），所以這裡要的是「確實不必」而不是「轉了比較安心」。
+ */
+describe('board 路徑以 # 或 ! 開頭的那一段', () => {
+  it('不轉義，而 git 確認那一行照樣生效', () => {
+    for (const [name, rule] of [
+      ['#hash', '/#hash/.issues/'],
+      ['!bang', '/!bang/.issues/'],
+    ] as const) {
+      const repo = makeRepo();
+      const board = join(repo, name);
+      mkdirSync(board);
+
+      initBoard(board, { sharing: 'private' });
+
+      expect(linesOf(excludeFileOf(repo))).toContain(rule);
+      // git 自己說了：`#` 沒被讀成註解、`!` 沒被讀成否定 —— 行首是那個 `/`。
+      expect(tryGit(repo, 'check-ignore', '-q', `${name}/.issues/issues/x.ndjson`).status).toBe(0);
+      expect(git(repo, 'status', '--porcelain')).toBe('');
+      expect(inspectSharing(board)).toBe('private');
+    }
+  });
+});
+
+/**
+ * 轉換期：一塊在轉義**之前**就被 `init --private` 過的 board，`info/exclude` 裡
+ * 是未轉義的那一行。`matchesExcludeRule` 是整行比對，所以 nook 從此認不得它 ——
+ * 而這是**保守的**失敗，不是新的靜默失敗：答 shared 就是照舊警告、照舊回報，
+ * doctor 也不沉默，而 `nook init --private` 補得上一條真的生效的規則。
+ */
+describe('轉義之前就寫下的那一行（轉換期）', () => {
+  it('認不得那一行：答 shared、doctor 不沉默，init --private 修得回來', () => {
+    const repo = makeRepo();
+    const board = join(repo, 'apps', '[id]');
+    mkdirSync(board, { recursive: true });
+    initBoard(board, { sharing: 'private' });
+    openBoard({ dir: board, actor: 'aaaa' }).create({ title: 'Fix login redirect' });
+    // 舊版寫出去的形狀：一模一樣的路徑，只是沒有轉義。
+    writeFileSync(excludeFileOf(repo), '/apps/[id]/.issues/\n', 'utf8');
+
+    // 這一票的起點，由真實 git 確認：那條規則對這塊 board 沒有效果，board 整塊
+    // 在 git 眼前 —— 下一次 git add -A 就把它推出去。
+    expect(tryGit(repo, 'check-ignore', '-q', 'apps/[id]/.issues/issues/x.ndjson').status).toBe(1);
+    expect(git(repo, 'status', '--porcelain')).toContain('apps/');
+
+    // 認不得 → 答 shared。保守的失敗：list / show 照舊警告。
+    expect(inspectSharing(board)).toBe('shared');
+    // 而且有人說話：doctor 在這塊 board 上不沉默。
+    expect(diagnose(board).map((d) => d.kind)).toContain('MissingMergeDriver');
+
+    // 下一步修得回來：init --private 補上一條轉義過的規則。
+    initBoard(board, { sharing: 'private' });
+
+    expect(linesOf(excludeFileOf(repo))).toContain('/apps/\\[id\\]/.issues/');
+    expect(tryGit(repo, 'check-ignore', '-q', 'apps/[id]/.issues/issues/x.ndjson').status).toBe(0);
+    expect(git(repo, 'status', '--porcelain')).toBe('');
+    expect(inspectSharing(board)).toBe('private');
+    expect(diagnose(board)).toEqual([]);
+    // 舊那一行留在檔案裡：`info/exclude` 是使用者的檔案，nook 只認也只動自己
+    // 寫的那一行（同 unexcludeBoard 的紀律）。
+    expect(linesOf(excludeFileOf(repo))).toContain('/apps/[id]/.issues/');
+  });
+});
+
 describe('linked worktree', () => {
   it('規則進的是共用的 info/exclude —— .git 是一個檔案，還要再讀 commondir', () => {
     const main = makeRepo();

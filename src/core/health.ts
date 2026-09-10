@@ -69,6 +69,23 @@ export function diagnose(dir: string): Diagnostic[] {
         `（被追蹤的路徑勝過 ignore 規則），而且沒有零衝突保證 —— 正在靜默累積衝突風險。` +
         `執行 nook share 讓規則與事實一致。`,
     });
+  } else if (sharing === 'private' && insideGit) {
+    // 第三種：nook 的那一行在（fs 說 private），git 卻說它沒有效果。這是 private
+    // mode 裡唯一一種**三個面都沉默**的失敗 —— init 報告成功、list / show 不警告
+    // （它們只問得到純 fs 的那一行）、doctor 也把 MissingMergeDriver 壓掉了，而
+    // board 整塊在 `git status` 眼前。
+    //
+    // **這個子行程只在這裡 spawn。** 讀取熱路徑唯一的問法仍然是純 fs 的
+    // `inspectSharing`（`run.ts` 的 PATH 探針把那條承諾當閘門在守）。
+    if (!ignoredByGit(dir).ignored) {
+      found.push({
+        kind: 'SharingMismatch',
+        message:
+          `排除規則在，git 卻說這塊 board 沒有被 ignore：規則沒有效果，` +
+          `所以整塊 board 進得了 git —— 下一次 git add -A 就會把它推出去。` +
+          `執行 nook init --private 重寫那條規則。`,
+      });
+    }
   } else if (sharing === 'shared' && insideGit) {
     // 反向的那一種：nook 沒有寫任何規則，git 卻把 op-log 擋在外面。
     // `ignored` 與 `source` 是兩件事：git 說它 ignore 是事實，而我們有沒有可以

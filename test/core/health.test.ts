@@ -364,3 +364,52 @@ describe('fs 與 git 不一致的那兩種狀態', () => {
     }
   });
 });
+
+/**
+ * 第三種不一致，而它是 private mode 裡唯一一種**三個面都沉默**的失敗：fs 說
+ * private（nook 的那一行在），git 卻說沒 ignore。實測（git 2.50.1）那個狀態下
+ * `nook list` 的 stderr 是 0 bytes、`nook doctor` 也是 0 bytes exit 0，而 board
+ * 整塊在 `git status` 眼前 —— 下一次 `git add -A` 就把它推給全隊。
+ */
+describe('fs 說 private、git 卻說沒 ignore', () => {
+  /**
+   * 進到這個狀態的一種真實走法：committed 的 `.gitignore` 用一條否定規則把
+   * `.issues/` 收回來了。`.gitignore` 的優先序高過 `$GIT_DIR/info/exclude`，
+   * 所以 nook 那一行還在、卻完全沒有效果。
+   */
+  const privateButNotIgnored = (): void => {
+    gitInit();
+    initBoard(dir, { sharing: 'private' });
+    openBoard({ dir, actor: 'k3f9' }).create({ title: '以為只存在於這台機器' });
+    writeFileSync(join(dir, '.gitignore'), '!.issues/\n', 'utf8');
+    git('add', '.gitignore');
+    git('commit', '-q', '-m', 'un-ignore the nook board');
+  };
+
+  // 說出後果，因為狀態本身看不出嚴重性：這塊 board 進得了 git。
+  it('回報 SharingMismatch，並說出下一次 git add -A 會把整塊 board 推出去', () => {
+    privateButNotIgnored();
+
+    // 前提一：fs 這一側看不出任何異狀（nook 的那一行在，所以答 private）。
+    expect(inspectSharing(dir)).toBe('private');
+    // 前提二：git 眼裡這塊 board 就是一堆 untracked 檔案 —— 規則沒有效果。
+    expect(gitOut('status', '--porcelain')).toContain('.issues/');
+
+    const found = diagnose(dir);
+
+    expect(found.map((d) => d.kind)).toEqual(['SharingMismatch']);
+    expect(found[0]!.message).toContain('git add -A');
+  });
+
+  /**
+   * 說出狀態不等於說得出下一步。這一種只有一條：`nook init --private` —— 片 1
+   * 之後它會重寫出一條真的生效的規則，而這塊 board 的意圖本來就是 private。
+   */
+  it('下一步是 nook init --private，重寫那條規則', () => {
+    privateButNotIgnored();
+
+    const mismatch = diagnose(dir).find((d) => d.kind === 'SharingMismatch');
+
+    expect(mismatch?.message).toContain('nook init --private');
+  });
+});

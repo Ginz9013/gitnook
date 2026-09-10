@@ -89,9 +89,33 @@ const LOG_SUFFIX = '.ndjson';
 function boardPattern(top: string, root: string): string {
   const rel = relative(top, resolve(root));
   // Windows 的 path.relative 給的是反斜線，而 gitignore 的 pattern 只認 `/`。
-  const prefix = rel === '' ? '' : `${rel.split(sep).join('/')}/`;
+  const prefix = rel === '' ? '' : `${rel.split(sep).map(literalSegment).join('/')}/`;
   return `/${prefix}.issues/`;
 }
+
+/**
+ * 一段目錄名，轉義成只比對**它自己**的 gitignore pattern。
+ *
+ * board 的路徑是一條**字面路徑**，而 `info/exclude` 收的是 pattern 語言 ——
+ * 不轉義寫出去的就是一條別的規則。實測（git 2.50.1，`apps/[id]/` 是 Next.js
+ * 動態路由那種目錄名）：`/apps/[id]/.issues/` **不**比對 `apps/[id]/`（`[id]`
+ * 是一個字元類別），卻會比對 `apps/i/`。那個狀態下 board 整塊進得了 git，而
+ * 使用者剛剛才被告知它是 private 的。
+ *
+ * 轉義的形狀不是這一層發明的：`git check-ignore -v` 自己回寫的就是
+ * `/apps/\[id\]/.issues/`。
+ *
+ * **`#` 與 `!` 不在這一組裡**：那兩個字元只在**行首**有特殊意義，而這一行永遠
+ * 以 `/` 開頭。實測確認過推論（`/#hash/.issues/` 命中），所以不多轉義一個字元
+ * —— 每多轉一個，寫出去的與 `matchesExcludeRule` 讀回來的就多一次錯開的機會。
+ *
+ * **尾端空白另外處理**：它不是 pattern 的 metacharacter，而是 gitignore 唯一一種
+ * 會**改寫我們寫出去的那一行**的規則（未轉義的尾端空白被 git 吃掉）。票 01 的
+ * 不變式是「寫出去的與讀回來的必須是同一條規則」，所以帶尾端空白的那一段一律
+ * 轉義 —— 今天這一行以 `.issues/` 結尾、那條規則咬不到它，但那個「今天」不是契約。
+ */
+const literalSegment = (segment: string): string =>
+  segment.replace(/[\\*?[\]]/g, '\\$&').replace(/ (?= *$)/g, '\\ ');
 
 /**
  * 一塊 board 所在的 git 版面。
