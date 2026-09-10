@@ -20,7 +20,7 @@
 | 05 | doctor 說出 fs 與 git 不一致的兩種狀態 | done | `eda9006` + `502ae5b` | 修補：`ignoredByGit` 改問存在的 op-log 並搬上介面、studio 的窮盡表 |
 | 06 | `nook share` 的升級路徑 | done | `820ec85` + `2421faf` | 修補：不印不冪等的 `git commit`、不先承諾再收回、拒收位置引數 |
 | 07 | README、CONTEXT.md 詞彙與 ADR-0011 | done | `fee651b` | 由 `2421faf` 跟上 share 改掉的輸出 |
-| 08 | exclude 規則必須是字面路徑，不是 glob | **backlog（未授權）** | — | review 追加；`queued` 是人給的授權，實作輪不自己發 |
+| 08 | exclude 規則必須是字面路徑，而且沒生效時要有人說話 | done | `98366dd` + `fc8c6b7` | review 追加，使用者同日授權並擴成兩片；修補：診斷的下一步原本是個 no-op |
 
 其他 commit：`939bbe9`（票移進 queued）、`f2c940a`（派工前的板子修正）、`74bd9d2`（handler.ts 的成本註解）、以及三筆收票的 bookkeeping。
 
@@ -33,13 +33,15 @@
 3. **問目錄會漏報**（票 05）。`.gitignore` 是 `*.ndjson` 時，問 `.issues/issues` 沒命中、問一個存在的 op-log 才命中；反過來拿不存在的檔名去問，會在 `git add -f` 過的 board 上假警報。只有「存在的檔案」兩邊都對。
 4. **`git commit` 不是冪等的**（票 06）。已 commit 的 board 上照樣印那兩行，會把使用者手上沒 commit 的 issue 編輯掃進一個謊報的訊息底下。
 
-**escalated**：票 08（`boardPattern` 沒有轉義 gitignore 的 metacharacter），留在 backlog。
+**escalated**：票 08（`boardPattern` 沒有轉義 gitignore 的 metacharacter）—— 使用者同日授權，並在派工前擴成兩片。派工前的實測顯示它比票面嚴重：board 在 `apps/[id]/` 底下時寫出的是一條 git 不承認的 glob，而 `init` / `list` / `show` / `doctor` 四個面全都沉默、board 卻整塊進得了 git。第二片（doctor 說出「規則沒生效」）抓的是整個類別，不只這一個成因。
+
+它自己的 review 又抓到一條：**新診斷給的下一步在它回報的狀態裡是個 no-op** —— 那個狀態最常見的成因是優先序更高的否定規則，而那時 nook 那一行已經在了，`init --private` 會回 unchanged。已改成問 git 是誰壓過它（`check-ignore -v --non-matching`，問 board 目錄本身且不帶尾斜線 —— 兩個細節都實測過）。
 
 ## 需要你決定的
 
 沒有票因為五類硬停而卡住。兩件事等你決定：
 
-1. **票 08 要不要做** —— 它在 backlog，把它移進 `queued` 就會被撿走。
+1. **~~票 08~~** —— 已授權、已完成（`98366dd` + `fc8c6b7`）。
 2. **`.scratch` 那條「worker 不准跑 `npm run bench`」的約定在這個 repo 做不到** —— `test/integration/packed-smoke.test.ts` 自己會 `spawnSync('npm', ['run', 'bench'])`，所以每一次 `npx vitest run` 都連帶跑了 bench（走 `npm pack` → `prepack` → 重建 `dist/`）。要嘛把那條約定改成「跑 suite 時 `--exclude packed-smoke`」，要嘛承認 suite 會重建 dist。
 
 ## 硬指標（最後一次 `npm run bench`）
@@ -53,7 +55,9 @@
 | concurrent merge | 0 conflicts | 0 |
 | agent token | 4,102 B | 4,608 B |
 
-測試 **681 passed / 39 files**（基線 615 / 38），`tsc --noEmit` 0 錯誤。
+測試 **687 passed / 39 files**（基線 615 / 38），`tsc --noEmit` 0 錯誤。
+
+（上表是票 08 落地後重跑的數值。）
 
 ## 下一步
 

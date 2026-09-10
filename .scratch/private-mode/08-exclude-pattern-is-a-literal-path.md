@@ -89,4 +89,4 @@ doctor 的檢查抓的是整個類別。
 
 ## Status
 
-queued（使用者於 2026-09-10 授權）
+done —— commit 98366dd（兩片）+ fc8c6b7（兩軸 review 的修補）
