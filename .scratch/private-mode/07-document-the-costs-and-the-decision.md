@@ -69,4 +69,4 @@ None.
 
 ## Status
 
-todo
+done —— commit fee651b（+ 2421faf 跟上 share 改掉的輸出）

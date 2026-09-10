@@ -63,4 +63,4 @@ nook 目前沒有任何一個會寫入的 git 指令，這一票不得破這個�
 
 ## Status
 
-todo
+done —— commit 820ec85（實作）+ 2421faf（兩軸 review 的修補）
