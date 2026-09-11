@@ -1,5 +1,7 @@
 # 07 `nook workspace rm <ref>`
 
+nook ref：`01M279924WJD2JAEDWSF0VR5SX`
+
 ## Outcome
 
 `nook workspace rm <ref>` 找到擁有 `<ref>` 的成員並刪除它，確認句與最終

@@ -1,5 +1,7 @@
 # 01 Workspace 寫入路由核心：locateInWorkspace / memberAt
 
+nook ref：`01M2797QR56CJB2B81K29CV4EP`
+
 ## Outcome
 
 `locateInWorkspace(workspace, ref)` 能在一組成員 Board 裡找出擁有某個

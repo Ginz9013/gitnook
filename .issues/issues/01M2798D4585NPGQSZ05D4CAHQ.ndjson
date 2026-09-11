@@ -1,0 +1,4 @@
+{"id":"01M2798D455X4Q0TJY2VR70TW0","t":1,"a":"83a1","op":"create","title":"nook workspace mv <ref> <status>"}
+{"id":"01M2798D4FGNKRAHQT7JZXYJ5Z","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：`.scratch/workspace-write/04-workspace-mv.md`（spec 同目錄）\n\n`nook workspace mv <ref> <status>` 是 `set <ref> status <value>` 的捷徑，重用票 03 定案的 `requireFullRef()`，不重寫路由邏輯。\n\n- status 接受無歧義前綴，同單一 Board 版本\n- 短前綴/找不到/找到多個的錯誤路徑同票 03\n\nWrite ownership：`src/cli/workspace.ts`、`test/cli/workspace.test.ts`\n\n不得碰：`src/cli/run.ts`（這張票不需要新的 export）、`src/core/*`、`src/render/*`、`src/server/*`\n\n批次（單獨跑）。Blocked by：票 03（同一個檔案 `src/cli/workspace.ts`）。"}
+{"id":"01M2798D4F9BRJ4PARH3W10BQ6","t":3,"a":"83a1","op":"label.add","v":"workspace-write"}
+{"id":"01M2798D4F89WCWR2AD1M0HCX8","t":4,"a":"83a1","op":"label.add","v":"cli"}

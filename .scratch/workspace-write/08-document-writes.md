@@ -1,5 +1,7 @@
 # 08 README 與 AGENT.md 交代 Workspace 的六個寫入指令
 
+nook ref：`01M2799ATCA4KETK37AHFQ8N4X`
+
 ## Outcome
 
 README 與 AGENT.md 的 Workspace 章節補上 `new`/`set`/`mv`/`comment`/

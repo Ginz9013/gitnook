@@ -1,5 +1,7 @@
 # 02 `nook workspace new --in <path>`
 
+nook ref：`01M2797YYRBC5KE0XW9VRMX64F`
+
 ## Outcome
 
 在母資料夾底下，`nook workspace new <title> --in <path>` 能把一張新

@@ -1,5 +1,7 @@
 # 03 `nook workspace set <ref> <field> <value>`
 
+nook ref：`01M27987A1GKXFT0Q3NNHMRT7K`
+
 ## Outcome
 
 `nook workspace set <ref> <field> <value>` 找到擁有 `<ref>` 的成員並更新

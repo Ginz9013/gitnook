@@ -1,0 +1,4 @@
+{"id":"01M2798TAT2MB5GVG4DF0F1HDN","t":1,"a":"83a1","op":"create","title":"nook workspace label <ref> +bug -ui"}
+{"id":"01M2798TB4REEMNJZMSYQWQF7K","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：`.scratch/workspace-write/06-workspace-label.md`（spec 同目錄）\n\n`nook workspace label <ref> +bug -ui` 找到擁有 `<ref>` 的成員並加減它的 label。順手把單一 Board `cmdLabel` 裡的 token 解析邏輯抽成共用函式，不在這裡複製貼上同一段迴圈。\n\n- 缺正負號或空 label → 拒絕，訊息同單一 Board 版本\n- 短前綴/找不到/找到多個的錯誤路徑同票 03\n\nWrite ownership：`src/cli/run.ts`（label token 解析邏輯抽成匯出函式，`cmdLabel` 改呼叫它，行為不變）、`src/cli/workspace.ts`、`test/cli/workspace.test.ts`\n\n不得碰：`src/core/*`、`src/render/*`、`src/server/*`\n\n批次（單獨跑）。Blocked by：票 05。"}
+{"id":"01M2798TB4WQ8VAE61EJ2XFQTX","t":3,"a":"83a1","op":"label.add","v":"workspace-write"}
+{"id":"01M2798TB4BYX0FNQYER4BM6KN","t":4,"a":"83a1","op":"label.add","v":"cli"}

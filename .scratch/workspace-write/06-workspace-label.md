@@ -1,5 +1,7 @@
 # 06 `nook workspace label <ref> +bug -ui`
 
+nook ref：`01M2798TATRSZ1GAG65EBPGHTZ`
+
 ## Outcome
 
 `nook workspace label <ref> +bug -ui` 找到擁有 `<ref>` 的成員並加減它的
