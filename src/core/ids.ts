@@ -45,6 +45,16 @@ export function isValidRef(ref: string): boolean {
   return REF_SHAPE.test(ref);
 }
 
+/**
+ * 只有「完整」的 26 碼 ULID 才是 true——前綴（即便無歧義）一律 false。
+ * 跨 board 的 ref 解析要求完整 ULID（spec.md Non-goals），這是那條規則的
+ * 形狀檢查，不做正規化、不做前綴解析——那些是既有 normalizeRef/
+ * resolvePrefix 的事。
+ */
+export function isFullRef(ref: string): boolean {
+  return isValidRef(ref) && ref.length === 26;
+}
+
 export function ulid(now: number = Date.now()): string {
   return encodeTime(now) + encodeRandom();
 }

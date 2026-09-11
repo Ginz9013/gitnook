@@ -1,8 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openWorkspace } from '../../src/index.js';
+import { locateInWorkspace, memberAt } from '../../src/core/workspace.js';
+import {
+  AmbiguousWorkspaceRef,
+  BoardNotInitialized,
+  IncompleteRef,
+  NotAWorkspaceMember,
+  RefNotFoundInWorkspace,
+} from '../../src/core/types.js';
 
 // ADR-0004：打真實檔案系統，不引入 mock fs 抽象層。
 // 每個測試用例一棵獨立的 mkdtemp 樹，真實 mkdirSync 造拓撲。
@@ -136,5 +144,140 @@ describe('WorkspaceMember.board 是功能完整的 Board', () => {
     expect(member).toBeDefined();
     member!.board.create({ title: 'Fix login redirect' });
     expect(member!.board.list().map((i) => i.title)).toEqual(['Fix login redirect']);
+  });
+});
+
+describe('locateInWorkspace()', () => {
+  it('給一個不是完整 26 碼的 ref → IncompleteRef', () => {
+    const a = under('a');
+    board(a);
+    const ws = openWorkspace({ dir: root });
+
+    expect(() => locateInWorkspace(ws, '01JBXA')).toThrow(IncompleteRef);
+  });
+
+  it('三個成員都不擁有這個 ref → RefNotFoundInWorkspace，訊息帶出掃過幾個成員', () => {
+    const a = under('a');
+    const b = under('b');
+    const c = under('c');
+    board(a);
+    board(b);
+    board(c);
+    const ws = openWorkspace({ dir: root });
+    const missing = 'A'.repeat(26);
+
+    let thrown: unknown;
+    try {
+      locateInWorkspace(ws, missing);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(RefNotFoundInWorkspace);
+    expect((thrown as RefNotFoundInWorkspace).searchedCount).toBe(3);
+  });
+
+  it('三個成員剛好一個擁有 → 回傳 { member, issue }，issue 是完整摺好的 Issue', () => {
+    const a = under('a');
+    const b = under('b');
+    const c = under('c');
+    board(a);
+    board(b);
+    board(c);
+    const ws = openWorkspace({ dir: root });
+    const owner = ws.members.find((m) => m.path === b)!;
+    const created = owner.board.create({ title: 'Fix login redirect' });
+
+    const { member, issue } = locateInWorkspace(ws, created.id);
+
+    expect(member.path).toBe(b);
+    expect(issue.title).toBe('Fix login redirect');
+  });
+
+  it('人為造出兩個成員各自擁有同一個 ULID 的 op-log → AmbiguousWorkspaceRef，訊息列出兩個成員的路徑', () => {
+    const a = under('a');
+    const b = under('b');
+    board(a);
+    board(b);
+    const ws = openWorkspace({ dir: root });
+    const memberA = ws.members.find((m) => m.path === a)!;
+    const created = memberA.board.create({ title: 'Duplicated issue' });
+
+    // 人為把同一個 op-log 檔複製到另一個成員底下，模擬資料被複製過。
+    const src = join(a, '.issues', 'issues', `${created.id}.ndjson`);
+    const dst = join(b, '.issues', 'issues', `${created.id}.ndjson`);
+    cpSync(src, dst);
+
+    let thrown: unknown;
+    try {
+      locateInWorkspace(ws, created.id);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(AmbiguousWorkspaceRef);
+    expect((thrown as AmbiguousWorkspaceRef).memberPaths.slice().sort()).toEqual([a, b].sort());
+  });
+
+  it('對一個已刪除的 issue 呼叫 → 正常回傳，issue.deleted === true，不拋錯', () => {
+    const a = under('a');
+    board(a);
+    const ws = openWorkspace({ dir: root });
+    const member = ws.members.find((m) => m.path === a)!;
+    const created = member.board.create({ title: 'To be deleted' });
+    member.board.apply(created.id, { deleted: true });
+
+    const { issue } = locateInWorkspace(ws, created.id);
+
+    expect(issue.deleted).toBe(true);
+  });
+});
+
+describe('memberAt()', () => {
+  it('給某個成員底下的子目錄（不是根目錄）→ 正確解析回那個成員', () => {
+    const a = under('a');
+    board(a);
+    const sub = under('a', 'sub', 'deep');
+    const ws = openWorkspace({ dir: root });
+    const expected = ws.members.find((m) => m.path === a)!;
+
+    const resolved = memberAt(ws, sub);
+
+    expect(resolved).toBe(expected);
+  });
+
+  it('給一個完全獨立、有 .issues/ 但不在這個 workspace 掃描範圍內的路徑 → NotAWorkspaceMember', () => {
+    const a = under('a');
+    board(a);
+    const ws = openWorkspace({ dir: a }); // workspace 只掃到 a 自己
+
+    const outside = mkdtempSync(join(tmpdir(), 'nook-outside-'));
+    try {
+      board(outside);
+
+      expect(() => memberAt(ws, outside)).toThrow(NotAWorkspaceMember);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('給一個完全不是 Board 的路徑 → 既有的 BoardNotInitialized 原樣冒出', () => {
+    const a = under('a');
+    board(a);
+    const ws = openWorkspace({ dir: root });
+    const notABoard = under('not-a-board');
+
+    expect(() => memberAt(ws, notABoard)).toThrow(BoardNotInitialized);
+  });
+
+  it('回傳的是 workspace.members 裡既有的那個物件（同一個 board 實例）', () => {
+    const a = under('a');
+    board(a);
+    const ws = openWorkspace({ dir: root });
+    const expected = ws.members.find((m) => m.path === a)!;
+
+    const resolved = memberAt(ws, a);
+
+    expect(resolved.board).toBe(expected.board);
   });
 });
