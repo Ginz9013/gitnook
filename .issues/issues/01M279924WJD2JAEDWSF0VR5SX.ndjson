@@ -4,3 +4,5 @@
 {"id":"01M2799256CGFMGX3MN7F969J5","t":4,"a":"83a1","op":"label.add","v":"cli"}
 {"id":"01M279BTCEVYY9W58PQ1NYT1GA","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M27C7GQR2T8RQ079V5NE4F53","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M27CR1M75SJCWE3PVJ0VV2Z0","t":7,"a":"83a1","op":"comment","body":"**落地。** 整合者驗證：42 files / 766 tests 綠（基線 42/760）、`tsc --noEmit`\n0 錯誤。這是這條鏈最複雜的一票，worker 對每一條驗收條件都逼出了真的觀察\n到的紅燈，包含對「已刪除訊息」「short-prefix 路徑」這種第一次跑就綠的\n情境，都用暫時弄壞再復原的手法拿到證據。\n\n兩軸 review 抓到兩條，都已修（commit `e08d483`）：\n1. **真的有意義的一條**：成功刪除的輸出原本印使用者輸入的 `ref` 原文\n   （`ref.slice(...)`），而不是正規化後的 `issue.id`——ref 大小寫不敏感\n   （CONTEXT.md），使用者輸入小寫時輸出就會跟著小寫，跟單一 Board\n   `cmdRm` 的既有行為（印 `target.id`）不一致。已改用 `issue.id`。\n2. `core/types.js` 被拆成三行 import——合併成一行。\n\n`workspaceDeletedMessage` 內部沿用 `ref` 原文（不是 `issue.id`）這件事\nreview 特別確認過不是同一個問題——那是延續 `run.ts` 既有 `deletedMessage`\n本來就用 raw ref 的慣例，不是疏漏。"}
+{"id":"01M27CR1NF0H4PJBJSZ1REN9W7","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
