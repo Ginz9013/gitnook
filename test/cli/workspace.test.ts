@@ -686,6 +686,76 @@ describe('dispatchWorkspace comment — 沒有成員擁有這個 ref', () => {
   });
 });
 
+describe('dispatchWorkspace label — 完整 ULID 對到正確的成員', () => {
+  it('label 的 add/remove 被正確套用，其餘成員完全不受影響，回印更新後那一行且不帶成員路徑裝飾', async () => {
+    const a = member('pkgs', 'a');
+    const b = member('pkgs', 'b');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+      labels: ['bug', 'ui'],
+    } as CreateInput);
+    createIn(b, '01JBX7BBBBBBBBBBBBBBBBBBBB', { title: 'b 的任務', status: 'todo' } as CreateInput);
+
+    const io = capture();
+    const code = await dispatchWorkspace(['label', issue.id, '+p1', '-ui'], io);
+
+    expect(code).toBe(0);
+    expect(openBoard({ dir: a }).get(issue.id).labels).toEqual(['bug', 'p1']);
+    expect(openBoard({ dir: b }).get('01JBX7BBBBBBBBBBBBBBBBBBBB').labels).toEqual([]);
+    expect(io.out).toContain('原本標題');
+    expect(io.out).not.toContain('pkgs/a');
+    expect(io.err).toBe('');
+  });
+});
+
+describe('dispatchWorkspace label — 缺少正負號或空 label', () => {
+  it('拒絕並回報跟單一 Board 版本一樣的訊息，不猜測意圖', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+      labels: ['bug'],
+    } as CreateInput);
+
+    const io = capture();
+
+    await expect(dispatchWorkspace(['label', issue.id, 'bug'], io)).rejects.toThrow(
+      'label 要寫成 +<label> 或 -<label>：bug',
+    );
+    expect(openBoard({ dir: a }).get(issue.id).labels).toEqual(['bug']);
+  });
+});
+
+describe('dispatchWorkspace label — 短前綴拒絕', () => {
+  it('即使在該成員裡其實無歧義，也拒絕並清楚說明跨 board 操作需要完整 ULID', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+      labels: ['bug'],
+    } as CreateInput);
+    const shortRef = issue.id.slice(0, 8);
+
+    const io = capture();
+
+    await expect(dispatchWorkspace(['label', shortRef, '+p1'], io)).rejects.toThrow(/完整.*ULID/);
+    expect(openBoard({ dir: a }).get(issue.id).labels).toEqual(['bug']);
+  });
+});
+
+describe('dispatchWorkspace label — 沒有成員擁有這個 ref', () => {
+  it('拋出 RefNotFoundInWorkspace', async () => {
+    member('pkgs', 'a');
+    member('pkgs', 'b');
+    const io = capture();
+
+    await expect(
+      dispatchWorkspace(['label', 'ZZZZZZZZZZZZZZZZZZZZZZZZZZ', '+p1'], io),
+    ).rejects.toThrow(RefNotFoundInWorkspace);
+  });
+});
+
 describe('dispatchWorkspace studio — --port 參數解析', () => {
   it('不是合法的 port 時報 UsageError，不啟動任何 server', async () => {
     const io = capture();

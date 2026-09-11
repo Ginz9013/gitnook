@@ -867,18 +867,17 @@ function cmdComment(args: Args, io: Io): number {
 }
 
 /**
- * Nook 沒有優先級欄位 —— 優先級用 Label 表達（CONTEXT.md）。`+bug -ui` 的寫法
- * 讓加與減在同一行說完，而不是兩個子指令。
+ * `+bug -ui` 形狀的 token 分成 add/remove 兩堆——單一 Board 版本
+ * （`cmdLabel`）與 workspace 版本（`cli/workspace.ts` 票 06）共用同一份解析，
+ * 不重寫第二份可能漂開的迴圈。
  *
- * OR-Set 的 `seen` 語意完全在 core：這裡只把 token 分成兩堆交給 apply()。
+ * OR-Set 的 `seen` 語意完全在 core：這裡只負責把 token 分堆交給 apply()。
+ * export 供 `cli/workspace.ts` 重用（票 06）。
  */
-function cmdLabel(args: Args, io: Io): number {
-  const [ref, ...tokens] = args.positional;
-  if (ref === undefined || tokens.length === 0) {
-    throw new UsageError('用法：nook label <ref> +<label> -<label>');
-  }
-  requireRef(ref);
-
+export function parseLabelTokens(tokens: readonly string[]): {
+  add: string[];
+  remove: string[];
+} {
   const add: string[] = [];
   const remove: string[] = [];
   for (const token of tokens) {
@@ -891,6 +890,23 @@ function cmdLabel(args: Args, io: Io): number {
     }
     (sign === '+' ? add : remove).push(value);
   }
+  return { add, remove };
+}
+
+/**
+ * Nook 沒有優先級欄位 —— 優先級用 Label 表達（CONTEXT.md）。`+bug -ui` 的寫法
+ * 讓加與減在同一行說完，而不是兩個子指令。
+ *
+ * token 的解析邏輯本身在 `parseLabelTokens()`——這裡只接線。
+ */
+function cmdLabel(args: Args, io: Io): number {
+  const [ref, ...tokens] = args.positional;
+  if (ref === undefined || tokens.length === 0) {
+    throw new UsageError('用法：nook label <ref> +<label> -<label>');
+  }
+  requireRef(ref);
+
+  const { add, remove } = parseLabelTokens(tokens);
 
   const board = openBoard({ dir: io.cwd });
   const updated = board.apply(ref, { labels: { add, remove } });

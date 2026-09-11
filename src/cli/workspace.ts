@@ -16,6 +16,7 @@ import {
   line,
   longText,
   parseArgs,
+  parseLabelTokens,
   SETTABLE,
   UsageError,
   type Args,
@@ -51,12 +52,14 @@ export async function dispatchWorkspace(argv: readonly string[], io: Io): Promis
       return cmdMv(parseArgs(rest, NO_FLAGS), io);
     case 'comment':
       return cmdComment(parseArgs(rest, NO_FLAGS), io);
+    case 'label':
+      return cmdLabel(parseArgs(rest, NO_FLAGS), io);
   }
 
   // 同 `run.ts` 的 `unknownCommand`：使用者錯誤只走 UsageError 這一條路徑，
   // 不在這裡另開一份手寫的 errLine + return 1。
   throw new UsageError(
-    `未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio、new、set、mv、comment）`,
+    `未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio、new、set、mv、comment、label）`,
   );
 }
 
@@ -320,6 +323,31 @@ function cmdComment(args: Args, io: Io): number {
   const { member } = locateInWorkspace(workspace, ref);
 
   const updated = member.board.apply(ref, { comment: longText(body, io) });
+  line(io, renderTable([updated], displayLength(member.board)));
+  return 0;
+}
+
+/**
+ * `label`：跟單一 Board 的 `nook label`（`run.ts` 的 `cmdLabel`）同一份 token
+ * 解析邏輯（`parseLabelTokens`）一字不改地重用，差別只在目標 board 從哪裡來 ——
+ * 這裡靠 `requireFullRef()` 與既有、未經修改的 `locateInWorkspace()` 找出擁有
+ * `<ref>` 的成員，而不是對 `io.cwd` 開一塊 Board。
+ *
+ * 印的是不帶成員路徑裝飾的那一行，同 `set`/`mv`/`comment`。
+ */
+function cmdLabel(args: Args, io: Io): number {
+  const [ref, ...tokens] = args.positional;
+  if (ref === undefined || tokens.length === 0) {
+    throw new UsageError('用法：nook workspace label <ref> +<label> -<label>');
+  }
+  requireFullRef(ref);
+
+  const { add, remove } = parseLabelTokens(tokens);
+
+  const workspace = openWorkspace({ dir: io.cwd });
+  const { member } = locateInWorkspace(workspace, ref);
+
+  const updated = member.board.apply(ref, { labels: { add, remove } });
   line(io, renderTable([updated], displayLength(member.board)));
   return 0;
 }
