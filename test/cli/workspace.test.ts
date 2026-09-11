@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBoard, initBoard } from '../../src/index.js';
 import { dispatchWorkspace } from '../../src/cli/workspace.js';
-import { IssueDeleted, NotAWorkspaceMember, RefNotFoundInWorkspace } from '../../src/core/types.js';
+import {
+  InvalidStatus,
+  IssueDeleted,
+  NotAWorkspaceMember,
+  RefNotFoundInWorkspace,
+} from '../../src/core/types.js';
 import type { Io } from '../../src/cli/run.js';
 import type { CreateInput, IdSource, Issue } from '../../src/index.js';
 
@@ -525,6 +530,87 @@ describe('dispatchWorkspace set — 對已刪除的 issue 寫入', () => {
     await expect(
       dispatchWorkspace(['set', issue.id, 'title', '新標題'], io),
     ).rejects.toThrow(IssueDeleted);
+  });
+});
+
+describe('dispatchWorkspace mv — 完整 ULID 對到正確的成員', () => {
+  it('status 被正確更新，其餘成員不受影響', async () => {
+    const a = member('pkgs', 'a');
+    const b = member('pkgs', 'b');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+    createIn(b, '01JBX7BBBBBBBBBBBBBBBBBBBB', { title: 'b 的任務', status: 'todo' } as CreateInput);
+
+    const io = capture();
+    const code = await dispatchWorkspace(['mv', issue.id, 'queued'], io);
+
+    expect(code).toBe(0);
+    expect(openBoard({ dir: a }).get(issue.id).status).toBe('queued');
+    expect(openBoard({ dir: b }).get('01JBX7BBBBBBBBBBBBBBBBBBBB').status).toBe('todo');
+    expect(io.out).toContain('queued');
+    expect(io.err).toBe('');
+  });
+});
+
+describe('dispatchWorkspace mv — status 接受無歧義前綴', () => {
+  it('"que" 解析成 "queued"，同單一 Board 版本', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+
+    const io = capture();
+    const code = await dispatchWorkspace(['mv', issue.id, 'que'], io);
+
+    expect(code).toBe(0);
+    expect(openBoard({ dir: a }).get(issue.id).status).toBe('queued');
+  });
+});
+
+describe('dispatchWorkspace mv — 短前綴拒絕', () => {
+  it('即使在該成員裡其實無歧義，也拒絕並清楚說明跨 board 操作需要完整 ULID', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+    const shortRef = issue.id.slice(0, 8);
+
+    const io = capture();
+
+    await expect(dispatchWorkspace(['mv', shortRef, 'queued'], io)).rejects.toThrow(/完整.*ULID/);
+    expect(openBoard({ dir: a }).get(issue.id).status).toBe('todo');
+  });
+});
+
+describe('dispatchWorkspace mv — 沒有成員擁有這個 ref', () => {
+  it('拋出 RefNotFoundInWorkspace', async () => {
+    member('pkgs', 'a');
+    member('pkgs', 'b');
+    const io = capture();
+
+    await expect(
+      dispatchWorkspace(['mv', 'ZZZZZZZZZZZZZZZZZZZZZZZZZZ', 'queued'], io),
+    ).rejects.toThrow(RefNotFoundInWorkspace);
+  });
+});
+
+describe('dispatchWorkspace mv — 不合法的 status', () => {
+  it('既有的 InvalidStatus 原樣冒出', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+
+    const io = capture();
+
+    await expect(dispatchWorkspace(['mv', issue.id, 'not-a-status'], io)).rejects.toThrow(
+      InvalidStatus,
+    );
   });
 });
 

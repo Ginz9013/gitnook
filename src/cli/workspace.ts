@@ -47,12 +47,14 @@ export async function dispatchWorkspace(argv: readonly string[], io: Io): Promis
       return cmdNew(parseArgs(rest, NEW_FLAGS), io);
     case 'set':
       return cmdSet(parseArgs(rest, SET_FLAGS), io);
+    case 'mv':
+      return cmdMv(parseArgs(rest, NO_FLAGS), io);
   }
 
   // 同 `run.ts` 的 `unknownCommand`：使用者錯誤只走 UsageError 這一條路徑，
   // 不在這裡另開一份手寫的 errLine + return 1。
   throw new UsageError(
-    `未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio、new、set）`,
+    `未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio、new、set、mv）`,
   );
 }
 
@@ -61,6 +63,7 @@ const DOCTOR_FLAGS: ReadonlySet<string> = new Set(['--fix']);
 const STUDIO_FLAGS: ReadonlySet<string> = new Set(['--port']);
 const NEW_FLAGS: ReadonlySet<string> = new Set(['--in', '--description', '--editor', '--label']);
 const SET_FLAGS: ReadonlySet<string> = new Set(['--editor']);
+const NO_FLAGS: ReadonlySet<string> = new Set();
 
 /**
  * 跨 board 操作要求完整 26 碼 ULID（spec.md Non-goals）。在 `openWorkspace()`
@@ -265,6 +268,33 @@ function cmdSet(args: Args, io: Io): number {
   }
 
   const updated = member.board.apply(ref, asChange(field as Field, text));
+  line(io, renderTable([updated], displayLength(member.board)));
+  return 0;
+}
+
+/**
+ * `mv`：`set <ref> status <value>` 的捷徑 —— 跟單一 Board 的 `nook mv`
+ * （`run.ts` 的 `cmdMv`）同一個關係，只是目標 board 從哪裡來換成
+ * `requireFullRef()` + 既有、未經修改的 `locateInWorkspace()`。
+ *
+ * `<status>` 的前綴解析（`que` → `queued`）完全交給 `member.board.apply()`
+ * 內部既有、未經修改的 `resolveStatus()` —— 這裡只把使用者輸入的原始字串
+ * 傳過去，不做任何自己的猜測；不合法的 status 讓既有的 `InvalidStatus`
+ * 原樣冒出。
+ *
+ * 印的是不帶成員路徑裝飾的那一行，同 `set`。
+ */
+function cmdMv(args: Args, io: Io): number {
+  const [ref, status] = args.positional;
+  if (ref === undefined || status === undefined) {
+    throw new UsageError('用法：nook workspace mv <ref> <status>');
+  }
+  requireFullRef(ref);
+
+  const workspace = openWorkspace({ dir: io.cwd });
+  const { member } = locateInWorkspace(workspace, ref);
+
+  const updated = member.board.apply(ref, { status });
   line(io, renderTable([updated], displayLength(member.board)));
   return 0;
 }
