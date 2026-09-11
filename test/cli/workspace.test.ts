@@ -31,7 +31,7 @@ interface Capture extends Io {
   err: string;
 }
 
-function capture(opts: { cwd?: string; signal?: AbortSignal } = {}): Capture {
+function capture(opts: { cwd?: string; signal?: AbortSignal; stdin?: string } = {}): Capture {
   return {
     out: '',
     err: '',
@@ -46,7 +46,8 @@ function capture(opts: { cwd?: string; signal?: AbortSignal } = {}): Capture {
       this.err += text;
     },
     readStdin(): string {
-      throw new Error('測試未提供 stdin');
+      if (opts.stdin === undefined) throw new Error('測試未提供 stdin');
+      return opts.stdin;
     },
   };
 }
@@ -611,6 +612,77 @@ describe('dispatchWorkspace mv — 不合法的 status', () => {
     await expect(dispatchWorkspace(['mv', issue.id, 'not-a-status'], io)).rejects.toThrow(
       InvalidStatus,
     );
+  });
+});
+
+describe('dispatchWorkspace comment — 完整 ULID 對到正確的成員', () => {
+  it('留言被正確加上，其餘成員不受影響，回印更新後那一行且不帶成員路徑裝飾', async () => {
+    const a = member('pkgs', 'a');
+    const b = member('pkgs', 'b');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+    createIn(b, '01JBX7BBBBBBBBBBBBBBBBBBBB', { title: 'b 的任務', status: 'todo' } as CreateInput);
+
+    const io = capture();
+    const code = await dispatchWorkspace(['comment', issue.id, 'safari 才會重現'], io);
+
+    expect(code).toBe(0);
+    expect(openBoard({ dir: a }).get(issue.id).comments.map((c) => c.body)).toEqual([
+      'safari 才會重現',
+    ]);
+    expect(openBoard({ dir: b }).get('01JBX7BBBBBBBBBBBBBBBBBBBB').comments).toEqual([]);
+    expect(io.out).toContain('原本標題');
+    expect(io.out).not.toContain('pkgs/a');
+    expect(io.err).toBe('');
+  });
+});
+
+describe('dispatchWorkspace comment — <body> 接受 - 從 stdin 讀', () => {
+  it('多行內容從 stdin 讀入，結尾換行被去掉', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+    const LONG = 'line one\nline two';
+    const io = capture({ stdin: `${LONG}\n` });
+
+    const code = await dispatchWorkspace(['comment', issue.id, '-'], io);
+
+    expect(code).toBe(0);
+    expect(openBoard({ dir: a }).get(issue.id).comments.map((c) => c.body)).toEqual([LONG]);
+  });
+});
+
+describe('dispatchWorkspace comment — 短前綴拒絕', () => {
+  it('即使在該成員裡其實無歧義，也拒絕並清楚說明跨 board 操作需要完整 ULID', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+    const shortRef = issue.id.slice(0, 8);
+
+    const io = capture();
+
+    await expect(dispatchWorkspace(['comment', shortRef, 'safari 才會重現'], io)).rejects.toThrow(
+      /完整.*ULID/,
+    );
+    expect(openBoard({ dir: a }).get(issue.id).comments).toEqual([]);
+  });
+});
+
+describe('dispatchWorkspace comment — 沒有成員擁有這個 ref', () => {
+  it('拋出 RefNotFoundInWorkspace', async () => {
+    member('pkgs', 'a');
+    member('pkgs', 'b');
+    const io = capture();
+
+    await expect(
+      dispatchWorkspace(['comment', 'ZZZZZZZZZZZZZZZZZZZZZZZZZZ', 'safari 才會重現'], io),
+    ).rejects.toThrow(RefNotFoundInWorkspace);
   });
 });
 

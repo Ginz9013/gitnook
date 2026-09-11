@@ -49,12 +49,14 @@ export async function dispatchWorkspace(argv: readonly string[], io: Io): Promis
       return cmdSet(parseArgs(rest, SET_FLAGS), io);
     case 'mv':
       return cmdMv(parseArgs(rest, NO_FLAGS), io);
+    case 'comment':
+      return cmdComment(parseArgs(rest, NO_FLAGS), io);
   }
 
   // 同 `run.ts` 的 `unknownCommand`：使用者錯誤只走 UsageError 這一條路徑，
   // 不在這裡另開一份手寫的 errLine + return 1。
   throw new UsageError(
-    `未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio、new、set、mv）`,
+    `未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio、new、set、mv、comment）`,
   );
 }
 
@@ -295,6 +297,29 @@ function cmdMv(args: Args, io: Io): number {
   const { member } = locateInWorkspace(workspace, ref);
 
   const updated = member.board.apply(ref, { status });
+  line(io, renderTable([updated], displayLength(member.board)));
+  return 0;
+}
+
+/**
+ * `comment`：跟單一 Board 的 `nook comment`（`run.ts` 的 `cmdComment`）同一份
+ * 組裝邏輯 —— 差別只在目標 board 從哪裡來，這裡靠既有、未經修改的
+ * `locateInWorkspace()` 找出擁有 `<ref>` 的成員，而不是對 `io.cwd` 開一塊
+ * Board。
+ *
+ * 印的是不帶成員路徑裝飾的那一行，同 `set`/`mv`。
+ */
+function cmdComment(args: Args, io: Io): number {
+  const [ref, body] = args.positional;
+  if (ref === undefined || body === undefined) {
+    throw new UsageError('用法：nook workspace comment <ref> <body>');
+  }
+  requireFullRef(ref);
+
+  const workspace = openWorkspace({ dir: io.cwd });
+  const { member } = locateInWorkspace(workspace, ref);
+
+  const updated = member.board.apply(ref, { comment: longText(body, io) });
   line(io, renderTable([updated], displayLength(member.board)));
   return 0;
 }
