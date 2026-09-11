@@ -31,6 +31,7 @@ import {
   BoardNotInitialized,
   InvalidStatus,
   IssueDeleted,
+  NotAWorkspaceMember,
   RefNotFound,
 } from '../core/types.js';
 import { renderJson } from '../render/json.js';
@@ -172,6 +173,10 @@ const USER_ERRORS = [
   // 就得到他要的那塊 board。同樣是「改你的指令」，不是一個值得回報的 bug。
   NoGitDir,
   PortInUse,
+  // `memberAt()` 解析出來的 Board 不在這個 workspace 的 members 裡：使用者的
+  // `--in` 打到了掃描範圍外的路徑，改成範圍內的路徑就修好了 —— 同樣不是
+  // nook 的 bug（票 02，第一個用到 `memberAt` 的地方）。
+  NotAWorkspaceMember,
 ] as const;
 
 export async function run(argv: readonly string[], io: Io): Promise<number> {
@@ -360,7 +365,15 @@ function version(): string {
  * export 供 `cli/workspace.ts` 重用（票 02）—— 兩處指令共用同一份判斷，
  * 不重寫一份可能漂開的副本。
  */
-export const VALUED: ReadonlySet<string> = new Set(['--status', '--label', '--description', '--port']);
+export const VALUED: ReadonlySet<string> = new Set([
+  '--status',
+  '--label',
+  '--description',
+  '--port',
+  // `workspace new --in <path>`（票 02）：跟其餘會接一個值的旗標同一份判斷，
+  // 不在 `cli/workspace.ts` 重寫第二份可能漂開的副本。
+  '--in',
+]);
 
 /** 每個指令認得的旗標。不在名單上的一律報錯 —— 靜默吃掉一個打錯的旗標，
  * 呼叫端會拿到一份沒過濾的答案卻以為自己過濾了。 */
@@ -589,7 +602,9 @@ function cmdHistory(args: Args, io: Io): number {
  */
 const STDIN = '-';
 
-function longText(value: string, io: Io): string {
+/** export 供 `cli/workspace.ts` 重用（票 02）—— `new --description`/`--in` 組裝
+ * 邏輯的長文一半，不重寫一份可能漂開的副本。 */
+export function longText(value: string, io: Io): string {
   if (value !== STDIN) return value;
   // 檔案結尾的換行是檔案的事，不該變成內容的一部分。
   return io.readStdin().replace(/\r?\n$/, '');
@@ -601,7 +616,8 @@ function longText(value: string, io: Io): string {
  * 非 TTY 時報錯而不是卡住：agent 的管線正是非 TTY，掛在一個等不到輸入的
  * 編輯器上等於整條管線掛死。兩道守門都在任何寫入之前。
  */
-function fromEditor(io: Io, seed: string): string {
+/** export 供 `cli/workspace.ts` 重用（票 02），理由同 `longText`。 */
+export function fromEditor(io: Io, seed: string): string {
   if (!io.isTty) throw new UsageError('--editor 需要互動終端；非 TTY 請改用 - 從 stdin 讀');
 
   const editor = (io.env.VISUAL ?? io.env.EDITOR ?? '').trim();
@@ -1027,10 +1043,15 @@ function cmdShare(args: Args, io: Io): number {
   return 0;
 }
 
-function cmdNew(args: Args, io: Io): number {
-  const title = args.positional[0];
-  if (title === undefined) throw new UsageError('用法：nook new <title>');
-
+/**
+ * `title` 之外的 `CreateInput` 組裝——`--editor`/`--description`/`--label`。
+ * export 供 `cli/workspace.ts` 重用（票 02）：workspace 版的 `new` 只是目標
+ * board 換一個來源，其餘欄位組裝跟單一 Board 版本一字不差，不重寫一份
+ * 可能漂開的副本。`title` 由呼叫端自己驗證並傳進來——兩邊的「缺標題」用法
+ * 錯誤訊息不一樣（`nook new` vs `nook workspace new ... --in`），不適合
+ * 塞進這個共用函式。
+ */
+export function assembleCreateInput(title: string, args: Args, io: Io): CreateInput {
   // 編輯器與 `-` 是同一件事的兩條路，不會同時走。
   let description: string | undefined;
   if (args.has('--editor')) {
@@ -1041,12 +1062,18 @@ function cmdNew(args: Args, io: Io): number {
   }
 
   const labels = args.all('--label');
-  const input: CreateInput = {
+  return {
     title,
     ...(description === undefined ? {} : { description }),
     ...(labels.length === 0 ? {} : { labels }),
   };
+}
 
+function cmdNew(args: Args, io: Io): number {
+  const title = args.positional[0];
+  if (title === undefined) throw new UsageError('用法：nook new <title>');
+
+  const input = assembleCreateInput(title, args, io);
   const issue = openBoard({ dir: io.cwd }).create(input);
   // 印完整的 26 碼 ULID 而非短 ID —— 那是唯一**永久有效**的 Ref。短 ID 只在
   // 印出的當下無歧義：ULID 前綴編的是時間高位，下一張 Issue 就可能延伸同一個

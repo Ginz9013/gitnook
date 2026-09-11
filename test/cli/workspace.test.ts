@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBoard, initBoard } from '../../src/index.js';
 import { dispatchWorkspace } from '../../src/cli/workspace.js';
+import { NotAWorkspaceMember } from '../../src/core/types.js';
 import type { Io } from '../../src/cli/run.js';
 import type { CreateInput, IdSource, Issue } from '../../src/index.js';
 
@@ -339,6 +340,91 @@ async function waitFor(io: Capture, pattern: RegExp): Promise<string> {
   }
   throw new Error(`等不到符合 ${pattern} 的輸出：${JSON.stringify(io.out)}`);
 }
+
+describe('dispatchWorkspace new — 缺少 --in', () => {
+  it('拋出 UsageError，訊息講清楚用法', async () => {
+    member('pkgs', 'a');
+    const io = capture();
+
+    await expect(dispatchWorkspace(['new', 'Fix login redirect'], io)).rejects.toThrow(/--in/);
+  });
+});
+
+describe('dispatchWorkspace new — 成功建立在正確的成員底下', () => {
+  it('印出完整 26 碼 ULID，且只有目標成員的 board 有變化', async () => {
+    const a = member('pkgs', 'a');
+    const b = member('pkgs', 'b');
+    const io = capture();
+
+    const code = await dispatchWorkspace(['new', 'Fix login redirect', '--in', a], io);
+
+    expect(code).toBe(0);
+    const ref = io.out.trim();
+    expect(ref).toHaveLength(26);
+    expect(openBoard({ dir: a }).get(ref).title).toBe('Fix login redirect');
+    expect(openBoard({ dir: b }).list({ all: true })).toEqual([]);
+    expect(io.err).toBe('');
+  });
+});
+
+describe('dispatchWorkspace new — --in 指向成員底下的子目錄', () => {
+  it('沿用既有向上尋根，仍然解析到正確的成員', async () => {
+    const a = member('pkgs', 'a');
+    const sub = join(a, 'src', 'nested');
+    mkdirSync(sub, { recursive: true });
+    const io = capture();
+
+    const code = await dispatchWorkspace(['new', 'Fix login redirect', '--in', sub], io);
+
+    expect(code).toBe(0);
+    const ref = io.out.trim();
+    expect(openBoard({ dir: a }).get(ref).title).toBe('Fix login redirect');
+  });
+});
+
+describe('dispatchWorkspace new — --in 指向 workspace 掃描範圍外的路徑', () => {
+  it('即使那裡真的有一塊 Board，也拋出 NotAWorkspaceMember', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'nook-workspace-outside-'));
+    initBoard(outside);
+    try {
+      const io = capture();
+
+      await expect(
+        dispatchWorkspace(['new', 'Fix login redirect', '--in', outside], io),
+      ).rejects.toThrow(NotAWorkspaceMember);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('dispatchWorkspace new — --description/--label/--editor 語意同單一 Board', () => {
+  it('--description 與 --label 組裝進 CreateInput', async () => {
+    const a = member('pkgs', 'a');
+    const io = capture();
+
+    const code = await dispatchWorkspace(
+      ['new', 'Fix login redirect', '--in', a, '--description', 'body', '--label', 'bug'],
+      io,
+    );
+
+    expect(code).toBe(0);
+    const ref = io.out.trim();
+    const issue = openBoard({ dir: a }).get(ref);
+    expect(issue.description).toBe('body');
+    expect(issue.labels).toEqual(['bug']);
+  });
+
+  it('--editor 在非 TTY 時報錯，不留下半個更動', async () => {
+    const a = member('pkgs', 'a');
+    const io = capture();
+
+    await expect(
+      dispatchWorkspace(['new', 'Fix login redirect', '--in', a, '--editor'], io),
+    ).rejects.toThrow(/--editor/);
+    expect(openBoard({ dir: a }).list({ all: true })).toEqual([]);
+  });
+});
 
 describe('dispatchWorkspace studio — --port 參數解析', () => {
   it('不是合法的 port 時報 UsageError，不啟動任何 server', async () => {

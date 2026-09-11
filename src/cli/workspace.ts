@@ -1,9 +1,10 @@
 import { relative } from 'node:path';
-import { openWorkspace } from '../core/workspace.js';
+import { memberAt, openWorkspace } from '../core/workspace.js';
 import { repair } from '../core/health.js';
 import { renderWorkspaceList } from '../render/table.js';
 import { serveWorkspace } from '../server/serveWorkspace.js';
 import {
+  assembleCreateInput,
   displayLength,
   formatDiagnostic,
   formatRepaired,
@@ -22,7 +23,7 @@ import type { WorkspaceGroup } from '../render/table.js';
  * 跟 `run.ts` 對單一 Board 的既有指令同一個薄度量級 —— 複雜度屬於
  * `openWorkspace()`（核心）與 `renderWorkspaceList()`（呈現），這裡只接線。
  *
- * 目前認得 `list`/`doctor`/`studio`。
+ * 目前認得 `list`/`doctor`/`studio`/`new`。
  */
 export async function dispatchWorkspace(argv: readonly string[], io: Io): Promise<number> {
   const [sub, ...rest] = argv;
@@ -34,16 +35,21 @@ export async function dispatchWorkspace(argv: readonly string[], io: Io): Promis
       return cmdDoctor(parseArgs(rest, DOCTOR_FLAGS), io);
     case 'studio':
       return cmdStudio(parseArgs(rest, STUDIO_FLAGS), io);
+    case 'new':
+      return cmdNew(parseArgs(rest, NEW_FLAGS), io);
   }
 
   // 同 `run.ts` 的 `unknownCommand`：使用者錯誤只走 UsageError 這一條路徑，
   // 不在這裡另開一份手寫的 errLine + return 1。
-  throw new UsageError(`未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio）`);
+  throw new UsageError(
+    `未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio、new）`,
+  );
 }
 
 const LIST_FLAGS: ReadonlySet<string> = new Set(['--all', '--status', '--label', '--json']);
 const DOCTOR_FLAGS: ReadonlySet<string> = new Set(['--fix']);
 const STUDIO_FLAGS: ReadonlySet<string> = new Set(['--port']);
+const NEW_FLAGS: ReadonlySet<string> = new Set(['--in', '--description', '--editor', '--label']);
 
 /**
  * 一個成員路徑相對於 workspace 根目錄的顯示形式。成員本身就是根目錄時
@@ -162,6 +168,39 @@ async function cmdStudio(args: Args, io: Io): Promise<number> {
 
   await untilAborted(io.signal);
   await studio.close();
+  return 0;
+}
+
+/**
+ * `new`：跟單一 Board 的 `nook new`（`run.ts` 的 `cmdNew`）同一份組裝邏輯——
+ * `--editor`/`--description`/`--label` 一字不改地重用，差別只在目標 board
+ * 從哪裡來：這裡靠 `--in <path>` 與既有、未經修改的 `memberAt()` 解析出
+ * 正確的成員，而不是對 `io.cwd` 開一塊新的 Board。
+ *
+ * `--in` 必填 —— spec.md 的 Non-goals：不支援 cwd 自動推斷，人已經站在某個
+ * 成員裡的話，直接用單一 Board 的 `nook new` 更直接。
+ *
+ * 印的是不帶成員路徑裝飾的純 ULID，同單一 Board `new` 的既有慣例 ——
+ * spec.md 的 Domain decisions：只有 `rm` 標成員路徑，`new` 每次只印一筆
+ * 結果，使用者剛剛才主動指定了 `--in`，落在哪個成員早在預期內。
+ */
+function cmdNew(args: Args, io: Io): number {
+  const title = args.positional[0];
+  const usage = '用法：nook workspace new <title> --in <path>';
+  if (title === undefined) throw new UsageError(usage);
+
+  const at = args.one('--in');
+  if (at === undefined) throw new UsageError(`${usage}（--in 必填，不支援從 cwd 自動推斷）`);
+
+  const workspace = openWorkspace({ dir: io.cwd });
+  const target = memberAt(workspace, at);
+
+  // 欄位組裝跟單一 Board 版本的 `nook new` 一字不差，重用 `run.ts` 的
+  // `assembleCreateInput`——差別只在目標 board 從 `--in` 解析出來，不是
+  // `io.cwd`。
+  const input = assembleCreateInput(title, args, io);
+  const issue = target.board.create(input);
+  line(io, issue.id);
   return 0;
 }
 

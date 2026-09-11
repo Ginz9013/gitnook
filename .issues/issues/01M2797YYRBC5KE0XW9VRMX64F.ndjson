@@ -3,3 +3,4 @@
 {"id":"01M2797YZ3CX2VVGNWZW1A7ECP","t":3,"a":"83a1","op":"label.add","v":"workspace-write"}
 {"id":"01M2797YZ3BF16JQTSQN0T62Q1","t":4,"a":"83a1","op":"label.add","v":"cli"}
 {"id":"01M279BT6XCZ66FCKFYYHWPYDV","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M279WT1FWN4CAP6WR41N5D7J","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
