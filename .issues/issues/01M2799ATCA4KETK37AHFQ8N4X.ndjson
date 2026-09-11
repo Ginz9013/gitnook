@@ -4,3 +4,5 @@
 {"id":"01M2799ATP9DC2AA6CHPTDHSY7","t":4,"a":"83a1","op":"label.add","v":"docs"}
 {"id":"01M279BTDHG3XEWGJ4RPCNQHA5","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M27CR96VN14VP1E4G0FACJWD","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M27D45YXNDQRMFANJFPXJM1G","t":7,"a":"83a1","op":"comment","body":"**落地。** 這張票沒有新行為，驗證即是 `npx vitest run`（42 files / 766\ntests，跟基線一致）、`tsc --noEmit`（0 錯誤）、`test/agent-doc.test.ts`\n雙向綠燈。\n\nSpec 軸把 README/AGENT.md 每一句新增的話都對照原始碼重新核實過（不是只\n信 worker 的報告），確認 IncompleteRef/NotAWorkspaceMember 等錯誤訊息的\n措辭、只有 rm 標成員路徑這件事、以及最關鍵的「queued 授權邊界對\nworkspace mv 仍然適用」這條之前缺的規則，都真的寫進 AGENT.md 了。也確認\nCONTEXT.md/ADR-0012 真的沒被動到。\n\nStandards 軸抓到一條用詞小瑕疵：「cross-repo read」當名詞讀起來卡，跟\n旁邊 history 那一行「read-only」的形容詞寫法不一致——已改回\n「cross-repo, read-only」（commit `ccf2ed9`）。"}
+{"id":"01M27D460AQFGCE516MP842CA3","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
