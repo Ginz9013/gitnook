@@ -31,13 +31,15 @@ interface Capture extends Io {
   err: string;
 }
 
-function capture(opts: { cwd?: string; signal?: AbortSignal; stdin?: string } = {}): Capture {
+function capture(
+  opts: { cwd?: string; signal?: AbortSignal; stdin?: string; isTty?: boolean } = {},
+): Capture {
   return {
     out: '',
     err: '',
     cwd: opts.cwd ?? root,
     env: {},
-    isTty: false,
+    isTty: opts.isTty ?? false,
     ...(opts.signal === undefined ? {} : { signal: opts.signal }),
     write(text: string) {
       this.out += text;
@@ -752,6 +754,126 @@ describe('dispatchWorkspace label — 沒有成員擁有這個 ref', () => {
 
     await expect(
       dispatchWorkspace(['label', 'ZZZZZZZZZZZZZZZZZZZZZZZZZZ', '+p1'], io),
+    ).rejects.toThrow(RefNotFoundInWorkspace);
+  });
+});
+
+describe('dispatchWorkspace rm — --yes 直接刪除，標示成員路徑', () => {
+  it('正確的成員被寫入 deleted: true，其餘成員不受影響；最終輸出帶成員路徑', async () => {
+    const a = member('pkgs', 'a');
+    const b = member('pkgs', 'b');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+    createIn(b, '01JBX7BBBBBBBBBBBBBBBBBBBB', { title: 'b 的任務', status: 'todo' } as CreateInput);
+
+    const io = capture();
+    const code = await dispatchWorkspace(['rm', issue.id, '--yes'], io);
+
+    expect(code).toBe(0);
+    expect(openBoard({ dir: a }).get(issue.id).deleted).toBe(true);
+    expect(openBoard({ dir: b }).get('01JBX7BBBBBBBBBBBBBBBBBBBB').deleted).toBe(false);
+    expect(io.out).toContain('pkgs/a');
+    expect(io.out).toContain('原本標題');
+    expect(io.err).toBe('');
+  });
+});
+
+describe('dispatchWorkspace rm — 非 TTY 且未給 --yes', () => {
+  it('拒絕（既有、未經修改的 confirmed() 拋出），什麼都沒刪，同單一 Board 版本的既有規則', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+
+    const io = capture();
+
+    await expect(dispatchWorkspace(['rm', issue.id], io)).rejects.toThrow(/--yes/);
+
+    expect(io.out).toBe('');
+    expect(openBoard({ dir: a }).get(issue.id).deleted).toBe(false);
+  });
+});
+
+describe('dispatchWorkspace rm — 互動確認的問句帶成員路徑', () => {
+  it('問句同時說出相對路徑與 title；n 不刪且 exit 1，y 才刪', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+
+    const declined = { ...capture({ isTty: true }), readLine: () => 'n' };
+    const declinedCode = await dispatchWorkspace(['rm', issue.id], declined);
+
+    expect(declinedCode).toBe(1);
+    expect(declined.err).toContain('pkgs/a');
+    expect(declined.err).toContain('原本標題');
+    expect(declined.out).toBe('');
+    expect(openBoard({ dir: a }).get(issue.id).deleted).toBe(false);
+
+    const accepted = { ...capture({ isTty: true }), readLine: () => 'y' };
+    const acceptedCode = await dispatchWorkspace(['rm', issue.id], accepted);
+
+    expect(acceptedCode).toBe(0);
+    expect(openBoard({ dir: a }).get(issue.id).deleted).toBe(true);
+  });
+});
+
+describe('dispatchWorkspace rm — 對已刪除的 issue', () => {
+  it('印出的訊息標示成員路徑，指向 workspace set 復原並提示 cd 進成員用 nook history，不先問確認', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+    openBoard({ dir: a }).apply(issue.id, { deleted: true });
+
+    // TTY 且能問，但 readLine 一旦被呼叫就代表在為一次不可能落地的寫入要決定。
+    const tty = {
+      ...capture({ isTty: true }),
+      readLine: () => {
+        throw new Error('不該問確認：這張已經刪掉了');
+      },
+    };
+
+    const code = await dispatchWorkspace(['rm', issue.id], tty);
+
+    expect(code).toBe(1);
+    expect(tty.err).toContain('pkgs/a');
+    expect(tty.err).toContain(`nook workspace set ${issue.id} deleted false`);
+    expect(tty.err).toContain('cd');
+    expect(tty.err).toContain('nook history');
+    expect(tty.out).toBe('');
+  });
+});
+
+describe('dispatchWorkspace rm — 短前綴拒絕', () => {
+  it('即使在該成員裡其實無歧義，也拒絕並清楚說明跨 board 操作需要完整 ULID', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+    const shortRef = issue.id.slice(0, 8);
+
+    const io = capture();
+
+    await expect(dispatchWorkspace(['rm', shortRef, '--yes'], io)).rejects.toThrow(/完整.*ULID/);
+    expect(openBoard({ dir: a }).get(issue.id).deleted).toBe(false);
+  });
+});
+
+describe('dispatchWorkspace rm — 沒有成員擁有這個 ref', () => {
+  it('拋出 RefNotFoundInWorkspace', async () => {
+    member('pkgs', 'a');
+    member('pkgs', 'b');
+    const io = capture();
+
+    await expect(
+      dispatchWorkspace(['rm', 'ZZZZZZZZZZZZZZZZZZZZZZZZZZ', '--yes'], io),
     ).rejects.toThrow(RefNotFoundInWorkspace);
   });
 });

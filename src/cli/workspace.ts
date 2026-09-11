@@ -1,6 +1,6 @@
 import { relative } from 'node:path';
 import { isFullRef } from '../core/ids.js';
-import { IncompleteRef } from '../core/types.js';
+import { IncompleteRef, IssueDeleted } from '../core/types.js';
 import { locateInWorkspace, memberAt, openWorkspace } from '../core/workspace.js';
 import { repair } from '../core/health.js';
 import { renderTable, renderWorkspaceList } from '../render/table.js';
@@ -8,7 +8,9 @@ import { serveWorkspace } from '../server/serveWorkspace.js';
 import {
   asChange,
   assembleCreateInput,
+  confirmed,
   displayLength,
+  errLine,
   formatDiagnostic,
   formatRepaired,
   fromEditor,
@@ -54,12 +56,14 @@ export async function dispatchWorkspace(argv: readonly string[], io: Io): Promis
       return cmdComment(parseArgs(rest, NO_FLAGS), io);
     case 'label':
       return cmdLabel(parseArgs(rest, NO_FLAGS), io);
+    case 'rm':
+      return cmdRm(parseArgs(rest, RM_FLAGS), io);
   }
 
   // 同 `run.ts` 的 `unknownCommand`：使用者錯誤只走 UsageError 這一條路徑，
   // 不在這裡另開一份手寫的 errLine + return 1。
   throw new UsageError(
-    `未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio、new、set、mv、comment、label）`,
+    `未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio、new、set、mv、comment、label、rm）`,
   );
 }
 
@@ -69,6 +73,7 @@ const STUDIO_FLAGS: ReadonlySet<string> = new Set(['--port']);
 const NEW_FLAGS: ReadonlySet<string> = new Set(['--in', '--description', '--editor', '--label']);
 const SET_FLAGS: ReadonlySet<string> = new Set(['--editor']);
 const NO_FLAGS: ReadonlySet<string> = new Set();
+const RM_FLAGS: ReadonlySet<string> = new Set(['--yes']);
 
 /**
  * 跨 board 操作要求完整 26 碼 ULID（spec.md Non-goals）。在 `openWorkspace()`
@@ -349,6 +354,65 @@ function cmdLabel(args: Args, io: Io): number {
 
   const updated = member.board.apply(ref, { labels: { add, remove } });
   line(io, renderTable([updated], displayLength(member.board)));
+  return 0;
+}
+
+/**
+ * 讀到一張已刪的 issue 時，`rm` 該說的那句話。**不是**重用 `run.ts` 的
+ * `deletedMessage` —— 那句話指向單一 Board 的 `nook set`/`nook history`，
+ * 而這裡復原要用 workspace 版的 `nook workspace set <ref> deleted false`，
+ * 看歷史則沒有 workspace 版的 `history`，得先 `cd` 進那個成員再跑
+ * `nook history <ref>`。兩句話講的是同一件事、但語意真的不同，所以是新函式
+ * 不是共用一份措辭。
+ *
+ * 前半段仍然借 `IssueDeleted` 自己的 message —— 那句話本身歸那個型別所有，
+ * 手抄一份會漂移。
+ */
+function workspaceDeletedMessage(ref: string, memberPath: string): string {
+  return (
+    `${new IssueDeleted(ref).message}` +
+    `（cd ${memberPath} 後跑 nook history ${ref} 撈得回寫過的值，` +
+    `nook workspace set ${ref} deleted false 復原）`
+  );
+}
+
+/**
+ * `rm`：跟單一 Board 的 `nook rm`（`run.ts` 的 `cmdRm`）同一個定義 ——
+ * 「`set <ref> deleted true` 加上一次確認」，寫入仍然只經過 `member.board.apply`
+ * 這一個決定點。差別只在目標 board 從哪裡來（`requireFullRef()` + 既有、未經
+ * 修改的 `locateInWorkspace()`），以及這是這條鏈唯一一個確認句與最終輸出都
+ * 標示成員路徑的指令 —— spec.md 的 Domain decisions：刪除的救援步驟需要先
+ * 知道是哪個成員，其餘五個指令使用者剛剛才主動指定了 `<ref>`，落在哪個成員
+ * 早在預期內。
+ *
+ * 確認句重用既有、未經修改的 `confirmed(io, title)`（`run.ts`）——不改它的
+ * 簽章，只是把組好帶成員路徑的字串當 `title` 傳進去。非 TTY、或 TTY 但這個
+ * `Io` 沒有 `readLine` 時的拒絕邏輯因此完全繼承，這裡不必重寫。
+ */
+function cmdRm(args: Args, io: Io): number {
+  const [ref] = args.positional;
+  if (ref === undefined) throw new UsageError('用法：nook workspace rm <ref> [--yes]');
+  requireFullRef(ref);
+
+  const workspace = openWorkspace({ dir: io.cwd });
+  const { member, issue } = locateInWorkspace(workspace, ref);
+  const relPath = relativeGroupPath(workspace.root(), member.path);
+
+  // 已經刪掉了。問「真的要刪嗎」是在為一次不可能落地的寫入要求一個決定 ——
+  // 同單一 Board 版本的既有規則。
+  if (issue.deleted) {
+    errLine(io, workspaceDeletedMessage(ref, relPath));
+    return 1;
+  }
+
+  // 守門在任何寫入之前。組好的標題把成員路徑一起帶進 y/N 問句。
+  if (!args.has('--yes') && !confirmed(io, `${relPath} 底下的 ${issue.title}`)) return 1;
+
+  member.board.apply(ref, { deleted: true });
+  // 印正規化後的 issue.id，不是使用者輸入的 ref 原文——同單一 Board 版本的
+  // cmdRm（印 target.id），ref 大小寫不敏感，使用者輸入的大小寫不一定是
+  // 正規化後的樣子。
+  line(io, `Deleted  ${relPath}  ${issue.id.slice(0, displayLength(member.board))}  ${issue.title}`);
   return 0;
 }
 

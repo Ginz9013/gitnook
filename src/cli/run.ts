@@ -704,8 +704,11 @@ function cmdSet(args: Args, io: Io): number {
  *
  * 問句帶著標題：前綴打錯而刪掉另一張，正是這道關卡存在的理由。它走 stderr，
  * 因為 stdout 是資料。
+ *
+ * export 供 `cli/workspace.ts` 重用（票 07）——workspace 版的 `rm` 靠組好帶
+ * 成員路徑的字串當 `title` 傳進來，簽章與行為原封不動，不改這個函式本身。
  */
-function confirmed(io: Io, title: string): boolean {
+export function confirmed(io: Io, title: string): boolean {
   if (!io.isTty) throw new UsageError('rm 預設要互動確認；非 TTY 請加 --yes');
   if (io.readLine === undefined) {
     throw new UsageError('rm 預設要互動確認；這個 io 沒有 readLine，問不出問題，請加 --yes');
