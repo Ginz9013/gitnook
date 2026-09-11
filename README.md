@@ -300,7 +300,13 @@ label <ref> +bug -ui
 share                                  upgrade a private board back to a shared one
 doctor [--fix]                         data health check; --fix repairs glued lines
 studio [--port <n>]                    board on localhost; create, drag, edit, comment
-workspace <list|doctor|studio>         cross-repo, read-only — see workspace below
+workspace list|doctor|studio           cross-repo, read-only — see workspace below
+workspace new <title> --in <path> [--description <text|->] [--label <l>] [--editor]
+workspace set <ref> <title|description|status|archived|deleted> <value|-> [--editor]
+workspace mv <ref> <status>            <ref> full ULID only — see workspace below
+workspace comment <ref> <body|->       <ref> full ULID only — see workspace below
+workspace label <ref> +bug -ui         <ref> full ULID only — see workspace below
+workspace rm <ref> [--yes]             <ref> full ULID only — see workspace below
 ```
 
 `-` as a value reads the value from stdin.
@@ -484,11 +490,48 @@ unlike `openBoard()`, which throws when there is no board at all.
   merged into one screen — each member's studio is exactly as independent as
   running it directly, drag-and-drop included.
 
-**This cannot write anything.** There is no `nook workspace new`, `set`, or
-`mv` — deciding which member a write belongs to is a real design question
-that this round of work deliberately leaves open. `workspace` only ever reads
-what already exists on disk; every single-board command works exactly as
-documented above, unaffected.
+Six more subcommands write, each routed to the one member it belongs to
+without you naming that member twice:
+
+```
+nook workspace new <title> --in <path> [--description <text|->] [--label <l>] [--editor]
+nook workspace set <ref> <title|description|status|archived|deleted> <value|-> [--editor]
+nook workspace mv <ref> <status>
+nook workspace comment <ref> <body|->
+nook workspace label <ref> +bug -ui
+nook workspace rm <ref> [--yes]
+```
+
+`new` has no existing ref to route by, so it takes `--in <path>` instead —
+**required, with no fallback to the current directory**, even when you are
+already standing inside a member; if you are, plain `nook new` is more
+direct anyway. A `--in` path outside the workspace's scan (a real board,
+just not one this scan found) is rejected rather than silently adopted.
+
+The other five all start from an existing ref, and a ULID is unique across
+the whole workspace in the same way it is unique across one board, so the
+ref alone is enough to find the right member — no second "which one" flag
+to give. That ref must be the **full 26-character ULID**; a short prefix is
+rejected outright rather than guessed at, because a prefix that is
+unambiguous inside one member's board can collide with an unrelated issue in
+a different member — two independently-grown boards can each mint the same
+short prefix and mean two different issues. Only `new` and these five write;
+there is no workspace version of `history` or `show`.
+
+`set`, `mv`, `comment` and `label` print exactly what the equivalent
+single-board command would print — undecorated with any member path, because
+you just supplied the ref (or, for `new`, the `--in` path) yourself, so which
+member it landed in was already your decision. `rm` is the one exception:
+both its confirmation prompt and its final line name the member's path,
+because the rescue step (`nook workspace set <ref> deleted false`) needs
+that path to `cd` into before it means anything — and there is no workspace
+`history` to check first, so the message also says to `cd` in and run plain
+`nook history <ref>`.
+
+Semantics — filtering, `--editor`, label add/remove, the `--yes` TTY/non-TTY
+rule — match the single-board commands exactly; none of it is reimplemented
+here. Every single-board command still works exactly as documented above,
+unaffected.
 
 ## doctor
 
