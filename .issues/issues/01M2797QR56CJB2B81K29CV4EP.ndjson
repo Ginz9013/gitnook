@@ -4,3 +4,5 @@
 {"id":"01M2797QRGJX1XQEQE6QY12NFX","t":4,"a":"83a1","op":"label.add","v":"core"}
 {"id":"01M279BT5PQD065Z4TWB7QSTYS","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M279CE9Y7XCHEJYRP7QY5MGQ","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M279WHQHKNGP27N3FFXGYWV5","t":7,"a":"83a1","op":"comment","body":"**落地。** 整合者驗證：42 files / 735 tests 綠（基線 42/723）、`tsc --noEmit`\n0 錯誤。Worker 遵守了「不准對這個 repo 自己的 .issues/ 跑 nook CLI」的\n提醒，沒有重演上一輪的問題。\n\nRed evidence 手法值得記一筆：因為兩個函式共用同一份實作，worker 沒辦法\n對每條分支各自取得一個「模組不存在」層級的紅燈，改成先確認整體功能不\n存在時的真紅燈，之後每條分支個別用「暫時弄壞那條邏輯、觀察測試為了\n正確理由變紅、再復原」的手法取得證據，並且用 grep 確認暫時標記\n（TEMP-RED-EVIDENCE）在收工前全部移除乾淨。這不是無中生有的紅燈，是\n對著會失敗的斷言做的真實變異測試，判定為可信證據。\n\n兩軸 review 只有一條真的有實質內容：`locateInWorkspace` 只接\n`RefNotFound` 繼續下一個成員的設計，依賴一個沒寫出來的不變量——對完整\n26 碼 ref，單一成員內的 `resolvePrefix()` 會退化成相等比對，永遠不可能\n對完整 ref 拋 `AmbiguousRef`，所以「多個成員各自擁有同一個 ref」這件事\n只可能發生在成員之間、不會從這個 catch 漏進來。這條邏輯本身是對的，只是\n沒寫出來——已經補上一段註解讓這個假設不再隱藏（commit `d75026f`，跟\n實作同一個 commit 一起落地）。"}
+{"id":"01M279WHRTJNN0CQV6Z1C5RG83","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
