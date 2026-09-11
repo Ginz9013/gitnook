@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBoard, initBoard } from '../../src/index.js';
 import { dispatchWorkspace } from '../../src/cli/workspace.js';
-import { NotAWorkspaceMember } from '../../src/core/types.js';
+import { IssueDeleted, NotAWorkspaceMember, RefNotFoundInWorkspace } from '../../src/core/types.js';
 import type { Io } from '../../src/cli/run.js';
 import type { CreateInput, IdSource, Issue } from '../../src/index.js';
 
@@ -423,6 +423,108 @@ describe('dispatchWorkspace new — --description/--label/--editor 語意同單�
       dispatchWorkspace(['new', 'Fix login redirect', '--in', a, '--editor'], io),
     ).rejects.toThrow(/--editor/);
     expect(openBoard({ dir: a }).list({ all: true })).toEqual([]);
+  });
+});
+
+describe('dispatchWorkspace set — 完整 ULID 對到正確的成員', () => {
+  it('該欄位被正確更新，其餘成員完全不受影響，回印更新後那一行且不帶成員路徑裝飾', async () => {
+    const a = member('pkgs', 'a');
+    const b = member('pkgs', 'b');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+    createIn(b, '01JBX7BBBBBBBBBBBBBBBBBBBB', { title: 'b 的任務', status: 'todo' } as CreateInput);
+
+    const io = capture();
+    const code = await dispatchWorkspace(['set', issue.id, 'title', '新標題'], io);
+
+    expect(code).toBe(0);
+    expect(openBoard({ dir: a }).get(issue.id).title).toBe('新標題');
+    expect(openBoard({ dir: b }).get('01JBX7BBBBBBBBBBBBBBBBBBBB').title).toBe('b 的任務');
+    expect(io.out).toContain('新標題');
+    expect(io.out).not.toContain('pkgs/a');
+    expect(io.err).toBe('');
+  });
+});
+
+describe('dispatchWorkspace set — 短前綴拒絕', () => {
+  it('即使在該成員裡其實無歧義，也拒絕並清楚說明跨 board 操作需要完整 ULID', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+    const shortRef = issue.id.slice(0, 8);
+
+    const io = capture();
+
+    await expect(dispatchWorkspace(['set', shortRef, 'title', '新標題'], io)).rejects.toThrow(
+      /完整.*ULID/,
+    );
+    expect(openBoard({ dir: a }).get(issue.id).title).toBe('原本標題');
+  });
+});
+
+describe('dispatchWorkspace set — 沒有成員擁有這個 ref', () => {
+  it('拋出 RefNotFoundInWorkspace', async () => {
+    member('pkgs', 'a');
+    member('pkgs', 'b');
+    const io = capture();
+
+    await expect(
+      dispatchWorkspace(['set', 'ZZZZZZZZZZZZZZZZZZZZZZZZZZ', 'title', '新標題'], io),
+    ).rejects.toThrow(RefNotFoundInWorkspace);
+  });
+});
+
+describe('dispatchWorkspace set — --editor 語意同單一 Board', () => {
+  it('非 TTY 時報錯，不留下半個更動', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+
+    const io = capture();
+
+    await expect(
+      dispatchWorkspace(['set', issue.id, 'description', 'ignored', '--editor'], io),
+    ).rejects.toThrow(/--editor/);
+    expect(openBoard({ dir: a }).get(issue.id).description).toBe('');
+  });
+});
+
+describe('dispatchWorkspace set — 非法欄位', () => {
+  it('拋出跟單一 Board 版本一致的錯誤訊息', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+
+    const io = capture();
+
+    await expect(dispatchWorkspace(['set', issue.id, 'priority', 'high'], io)).rejects.toThrow(
+      '不是可寫的欄位：priority（可用：title, description, status, archived, deleted）',
+    );
+  });
+});
+
+describe('dispatchWorkspace set — 對已刪除的 issue 寫入', () => {
+  it('deleted 之外的欄位寫入時，既有的 IssueDeleted 原樣冒出', async () => {
+    const a = member('pkgs', 'a');
+    const issue = createIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '原本標題',
+      status: 'todo',
+    } as CreateInput);
+    openBoard({ dir: a }).apply(issue.id, { deleted: true });
+
+    const io = capture();
+
+    await expect(
+      dispatchWorkspace(['set', issue.id, 'title', '新標題'], io),
+    ).rejects.toThrow(IssueDeleted);
   });
 });
 

@@ -1,17 +1,25 @@
 import { relative } from 'node:path';
-import { memberAt, openWorkspace } from '../core/workspace.js';
+import { isFullRef } from '../core/ids.js';
+import { IncompleteRef } from '../core/types.js';
+import { locateInWorkspace, memberAt, openWorkspace } from '../core/workspace.js';
 import { repair } from '../core/health.js';
-import { renderWorkspaceList } from '../render/table.js';
+import { renderTable, renderWorkspaceList } from '../render/table.js';
 import { serveWorkspace } from '../server/serveWorkspace.js';
 import {
+  asChange,
   assembleCreateInput,
   displayLength,
   formatDiagnostic,
   formatRepaired,
+  fromEditor,
+  isSettable,
   line,
+  longText,
   parseArgs,
+  SETTABLE,
   UsageError,
   type Args,
+  type Field,
   type Io,
 } from './run.js';
 import type { Filter } from '../core/types.js';
@@ -37,12 +45,14 @@ export async function dispatchWorkspace(argv: readonly string[], io: Io): Promis
       return cmdStudio(parseArgs(rest, STUDIO_FLAGS), io);
     case 'new':
       return cmdNew(parseArgs(rest, NEW_FLAGS), io);
+    case 'set':
+      return cmdSet(parseArgs(rest, SET_FLAGS), io);
   }
 
   // 同 `run.ts` 的 `unknownCommand`：使用者錯誤只走 UsageError 這一條路徑，
   // 不在這裡另開一份手寫的 errLine + return 1。
   throw new UsageError(
-    `未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio、new）`,
+    `未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio、new、set）`,
   );
 }
 
@@ -50,6 +60,23 @@ const LIST_FLAGS: ReadonlySet<string> = new Set(['--all', '--status', '--label',
 const DOCTOR_FLAGS: ReadonlySet<string> = new Set(['--fix']);
 const STUDIO_FLAGS: ReadonlySet<string> = new Set(['--port']);
 const NEW_FLAGS: ReadonlySet<string> = new Set(['--in', '--description', '--editor', '--label']);
+const SET_FLAGS: ReadonlySet<string> = new Set(['--editor']);
+
+/**
+ * 跨 board 操作要求完整 26 碼 ULID（spec.md Non-goals）。在 `openWorkspace()`
+ * 掃描整棵樹之前先擋掉格式錯的輸入 —— 省一次無謂的全樹掃描。
+ *
+ * `locateInWorkspace()` 內部也做同樣的檢查（defense in depth，保護不透過
+ * CLI 的呼叫端）；經過這裡之後，那個內部檢查理應永遠不會在 CLI 這條路徑上
+ * 真的觸發。
+ *
+ * export 供票 04（mv）、05（comment）、06（label）、07（rm）重用 ——
+ * 五個指令的 `<ref>` 全部要求完整 ULID，不必各自重寫一次同樣的檢查。
+ */
+export function requireFullRef(ref: string): string {
+  if (!isFullRef(ref)) throw new IncompleteRef(ref);
+  return ref;
+}
 
 /**
  * 一個成員路徑相對於 workspace 根目錄的顯示形式。成員本身就是根目錄時
@@ -201,6 +228,44 @@ function cmdNew(args: Args, io: Io): number {
   const input = assembleCreateInput(title, args, io);
   const issue = target.board.create(input);
   line(io, issue.id);
+  return 0;
+}
+
+/**
+ * `set`：跟單一 Board 的 `nook set`（`run.ts` 的 `cmdSet`）同一份欄位驗證與
+ * 組裝邏輯（`asChange`/`SETTABLE`/`isSettable`/`--editor` 語意）一字不改地
+ * 重用，差別只在目標 board 從哪裡來 —— 這裡靠 `requireFullRef()` 與既有、
+ * 未經修改的 `locateInWorkspace()` 找出擁有 `<ref>` 的成員，而不是對 `io.cwd`
+ * 開一塊 Board。
+ *
+ * 印的是不帶成員路徑裝飾的那一行（`renderTable`），同 `new` —— spec.md 的
+ * Domain decisions：只有 `rm` 標成員路徑，`set` 每次只印一筆結果，使用者
+ * 剛剛才主動指定了 `<ref>`，落在哪個成員早在預期內。
+ */
+function cmdSet(args: Args, io: Io): number {
+  const [ref, field, value] = args.positional;
+  const usage = '用法：nook workspace set <ref> <title|description|status|archived|deleted> <value|->';
+  if (ref === undefined || field === undefined) throw new UsageError(usage);
+  requireFullRef(ref);
+  if (!isSettable(field)) {
+    throw new UsageError(`不是可寫的欄位：${field}（可用：${SETTABLE.join(', ')}）`);
+  }
+
+  const workspace = openWorkspace({ dir: io.cwd });
+  const { member, issue } = locateInWorkspace(workspace, ref);
+
+  let text: string;
+  if (args.has('--editor')) {
+    // 以現值開場 —— 同單一 Board 版本，編輯既有的 description 才是這條路的
+    // 實際用途。
+    text = fromEditor(io, field === 'title' || field === 'description' ? issue[field] : '');
+  } else {
+    if (value === undefined) throw new UsageError(usage);
+    text = longText(value, io);
+  }
+
+  const updated = member.board.apply(ref, asChange(field as Field, text));
+  line(io, renderTable([updated], displayLength(member.board)));
   return 0;
 }
 

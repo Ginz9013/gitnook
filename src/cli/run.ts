@@ -28,11 +28,14 @@ import {
 } from '../core/sharing.js';
 import {
   AmbiguousRef,
+  AmbiguousWorkspaceRef,
   BoardNotInitialized,
+  IncompleteRef,
   InvalidStatus,
   IssueDeleted,
   NotAWorkspaceMember,
   RefNotFound,
+  RefNotFoundInWorkspace,
 } from '../core/types.js';
 import { renderJson } from '../render/json.js';
 import { renderSetOps, renderTable } from '../render/table.js';
@@ -177,6 +180,15 @@ const USER_ERRORS = [
   // `--in` 打到了掃描範圍外的路徑，改成範圍內的路徑就修好了 —— 同樣不是
   // nook 的 bug（票 02，第一個用到 `memberAt` 的地方）。
   NotAWorkspaceMember,
+  // 跨 board 操作給了短前綴：改成完整 26 碼 ULID 就修好了，訊息本身就是
+  // 下一步（票 03，第一個用到 `locateInWorkspace` 的地方）。
+  IncompleteRef,
+  // `locateInWorkspace()` 掃過全部成員都找不到這個 ref：使用者的 ref 打錯了，
+  // 不是 nook 的 bug。
+  RefNotFoundInWorkspace,
+  // 同一個 ref 同時存在於多個成員：資料完整性問題，使用者自己造成的（見
+  // spec.md Non-goals），不是 nook 的 bug。
+  AmbiguousWorkspaceRef,
 ] as const;
 
 export async function run(argv: readonly string[], io: Io): Promise<number> {
@@ -549,16 +561,19 @@ function cmdShow(args: Args, io: Io): number {
  * `nook history <ref> deleted` 因此不必各寫一份 —— 刪除是既有 LWW 機器上的
  * 一個欄位，不是一種新的東西（ADR-0009）。
  */
-const SETTABLE = [
+/** export 供 `cli/workspace.ts` 重用（票 03）——欄位名單只有一份。 */
+export const SETTABLE = [
   'title',
   'description',
   'status',
   'archived',
   'deleted',
 ] as const satisfies readonly SetKey[];
-type Field = (typeof SETTABLE)[number];
+/** export 供 `cli/workspace.ts` 重用（票 03），`asChange()` 的參數型別。 */
+export type Field = (typeof SETTABLE)[number];
 
-const isSettable = (value: string): value is Field =>
+/** export 供 `cli/workspace.ts` 重用（票 03）——欄位驗證只有一份，不重打第二份。 */
+export const isSettable = (value: string): value is Field =>
   (SETTABLE as readonly string[]).includes(value);
 
 /**
@@ -632,10 +647,14 @@ export function fromEditor(io: Io, seed: string): string {
   return readFileSync(file, 'utf8').replace(/\r?\n$/, '');
 }
 
-/** 兩個 boolean 欄位。`yes` 被靜默讀成真值，就是一次沒有人打算下達的刪除。 */
-const BOOLEAN_FIELDS: ReadonlySet<string> = new Set(['archived', 'deleted']);
+/**
+ * 兩個 boolean 欄位。`yes` 被靜默讀成真值，就是一次沒有人打算下達的刪除。
+ * export 供 `cli/workspace.ts` 重用（票 03），理由同 `SETTABLE`。
+ */
+export const BOOLEAN_FIELDS: ReadonlySet<string> = new Set(['archived', 'deleted']);
 
-function asChange(field: Field, value: string): Change {
+/** export 供 `cli/workspace.ts` 重用（票 03）——欄位組裝邏輯只有一份。 */
+export function asChange(field: Field, value: string): Change {
   if (BOOLEAN_FIELDS.has(field)) {
     if (value !== 'true' && value !== 'false') {
       throw new UsageError(`${field} 只接受 true 或 false：${value}`);
