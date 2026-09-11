@@ -2,3 +2,4 @@
 {"id":"01M2799ATPB3ESM7KRG5GRTJQC","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：`.scratch/workspace-write/08-document-writes.md`（spec 同目錄）\n\nREADME/AGENT.md 補上六個寫入指令，並改掉 AGENT.md 現在錯誤的「## workspace is read-only」標題——workspace 已經不是唯讀的了。順手補上「`nook workspace mv <ref> queued` 跟單一 Board 一樣是人給的授權，agent 不能自己下」這條之前沒機會寫進去的規則。\n\n- README 的「## workspace」一節改掉「This cannot write anything」那段\n- Commands 表格反映新的六個子指令\n- CONTEXT.md/ADR-0012 跟實作對過一遍，預期不需要改（這次沒有新的探測規則）\n- `npm run bench` 整體跑過一次\n\nWrite ownership：`README.md`、`AGENT.md`、`CONTEXT.md`（僅有出入時）、`docs/adr/0012-*.md`（僅有出入時）\n\n不得碰：任何 `src/*`、非文件測試\n\n批次（單獨跑）。Blocked by：票 07。"}
 {"id":"01M2799ATP7D55P9S2ZKVK50Y9","t":3,"a":"83a1","op":"label.add","v":"workspace-write"}
 {"id":"01M2799ATP9DC2AA6CHPTDHSY7","t":4,"a":"83a1","op":"label.add","v":"docs"}
+{"id":"01M279BTDHG3XEWGJ4RPCNQHA5","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}

@@ -2,3 +2,4 @@
 {"id":"01M2797YZ33STDFS2CXZPFKXQ4","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：`.scratch/workspace-write/02-workspace-new.md`（spec 同目錄）\n\n`nook workspace new <title> --in <path>` 把新 issue 建到 `<path>` 所屬的成員 Board，不必先 cd 進去。`--in` 必填，沒有 cwd 推斷 fallback。\n\n- `--in` 指向成員底下任何子路徑都能解析成功；指向掃描範圍外的路徑 → `NotAWorkspaceMember`\n- `--description`/`--label`/`--editor` 語意與單一 Board `nook new` 一致\n- 印出的是完整 ULID，不加成員路徑裝飾\n\nWrite ownership：`src/cli/run.ts`（`fromEditor`/`longText`/`STDIN` 加 export；`USER_ERRORS` 加 `NotAWorkspaceMember`）、`src/cli/workspace.ts`、`test/cli/workspace.test.ts`\n\n不得碰：`src/core/*`、`src/render/*`、`src/server/*`\n\n批次（單獨跑）。Blocked by：票 01。"}
 {"id":"01M2797YZ3CX2VVGNWZW1A7ECP","t":3,"a":"83a1","op":"label.add","v":"workspace-write"}
 {"id":"01M2797YZ3BF16JQTSQN0T62Q1","t":4,"a":"83a1","op":"label.add","v":"cli"}
+{"id":"01M279BT6XCZ66FCKFYYHWPYDV","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}

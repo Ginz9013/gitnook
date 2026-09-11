@@ -2,3 +2,4 @@
 {"id":"01M2799256AMDRP9M7WJ5FR0GP","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：`.scratch/workspace-write/07-workspace-rm.md`（spec 同目錄）\n\n`nook workspace rm <ref>` 找到擁有 `<ref>` 的成員並刪除它。確認句與最終輸出都標示成員路徑——這是六個指令裡唯一加路徑裝飾的一個，因為救援步驟需要先知道是哪個成員。\n\n- 重用既有 `confirmed(io, title)`，不改簽章，只是把組好的字串當 title 傳進去\n- 已刪除的 issue → 新函式 `workspaceDeletedMessage()`（不是重用單一 Board 版本，措辭指向 `nook workspace set <ref> deleted false`，並提示 cd 進成員看 history）\n- 非 TTY 且未給 --yes → 拒絕，同單一 Board 版本\n\nWrite ownership：`src/cli/run.ts`（`confirmed` 加 export）、`src/cli/workspace.ts`、`test/cli/workspace.test.ts`\n\n不得碰：`src/core/*`、`src/render/*`、`src/server/*`\n\n批次（單獨跑）。Blocked by：票 06。"}
 {"id":"01M2799256967S82KKPGJ0Z818","t":3,"a":"83a1","op":"label.add","v":"workspace-write"}
 {"id":"01M2799256CGFMGX3MN7F969J5","t":4,"a":"83a1","op":"label.add","v":"cli"}
+{"id":"01M279BTCEVYY9W58PQ1NYT1GA","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
