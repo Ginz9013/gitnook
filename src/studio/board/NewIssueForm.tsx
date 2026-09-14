@@ -142,8 +142,8 @@ export function NewIssueForm({
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         // 九個入口的輸入框都在同一份文件上，可及名稱因此不能都叫「標題」。
-        aria-label={status === undefined ? '新 Issue 的標題' : `新 Issue 的標題（${status}）`}
-        placeholder="標題，Enter 送出"
+        aria-label={status === undefined ? 'New issue title' : `New issue title (${status})`}
+        placeholder="Title, Enter to submit"
         aria-busy={submitting}
         className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-7 w-full min-w-0 rounded-md border bg-transparent px-2 text-xs outline-none focus-visible:ring-[3px]"
       />

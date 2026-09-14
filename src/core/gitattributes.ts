@@ -22,8 +22,8 @@ const OP_LOG_SAMPLE = '.issues/issues/01JBX7A9Q3.ndjson';
 export class ConflictingGitAttributes extends Error {
   constructor(readonly file: string, readonly line: number, readonly rule: string) {
     super(
-      `${file}:${line} 的規則與 Nook 的零衝突保證衝突：${rule}\n` +
-        `Nook 不會靜默改變你的 merge 行為。請自行調整該行，或確保 ${MERGE_RULE} 排在它之後。`,
+      `${file}:${line}'s rule conflicts with Nook's zero-conflict guarantee: ${rule}\n` +
+        `Nook will not silently change your merge behavior. Adjust that line yourself, or make sure ${MERGE_RULE} comes after it.`,
     );
     this.name = 'ConflictingGitAttributes';
   }
@@ -93,8 +93,8 @@ export function findBoardRoot(dir: string): BoardRoot {
 export class NestedBoard extends Error {
   constructor(readonly dir: string, readonly root: string) {
     super(
-      `${dir} 已經在一塊 Nook board 底下（根目錄 ${root}）：` +
-        `在子目錄再 init 會把 board 切成兩塊，各自累積 Issue。`,
+      `${dir} is already inside a Nook board (root ${root}): ` +
+        `running init in a subdirectory would split the board in two, each accumulating its own issues.`,
     );
     this.name = 'NestedBoard';
   }

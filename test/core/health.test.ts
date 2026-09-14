@@ -331,7 +331,7 @@ describe('fs 與 git 不一致的那兩種狀態', () => {
     const said = diagnose(dir)[0]!.message;
 
     expect(said).toContain('nook init --private');
-    expect(said).toMatch(/拿掉/);
+    expect(said).toMatch(/remove/);
   });
 
   /**

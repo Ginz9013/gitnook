@@ -279,8 +279,8 @@ function unknownCommand(command: string): string {
   );
   // 差太遠就不硬猜一個 —— 猜錯比不猜更難查。
   return near.length === 0
-    ? `未知的指令 ${command}（nook --help 看全部）`
-    : `未知的指令 ${command}；最接近的是 ${near[0]!}`;
+    ? `unknown command ${command} (see nook --help)`
+    : `unknown command ${command}; did you mean ${near[0]!}?`;
 }
 
 /** Levenshtein。只用來排序候選，不需要比這更聰明。 */
@@ -332,25 +332,25 @@ export function displayLength(board: Board): number {
  */
 const HELP = `nook <command>
 
-init [--private]         建立 board；--private 不留 committed bytes
+init [--private]         create the board; --private writes no committed bytes
 new <title> [--description <text|->] [--label <l>] [--editor]
 list [--all] [--status <s>] [--label <l>] [--json]
 show <ref> [--json]
-history <ref> [<field>]  看某個 LWW 欄位被寫過哪些值
+history <ref> [<field>]  every value ever written to an LWW field
 set <ref> <title|description|status|archived|deleted> <value|-> [--editor]
-rm <ref> [--yes]         刪除；非 TTY 需 --yes
+rm <ref> [--yes]         delete; --yes required off a TTY
 mv <ref> <status>
 comment <ref> <body|->
-label <ref> +bug -ui     加減 Label
-share                    升級 private board 為 shared；git add 你自己跑
-doctor [--fix]           健康檢查，--fix 修復黏合行
-studio [--port <n>]      localhost 看板
-workspace list [flags]   依子專案分組，篩選旗標同 list
+label <ref> +bug -ui     add/remove labels
+share                    upgrade a private board to shared; you run git add
+doctor [--fix]           health check; --fix repairs glued lines
+studio [--port <n>]      localhost board
+workspace list [flags]   grouped by member, same filters as list
 
 status: backlog todo queued in_progress review blocked done cancelled
-<ref>/status 接受無歧義前綴，<value> 用 - 從 stdin 讀。
-queued 是授權邊界：進入即表示已授權 agent 動手。
-list 預設隱藏 archived / done / cancelled。
+<ref>/status accept an unambiguous prefix; <value> reads stdin with -.
+queued is an authorization boundary: once set, an agent may act on it.
+list hides archived / done / cancelled by default.
 `;
 
 /**
@@ -420,13 +420,13 @@ export function parseArgs(args: readonly string[], allowed: ReadonlySet<string>)
       positional.push(arg);
       continue;
     }
-    if (!allowed.has(arg)) throw new UsageError(`不認得的旗標 ${arg}（nook --help 看用法）`);
+    if (!allowed.has(arg)) throw new UsageError(`unrecognized flag ${arg} (see nook --help)`);
     if (!VALUED.has(arg)) {
       switches.add(arg);
       continue;
     }
     const value = args[++i];
-    if (value === undefined) throw new UsageError(`${arg} 缺少值`);
+    if (value === undefined) throw new UsageError(`${arg} is missing a value`);
     const bucket = values.get(arg);
     if (bucket === undefined) values.set(arg, [value]);
     else bucket.push(value);
@@ -492,7 +492,7 @@ function warnIfUnguarded(io: Io): void {
 
   // absent 與 conflicting 都表示 op-log 拿不到 union，兩者同樣要警告。
   if (inspectMergeGuarantee(root).kind !== 'union') {
-    errLine(io, '警告：.gitattributes 缺少 merge=union，合併會衝突（nook init 補回）');
+    errLine(io, 'Warning: .gitattributes is missing merge=union, merges will conflict (nook init restores it)');
   }
 }
 
@@ -524,7 +524,7 @@ function cmdList(args: Args, io: Io): number {
  * （core 不知道有 CLI 這回事），所以接在這裡。
  */
 function deletedMessage(ref: string): string {
-  return `${new IssueDeleted(ref).message}（nook history ${ref} 撈得回寫過的值，nook set ${ref} deleted false 復原）`;
+  return `${new IssueDeleted(ref).message} (nook history ${ref} recovers what was written; nook set ${ref} deleted false undoes this)`;
 }
 
 /**
@@ -592,12 +592,12 @@ export const isSettable = (value: string): value is Field =>
  */
 function cmdHistory(args: Args, io: Io): number {
   const [ref, field] = args.positional;
-  if (ref === undefined) throw new UsageError('用法：nook history <ref> [<field>]');
+  if (ref === undefined) throw new UsageError('usage: nook history <ref> [<field>]');
   requireRef(ref);
   // 打錯欄位名而靜默回一份空清單，等於告訴呼叫端「那個欄位從沒被寫過」——
   // 而他正是在找一份被蓋掉的舊值。同 `set` 與未知旗標的慣例：不靜默猜測。
   if (field !== undefined && !isSettable(field)) {
-    throw new UsageError(`不是可查的欄位：${field}（可用：${SETTABLE.join(', ')}）`);
+    throw new UsageError(`not a queryable field: ${field} (available: ${SETTABLE.join(', ')})`);
   }
 
   const board = openBoard({ dir: io.cwd });
@@ -633,10 +633,10 @@ export function longText(value: string, io: Io): string {
  */
 /** export 供 `cli/workspace.ts` 重用（票 02），理由同 `longText`。 */
 export function fromEditor(io: Io, seed: string): string {
-  if (!io.isTty) throw new UsageError('--editor 需要互動終端；非 TTY 請改用 - 從 stdin 讀');
+  if (!io.isTty) throw new UsageError('--editor needs an interactive terminal; off a TTY, use - to read from stdin');
 
   const editor = (io.env.VISUAL ?? io.env.EDITOR ?? '').trim();
-  if (editor === '') throw new UsageError('沒有設定 $EDITOR；改用 - 從 stdin 讀');
+  if (editor === '') throw new UsageError('$EDITOR is not set; use - to read from stdin instead');
 
   const file = join(mkdtempSync(join(tmpdir(), 'nook-edit-')), 'NOOK_EDITMSG.md');
   writeFileSync(file, seed, 'utf8');
@@ -657,7 +657,7 @@ export const BOOLEAN_FIELDS: ReadonlySet<string> = new Set(['archived', 'deleted
 export function asChange(field: Field, value: string): Change {
   if (BOOLEAN_FIELDS.has(field)) {
     if (value !== 'true' && value !== 'false') {
-      throw new UsageError(`${field} 只接受 true 或 false：${value}`);
+      throw new UsageError(`${field} only accepts true or false: ${value}`);
     }
     return { [field]: value === 'true' };
   }
@@ -666,11 +666,11 @@ export function asChange(field: Field, value: string): Change {
 
 function cmdSet(args: Args, io: Io): number {
   const [ref, field, value] = args.positional;
-  const usage = '用法：nook set <ref> <title|description|status|archived|deleted> <value|->';
+  const usage = 'usage: nook set <ref> <title|description|status|archived|deleted> <value|->';
   if (ref === undefined || field === undefined) throw new UsageError(usage);
   requireRef(ref);
   if (!(SETTABLE as readonly string[]).includes(field)) {
-    throw new UsageError(`不是可寫的欄位：${field}（可用：${SETTABLE.join(', ')}）`);
+    throw new UsageError(`not a writable field: ${field} (available: ${SETTABLE.join(', ')})`);
   }
 
   const board = openBoard({ dir: io.cwd });
@@ -709,15 +709,15 @@ function cmdSet(args: Args, io: Io): number {
  * 成員路徑的字串當 `title` 傳進來，簽章與行為原封不動，不改這個函式本身。
  */
 export function confirmed(io: Io, title: string): boolean {
-  if (!io.isTty) throw new UsageError('rm 預設要互動確認；非 TTY 請加 --yes');
+  if (!io.isTty) throw new UsageError('rm asks for confirmation by default; off a TTY, add --yes');
   if (io.readLine === undefined) {
-    throw new UsageError('rm 預設要互動確認；這個 io 沒有 readLine，問不出問題，請加 --yes');
+    throw new UsageError('rm asks for confirmation by default; this io has no readLine to ask with, add --yes');
   }
 
-  io.writeError(`刪除 ${title}？(y/N) `);
+  io.writeError(`Delete ${title}? (y/N) `);
   if (io.readLine().trim().toLowerCase() === 'y') return true;
 
-  errLine(io, '取消：沒有刪除任何東西');
+  errLine(io, 'Cancelled: nothing was deleted');
   return false;
 }
 
@@ -730,7 +730,7 @@ export function confirmed(io: Io, title: string): boolean {
  */
 function cmdRm(args: Args, io: Io): number {
   const [ref] = args.positional;
-  if (ref === undefined) throw new UsageError('用法：nook rm <ref> [--yes]');
+  if (ref === undefined) throw new UsageError('usage: nook rm <ref> [--yes]');
   requireRef(ref);
 
   const board = openBoard({ dir: io.cwd });
@@ -764,7 +764,7 @@ function cmdRm(args: Args, io: Io): number {
  */
 function cmdMv(args: Args, io: Io): number {
   const [ref, status] = args.positional;
-  if (ref === undefined || status === undefined) throw new UsageError('用法：nook mv <ref> <status>');
+  if (ref === undefined || status === undefined) throw new UsageError('usage: nook mv <ref> <status>');
   requireRef(ref);
 
   const board = openBoard({ dir: io.cwd });
@@ -779,7 +779,7 @@ function cmdMv(args: Args, io: Io): number {
  * 有可能存在。它不可能存在。
  */
 function requireRef(ref: string): string {
-  if (!isValidRef(ref)) throw new UsageError(`不是合法的 ref：${ref}`);
+  if (!isValidRef(ref)) throw new UsageError(`not a valid ref: ${ref}`);
   return ref;
 }
 
@@ -804,7 +804,7 @@ async function cmdStudio(args: Args, io: Io): Promise<number> {
   const given = args.one('--port');
   const port = given === undefined ? undefined : Number(given);
   if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535)) {
-    throw new UsageError(`不是合法的 port：${given}`);
+    throw new UsageError(`not a valid port: ${given}`);
   }
 
   const studio = await serve(openBoard({ dir: io.cwd }), port === undefined ? {} : { port });
@@ -826,7 +826,7 @@ async function cmdStudio(args: Args, io: Io): Promise<number> {
  * （票 03）——同一句措辭只有一份，不在兩個 `cmdDoctor` 各自重打一次。
  */
 export function formatRepaired(fixed: Repair): string {
-  return `Repaired  ${fixed.file}:${fixed.line}  拆回 ${fixed.ops} 個 op`;
+  return `Repaired  ${fixed.file}:${fixed.line}  split back into ${fixed.ops} ops`;
 }
 
 /**
@@ -860,7 +860,7 @@ function cmdDoctor(args: Args, io: Io): number {
 /** Comment 是 Nook 中唯一的討論載體，人與 agent 共用。只增不減。 */
 function cmdComment(args: Args, io: Io): number {
   const [ref, body] = args.positional;
-  if (ref === undefined || body === undefined) throw new UsageError('用法：nook comment <ref> <body>');
+  if (ref === undefined || body === undefined) throw new UsageError('usage: nook comment <ref> <body>');
   requireRef(ref);
 
   const board = openBoard({ dir: io.cwd });
@@ -889,7 +889,7 @@ export function parseLabelTokens(tokens: readonly string[]): {
     // 少了正負號的 `bug` 若被當成「移除 ug」，呼叫端會以為自己改了一個
     // 其實沒動過的 Label —— 靜默猜測比報錯貴得多（票 10 的慣例）。
     if ((sign !== '+' && sign !== '-') || value === '') {
-      throw new UsageError(`label 要寫成 +<label> 或 -<label>：${token}`);
+      throw new UsageError(`a label must be written as +<label> or -<label>: ${token}`);
     }
     (sign === '+' ? add : remove).push(value);
   }
@@ -905,7 +905,7 @@ export function parseLabelTokens(tokens: readonly string[]): {
 function cmdLabel(args: Args, io: Io): number {
   const [ref, ...tokens] = args.positional;
   if (ref === undefined || tokens.length === 0) {
-    throw new UsageError('用法：nook label <ref> +<label> -<label>');
+    throw new UsageError('usage: nook label <ref> +<label> -<label>');
   }
   requireRef(ref);
 
@@ -958,7 +958,7 @@ function cmdInit(args: Args, io: Io): number {
   sayGuarantee(io);
   // 兩件事都已經在了才是 no-op。沉默在這裡會與第一次的成功長得一模一樣，
   // 而使用者問的正是「這次到底有沒有動到東西」。
-  if (boardExisted && guarded) line(io, 'Unchanged  這裡已經是一塊 board，這次沒有建立任何東西');
+  if (boardExisted && guarded) line(io, 'Unchanged  this is already a board; nothing was created');
   return 0;
 }
 
@@ -977,14 +977,14 @@ function initPrivate(io: Io): number {
   initBoard(io.cwd, { sharing: 'private' });
 
   if (!boardExisted) line(io, 'Created  .issues/issues/');
-  if (!excluded) line(io, 'Ignored  .issues/  $GIT_DIR/info/exclude（這塊 board 不會被 commit）');
+  if (!excluded) line(io, 'Ignored  .issues/  $GIT_DIR/info/exclude (this board will not be committed)');
   // 兩件事都已經在了才是 no-op。沉默在這裡會與第一次的成功長得一模一樣。
   if (boardExisted && excluded) {
-    line(io, 'Unchanged  這裡已經是一塊 private board，這次沒有建立任何東西');
+    line(io, 'Unchanged  this is already a private board; nothing was created');
   }
   // 每次都印：重跑 init 的人正是在問「我這塊 board 現在是什麼狀態」，而這是
   // 那個答案裡最貴的一件事。
-  line(io, 'Note  git clean -xdf 會刪掉整塊 board，而且沒有備份');
+  line(io, 'Note  git clean -xdf deletes the whole board, and there is no backup');
   return 0;
 }
 
@@ -1009,7 +1009,7 @@ function cmdShare(args: Args, io: Io): number {
   // 所以位置引數在這裡明確是打錯了。
   const stray = args.positional[0];
   if (stray !== undefined) {
-    throw new UsageError(`share 不收參數（整塊 board 一起升級）：${stray}`);
+    throw new UsageError(`share takes no arguments (the whole board upgrades together): ${stray}`);
   }
 
   // 不是一塊 board 時該說的是「不是一個 Nook board」，而不是對著一個空目錄回報
@@ -1040,14 +1040,14 @@ function cmdShare(args: Args, io: Io): number {
     line(
       io,
       blocked.ignored
-        ? 'Removed  $GIT_DIR/info/exclude 的那一行（但見下面：git 還在 ignore 這塊 board）'
-        : 'Shared  .issues/  已從 $GIT_DIR/info/exclude 移除（這塊 board 從現在起會進 git）',
+        ? 'Removed  the line from $GIT_DIR/info/exclude (but see below: git is still ignoring this board)'
+        : 'Shared  .issues/  removed from $GIT_DIR/info/exclude (this board will enter git from now on)',
     );
   }
   sayGuarantee(io);
   // 三件事都本來就對了才是 no-op。沉默在這裡會與成功長得一模一樣，而使用者問的
   // 正是「這次到底有沒有動到東西」—— 同 init 說話、doctor 沉默的那條分界。
-  if (!removed && guarded) line(io, 'Unchanged  這裡已經是一塊共享的 board，這次沒有動到任何東西');
+  if (!removed && guarded) line(io, 'Unchanged  this board is already shared; nothing was touched');
 
   if (blocked.ignored) {
     // 那時 `git add` 會被拒絕，所以照樣印出那條指令等於叫使用者去撞牆，而回 0
@@ -1058,10 +1058,10 @@ function cmdShare(args: Args, io: Io): number {
     errLine(
       io,
       blocked.source === null
-        ? `git 仍然 ignore 這塊 board，所以 git add 會被拒絕，但 git 沒有指出是哪一條規則。` +
-            `請自己跑 git check-ignore -v "${root}/.issues" 找出它，移除之後再跑一次 nook share。`
-        : `git 仍然 ignore 這塊 board：${blocked.source} 這條規則還在擋，所以 git add 會被拒絕。` +
-            `請自己移除那一行（nook 不改你的 .gitignore），再跑一次 nook share。`,
+        ? `git is still ignoring this board, so git add would be rejected, but git did not point at ` +
+            `which rule. Run git check-ignore -v "${root}/.issues" yourself to find it, remove it, then run nook share again.`
+        : `git is still ignoring this board: the rule ${blocked.source} is still blocking it, so git add would be rejected. ` +
+            `Remove that line yourself (nook never edits your .gitignore), then run nook share again.`,
     );
     return 1;
   }
@@ -1075,7 +1075,7 @@ function cmdShare(args: Args, io: Io): number {
   // 指令帶完整路徑：board 可能不在 repo 根目錄（`/services/api/.issues/` 是支援
   // 且被測試的形狀），那時貼上一條相對指令的人會在錯的目錄下執行它，而 git 只會
   // 說 pathspec 沒命中 —— 同 AlreadySharedBoard 訊息的理由。
-  line(io, 'Next  nook 不替你跑任何會寫入的 git 指令，請自己執行：');
+  line(io, 'Next  nook runs no git command that writes; run these yourself:');
   line(io, `  git add "${root}/.issues" "${root}/.gitattributes"`);
   line(io, '  git commit -m "Share the nook board"');
   return 0;
@@ -1109,7 +1109,7 @@ export function assembleCreateInput(title: string, args: Args, io: Io): CreateIn
 
 function cmdNew(args: Args, io: Io): number {
   const title = args.positional[0];
-  if (title === undefined) throw new UsageError('用法：nook new <title>');
+  if (title === undefined) throw new UsageError('usage: nook new <title>');
 
   const input = assembleCreateInput(title, args, io);
   const issue = openBoard({ dir: io.cwd }).create(input);

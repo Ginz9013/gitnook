@@ -318,38 +318,38 @@ export function App(): React.JSX.Element {
 function LoadFailure({ fault }: { readonly fault: ConnectionFault }): React.JSX.Element {
   return (
     // `<main>` 加名字：這一頁上只有這一塊，而它是使用者現在唯一讀得到的東西。
-    <main className="flex h-dvh items-center justify-center p-6" aria-label="Nook 看板">
+    <main className="flex h-dvh items-center justify-center p-6" aria-label="Nook board">
       <div className="bg-card text-card-foreground max-w-lg rounded-lg border p-6 shadow-lg">
-        <p className="text-destructive text-sm font-semibold">讀不到 board</p>
+        <p className="text-destructive text-sm font-semibold">Cannot load board</p>
 
         <p className="mt-2 text-sm leading-relaxed">
           {fault.detail !== null ? (
             <>
-              伺服器說：「<span className="font-mono">{fault.detail}</span>」
+              The server said: "<span className="font-mono">{fault.detail}</span>"
             </>
           ) : fault.kind === 'failed' ? (
             <>
-              伺服器沒有回應。跑 <code className="font-mono">nook studio</code> 的那個終端機
-              還開著嗎？
+              The server did not respond. Is the terminal running{' '}
+              <code className="font-mono">nook studio</code> still open?
             </>
           ) : fault.kind === 'malformed' ? (
             <>
-              伺服器答了，但回的不是 nook 的資料 —— 這個位址上跑的東西不是{' '}
-              <code className="font-mono">nook studio</code>（前面擋著別的服務，或那個 port
-              換人跑了）。
+              The server answered, but not with nook's data — whatever is running at this address is
+              not <code className="font-mono">nook studio</code> (something else is in front of it, or
+              another process took over the port).
             </>
           ) : (
-            <>最常見的原因是 board 目錄（<code className="font-mono">.issues/</code>）被移走或改名了。</>
+            <>The most common cause is that the board directory (<code className="font-mono">.issues/</code>) was moved or renamed.</>
           )}
         </p>
 
         {fault.kind !== 'malformed' && (
           <p className="text-muted-foreground mt-3 text-sm leading-relaxed">
-            下一步：確認 <code className="font-mono">.issues/</code> 還在原處；不在的話
-            <strong className="font-medium">在 repo 根目錄</strong>跑{' '}
-            <code className="text-foreground font-mono font-semibold">nook init</code>
-            （它在子目錄會拒絕）。修好之後重開{' '}
-            <code className="font-mono">nook studio</code>。
+            Next: confirm <code className="font-mono">.issues/</code> is still where it was; if not,
+            run{' '}
+            <code className="text-foreground font-mono font-semibold">nook init</code>{' '}
+            <strong className="font-medium">at the repo root</strong> (it refuses in a subdirectory).
+            Once fixed, restart <code className="font-mono">nook studio</code>.
           </p>
         )}
       </div>
@@ -401,34 +401,36 @@ function StatusBanner({
     >
       {fault?.kind === 'failed' ? (
         <span>
-          連線中斷 —— 伺服器沒有回應，現在做的變更送不出去。跑 <code>nook studio</code>{' '}
-          的那個終端機還開著嗎？
+          Disconnected — the server did not respond, so the change you just made was not sent. Is the
+          terminal running <code>nook studio</code> still open?
         </span>
       ) : fault?.kind === 'server-error' ? (
         <span>
-          伺服器回了錯誤 —— 它還活著，所以不是網路的問題，但現在做的變更一樣送不出去。
+          The server returned an error — it is still alive, so this is not a network problem, but the
+          change you just made was not sent either.{' '}
           {fault.detail === null ? (
             <>
-              最常見的原因是 board 目錄（<code>.issues/</code>）被移走或改名了；確認它還在原處，
-              再重開 <code>nook studio</code>。
+              The most common cause is that the board directory (<code>.issues/</code>) was moved or
+              renamed; confirm it is still there, then restart <code>nook studio</code>.
             </>
           ) : (
             <>
-              它說：「{fault.detail}」修好之後重開 <code>nook studio</code>。
+              It said: "{fault.detail}" Once fixed, restart <code>nook studio</code>.
             </>
           )}
         </span>
       ) : fault?.kind === 'malformed' ? (
         <span>
-          伺服器答了，但回的不是 nook 的資料 —— 它活著，所以不是網路的問題，
-          可是這個位址上跑的東西不是 <code>nook studio</code>（前面擋著別的服務，
-          或那個 port 換人跑了）。確認它還在同一個 port 上，再重新整理這一頁。
+          The server answered, but not with nook's data — it is alive, so this is not a network
+          problem, but whatever is running at this address is not <code>nook studio</code> (something
+          else is in front of it, or another process took over the port). Confirm it is still on the
+          same port, then reload this page.
         </span>
       ) : (
         <>
-          <span>寫入沒送到，畫面已回到伺服器上的值：{failed}</span>
+          <span>A write did not go through; the screen reverted to the server's value: {failed}</span>
           <button type="button" className="shrink-0 cursor-pointer underline" onClick={onDismiss}>
-            知道了
+            Got it
           </button>
         </>
       )}

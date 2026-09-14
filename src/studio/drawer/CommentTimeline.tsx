@@ -42,7 +42,7 @@ export function CommentTimeline({
       </h3>
 
       {comments.length + unconfirmed.length === 0 ? (
-        <p className="text-muted-foreground text-sm">還沒有留言。</p>
+        <p className="text-muted-foreground text-sm">No comments yet.</p>
       ) : (
         <ol className="flex flex-col gap-3">
           {comments.map((c) => (
@@ -62,7 +62,7 @@ export function CommentTimeline({
           {/* 飛行中的留言接在尾端 —— 伺服器確認後它會回到 core 給的位置。 */}
           {unconfirmed.map((u) => (
             <li key={`unconfirmed-${u.seq}`} className="flex flex-col gap-1 opacity-60">
-              <span className="text-muted-foreground font-mono text-xs">送出中…</span>
+              <span className="text-muted-foreground font-mono text-xs">Sending…</span>
               {/* 還沒有 bodyHtml —— 前端不渲染 markdown，所以顯示原文。 */}
               <p className="text-sm wrap-break-word whitespace-pre-wrap">{u.body}</p>
             </li>
@@ -74,8 +74,8 @@ export function CommentTimeline({
         <Textarea
           rows={3}
           value={draft}
-          aria-label="新留言"
-          placeholder="留言（⌘/Ctrl + Enter 送出）"
+          aria-label="New comment"
+          placeholder="Comment (⌘/Ctrl + Enter to send)"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -86,7 +86,7 @@ export function CommentTimeline({
         />
         <div>
           <Button size="sm" disabled={commentChange(draft) === undefined} onClick={send}>
-            送出
+            Send
           </Button>
         </div>
       </div>

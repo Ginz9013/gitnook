@@ -24,7 +24,7 @@ export function BoardSkeleton(): React.JSX.Element {
       // 「還在載入」對讀螢幕的人要說得出來 —— 原本那一行「載入中…」是他們
       // 唯一的線索，換成骨架之後不能只剩下一堆沒有名字的灰塊。
       aria-busy="true"
-      aria-label="Nook 看板（載入中）"
+      aria-label="Nook board (loading)"
     >
       {/* header 的位置先佔著：logo 方塊 + 兩行字。真的 header 到達時它就在這。 */}
       <div aria-hidden className="flex shrink-0 items-center gap-3">

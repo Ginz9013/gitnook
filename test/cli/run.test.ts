@@ -121,7 +121,7 @@ describe('init', () => {
     // 已經初始化過不是錯誤 —— 是 no-op，所以 exit 0 而不是 1。
     expect(await run(['init'], again)).toBe(0);
 
-    expect(again.out).toBe('Unchanged  這裡已經是一塊 board，這次沒有建立任何東西\n');
+    expect(again.out).toBe('Unchanged  this is already a board; nothing was created\n');
     // 「這次是不是 no-op」是使用者唯一問的問題：兩次輸出一樣就等於沒回答。
     expect(again.out).not.toBe(first.out);
     expect(again.err).toBe('');
@@ -652,7 +652,7 @@ describe('ref 是使用者輸入', () => {
     expect(await run(['show', '01jbxa'], lower)).toBe(0);
 
     // 「找不到 issue：../../etc/passwd」會暗示這種 issue 有可能存在 —— 它不可能存在。
-    expect(traversal.err).toContain('不是合法的 ref');
+    expect(traversal.err).toContain('not a valid ref');
     expect(traversal.out).toBe('');
     // Ref 大小寫不敏感（CONTEXT.md 的 Ref 定義）。
     expect(lower.out).toContain('Fix login redirect');
@@ -770,7 +770,7 @@ describe('label 的 token 形狀', () => {
     // 票 10 的慣例：不認得的輸入一律拒絕。把 `bug` 當成「移除 ug」是最壞的靜默。
     expect(bare.err).toContain('bug');
     expect(bare.out).toBe('');
-    expect(noTokens.err).toContain('用法');
+    expect(noTokens.err).toContain('usage');
     expect(openBoard({ dir }).get('01JBXA').labels).toEqual(['bug']);
   });
 });
@@ -1009,7 +1009,7 @@ describe('在 board 底下再 init', () => {
     expect(io.err).not.toContain('NestedBoard:');
     // 訊息本身必須說清楚為什麼被擋下，以及那塊 board 在哪。
     expect(io.err).toContain(dir);
-    expect(io.err).toContain('切成兩塊');
+    expect(io.err).toContain('split the board in two');
     // 被擋下就是什麼都不做。
     expect(existsSync(join(deep, '.issues'))).toBe(false);
     expect(io.out).toBe('');
@@ -1201,7 +1201,7 @@ describe('history', () => {
     // 這張 Issue 只有一個 create op，description 因此真的一次都沒被寫過。
     // （原本這條問的是不帶欄位的 history —— 但 create 就是 title 的第一次寫入，
     // 那份清單不再是空的，A12。空清單訊息要有一個真的觸發得到它的欄位。）
-    expect(io.out).toBe('沒有 set op\n');
+    expect(io.out).toBe('no set ops\n');
   });
 });
 
@@ -1237,7 +1237,7 @@ describe('history 與 create op 寫下的標題', () => {
 
     // 空清單等於告訴呼叫端「這個欄位從沒被寫過」——「沒有 set op」在這裡是假話。
     expect(io.out).toBe('1  alice  title  Fix login redirect\n');
-    expect(io.out).not.toBe('沒有 set op\n');
+    expect(io.out).not.toBe('no set ops\n');
   });
 
   it('create 之後又改過標題 —— 兩筆都在，create 那筆在前（t 較小）', async () => {
@@ -1276,7 +1276,7 @@ describe('history 與 create op 寫下的標題', () => {
 
     expect(await run(['history', '01JBXA', 'status'], io)).toBe(0);
 
-    expect(io.out).toBe('沒有 set op\n');
+    expect(io.out).toBe('no set ops\n');
   });
 
   it('history <ref> deleted 對一張被刪的 Issue —— 仍然只有那一筆刪除', async () => {
@@ -1378,7 +1378,7 @@ describe('set 的 deleted 欄位', () => {
     // 「yes」被靜默讀成一個真值，就是一次沒有人打算下達的刪除。
     expect(await run(['set', '01JBXA', 'deleted', 'yes'], io)).toBe(1);
 
-    expect(io.err).toContain('deleted 只接受 true 或 false');
+    expect(io.err).toContain('deleted only accepts true or false');
     expect(io.out).toBe('');
     expect(readFileSync(log, 'utf8')).toBe(before);
   });
@@ -1395,7 +1395,7 @@ describe('show 對一張已刪的 Issue', () => {
     // 「這張被刪了」而不是「找不到」—— 兩者要修的東西完全不同。
     expect(await run(['show', '01JBXA'], io)).toBe(1);
 
-    expect(io.err).toContain('已被刪除');
+    expect(io.err).toContain('already deleted');
     // 誤刪的人下一步就是要把內容撈回來。不說出撈得回來的方法，這條訊息
     // 等於在說東西沒了。
     expect(io.err).toContain('nook history');
@@ -1464,7 +1464,7 @@ describe('對一張已刪的 Issue 寫入', () => {
 
       expect(await run(argv, io), argv.join(' ')).toBe(1);
 
-      expect(io.err).toContain('已被刪除');
+      expect(io.err).toContain('already deleted');
       // 內部錯誤才帶型別名前綴。帶上它等於叫使用者去開 issue 回報自己的操作。
       expect(io.err).not.toContain('IssueDeleted:');
       expect(io.out).toBe('');
@@ -1529,7 +1529,7 @@ describe('rm 對一張已刪的 Issue', () => {
     // 得到的是 IssueDeleted —— 那句話把人推向一條走不通的路。
     const headless = capture();
     expect(await run(['rm', '01JBXA'], headless)).toBe(1);
-    expect(headless.err).toContain('已被刪除');
+    expect(headless.err).toContain('already deleted');
     expect(headless.err).not.toContain('--yes');
     expect(headless.out).toBe('');
 
@@ -1542,7 +1542,7 @@ describe('rm 對一張已刪的 Issue', () => {
       },
     };
     expect(await run(['rm', '01JBXA'], tty)).toBe(1);
-    expect(tty.err).toContain('已被刪除');
+    expect(tty.err).toContain('already deleted');
     expect(tty.out).toBe('');
   });
 });
@@ -1562,7 +1562,7 @@ describe('rm 的確認在兩種擋法上各說各的話', () => {
 
     expect(await run(['rm', '01JBXA'], io)).toBe(1);
 
-    expect(io.err).not.toContain('非 TTY');
+    expect(io.err).not.toContain('off a TTY');
     expect(io.err).toContain('readLine');
     // 出路兩邊一樣 —— 說得出擋住的是什麼，也要說得出怎麼過去。
     expect(io.err).toContain('--yes');
@@ -1594,8 +1594,8 @@ describe('init --private', () => {
     // 講出來的代價 —— private board 是一份沒有備份的資料。
     expect(io.out).toBe(
       'Created  .issues/issues/\n' +
-        'Ignored  .issues/  $GIT_DIR/info/exclude（這塊 board 不會被 commit）\n' +
-        'Note  git clean -xdf 會刪掉整塊 board，而且沒有備份\n',
+        'Ignored  .issues/  $GIT_DIR/info/exclude (this board will not be committed)\n' +
+        'Note  git clean -xdf deletes the whole board, and there is no backup\n',
     );
     expect(io.err).toBe('');
   });
@@ -1612,8 +1612,8 @@ describe('init --private', () => {
     expect(await run(['init', '--private'], again)).toBe(0);
 
     expect(again.out).toBe(
-      'Unchanged  這裡已經是一塊 private board，這次沒有建立任何東西\n' +
-        'Note  git clean -xdf 會刪掉整塊 board，而且沒有備份\n',
+      'Unchanged  this is already a private board; nothing was created\n' +
+        'Note  git clean -xdf deletes the whole board, and there is no backup\n',
     );
     // 「這次是不是 no-op」是使用者唯一問的問題：兩次輸出一樣就等於沒回答。
     expect(again.out).not.toBe(first.out);
@@ -1635,8 +1635,8 @@ describe('init --private', () => {
     expect(await run(['init', '--private'], io)).toBe(0);
 
     expect(io.out).toBe(
-      'Ignored  .issues/  $GIT_DIR/info/exclude（這塊 board 不會被 commit）\n' +
-        'Note  git clean -xdf 會刪掉整塊 board，而且沒有備份\n',
+      'Ignored  .issues/  $GIT_DIR/info/exclude (this board will not be committed)\n' +
+        'Note  git clean -xdf deletes the whole board, and there is no backup\n',
     );
     // 第一次 init 寫的 .gitattributes 留在原地 —— private 不碰它，也不拿它報錯。
     expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toContain('merge=union');
@@ -1816,7 +1816,7 @@ describe('shared board 上那句警告一字不變', () => {
     expect(await run(['list'], listed)).toBe(0);
 
     expect(listed.err).toBe(
-      '警告：.gitattributes 缺少 merge=union，合併會衝突（nook init 補回）\n',
+      'Warning: .gitattributes is missing merge=union, merges will conflict (nook init restores it)\n',
     );
   });
 });
@@ -1881,9 +1881,9 @@ describe('share：private → shared', () => {
 
     // 說話的三分法同 init：動了什麼、以及**使用者自己**要跑的那兩行。
     expect(io.out).toBe(
-      'Shared  .issues/  已從 $GIT_DIR/info/exclude 移除（這塊 board 從現在起會進 git）\n' +
+      'Shared  .issues/  removed from $GIT_DIR/info/exclude (this board will enter git from now on)\n' +
         'Created  .gitattributes  .issues/issues/*.ndjson merge=union\n' +
-        'Next  nook 不替你跑任何會寫入的 git 指令，請自己執行：\n' +
+        'Next  nook runs no git command that writes; run these yourself:\n' +
         `  git add "${dir}/.issues" "${dir}/.gitattributes"\n` +
         '  git commit -m "Share the nook board"\n',
     );
@@ -1904,8 +1904,8 @@ describe('share：private → shared', () => {
     expect(await run(['share'], io)).toBe(0);
 
     expect(io.out).toBe(
-      'Unchanged  這裡已經是一塊共享的 board，這次沒有動到任何東西\n' +
-        'Next  nook 不替你跑任何會寫入的 git 指令，請自己執行：\n' +
+      'Unchanged  this board is already shared; nothing was touched\n' +
+        'Next  nook runs no git command that writes; run these yourself:\n' +
         `  git add "${dir}/.issues" "${dir}/.gitattributes"\n` +
         '  git commit -m "Share the nook board"\n',
     );
@@ -1929,7 +1929,7 @@ describe('share：private → shared', () => {
 
     expect(await run(['share'], io)).toBe(0);
 
-    expect(io.out).toBe('Unchanged  這裡已經是一塊共享的 board，這次沒有動到任何東西\n');
+    expect(io.out).toBe('Unchanged  this board is already shared; nothing was touched\n');
     expect(io.out).not.toContain('git add');
     expect(io.err).toBe('');
   });
@@ -2029,7 +2029,7 @@ describe('share：private → shared', () => {
     }
 
     expect(code).toBe(1);
-    expect(io.err).toContain('仍然 ignore');
+    expect(io.err).toContain('still ignoring');
     // 說不出哪一條時就交出問法，而不是把 null 印給使用者看。
     expect(io.err).toContain('check-ignore');
     expect(io.err).not.toContain('null');
@@ -2075,7 +2075,7 @@ describe('share：private → shared', () => {
 
     expect(await run(['share'], io)).toBe(1);
 
-    expect(io.err).toContain('不是一個 Nook board');
+    expect(io.err).toContain('not a Nook board');
     expect(io.out).toBe('');
     expect(existsSync(join(dir, '.issues'))).toBe(false);
     expect(existsSync(join(dir, '.gitattributes'))).toBe(false);

@@ -581,7 +581,7 @@ describe('op-log 已經被 git 追蹤時，init --private 拒絕', () => {
     // 執行，而 git 只會說 pathspec 沒命中 —— 貼得上去才算講出解法。
     expect((error as Error).message).toContain(`git rm -r --cached "${repo}/.issues"`);
     // 「你自己跑」這件事必須寫在訊息裡，否則使用者會等 nook 動手。
-    expect((error as Error).message).toContain('自己');
+    expect((error as Error).message).toContain('yourself');
   });
 });
 
@@ -841,7 +841,7 @@ describe('share 之後 git 仍然 ignore 那些檔案時', () => {
     expect(io.out).not.toContain('git add');
     // **也不得先承諾再收回。** stdout 那一行不能說「從現在起會進 git」，因為
     // 下一行 stderr 正要說 git 還在擋 —— 先承諾再收回比直接說不行更糟。
-    expect(io.out).not.toContain('從現在起會進 git');
+    expect(io.out).not.toContain('will enter git from now on');
   });
 });
 

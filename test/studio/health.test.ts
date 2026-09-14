@@ -152,8 +152,8 @@ describe('boardAlerts —— 共享狀態不一致是它自己一種問題', () 
   it('不是資料層那一句 —— 它說的是共享狀態', () => {
     const headline = boardAlerts([mismatch])[0]?.headline ?? '';
 
-    expect(headline).not.toBe('op-log 上有 reducer 讀不動的資料 —— 那幾行的內容現在不算數');
-    expect(headline).toContain('共享');
+    expect(headline).not.toBe("There is data on the op-log the reducer can't read — those lines don't count right now");
+    expect(headline).toContain('sharing');
   });
 
   // 下一步**不是一個指令**：兩種狀態的解法不同（`nook share` 對上

@@ -62,7 +62,7 @@ describe('serveWorkspace — landing 頁列出全部成員', () => {
 
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('沒有偵測到任何 Board');
+    expect(html).toContain('No boards detected');
   });
 });
 

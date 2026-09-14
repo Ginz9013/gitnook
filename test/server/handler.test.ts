@@ -612,7 +612,7 @@ describe('POST /i/<ref> 的 deleted', () => {
     const res = post(`/i/${id}`, { comment: 'x' });
 
     expect(res.status).toBe(410);
-    expect(res.body).toContain('已被刪除');
+    expect(res.body).toContain('already deleted');
     // 500 的兜底會外洩堆疊；這條是被對應過的例外，不得走到那裡。
     expect(res.body).not.toContain('at Object');
     expect(opsOnDisk(id)).toHaveLength(before);
@@ -1121,7 +1121,7 @@ describe('未預期的例外', () => {
     expect(res.headers['content-type']).toMatch(/^text\/plain/);
     // 讀者就是跑 nook studio 的那個人（同 missingAssetsPage 的模型）：
     // 只說「內部錯誤」等於要他自己去猜看板為什麼整個空了。
-    expect(res.body).toContain('不是一個 Nook board');
+    expect(res.body).toContain('not a Nook board');
   });
 
   it('500 的內文不得外洩堆疊追蹤', () => {
@@ -1152,7 +1152,7 @@ describe('未預期的例外', () => {
     // board 消失不是「找不到這張 issue」（404），也不是請求的錯（400）。
     const gone = handleRequest(alive, { method: 'POST', url: `/i/${id}`, body: '{"status":"queued"}' });
     expect(gone.status).toBe(500);
-    expect(gone.body).toContain('不是一個 Nook board');
+    expect(gone.body).toContain('not a Nook board');
   });
 });
 

@@ -18,7 +18,7 @@ export function diagnose(dir: string): Diagnostic[] {
   if (!insideGit) {
     found.push({
       kind: 'NotAGitRepo',
-      message: `${dir} 不在 git work tree 內：merge=union 不會生效`,
+      message: `${dir} is not inside a git work tree: merge=union will not take effect`,
     });
   }
 
@@ -46,14 +46,14 @@ export function diagnose(dir: string): Diagnostic[] {
       found.push({
         kind: 'MissingMergeDriver',
         file: '.gitattributes',
-        message: `缺少零衝突保證：${MERGE_RULE}（執行 nook init 補回）`,
+        message: `missing the zero-conflict guarantee: ${MERGE_RULE} (run nook init to restore it)`,
       });
     } else if (guarantee.kind === 'conflicting') {
       found.push({
         kind: 'MissingMergeDriver',
         file: '.gitattributes',
         line: guarantee.line,
-        message: `這一行讓 op-log 拿不到 merge=union：${guarantee.rule}`,
+        message: `this line keeps the op-log from getting merge=union: ${guarantee.rule}`,
       });
     }
   }
@@ -72,7 +72,7 @@ export function diagnose(dir: string): Diagnostic[] {
             kind: 'UnknownOp',
             file: relative,
             line,
-            message: `未知的 op 型別 ${kind}：reducer 會忽略這一行（可能需要升級 nook）`,
+            message: `unknown op kind ${kind}: the reducer will ignore this line (you may need to upgrade nook)`,
           });
         }
         continue;
@@ -85,7 +85,7 @@ export function diagnose(dir: string): Diagnostic[] {
           kind: 'GluedLine',
           file: relative,
           line,
-          message: `${glued.length} 個 op 被黏成一行（寫入時缺少 trailing newline），可修復：${excerpt(text)}`,
+          message: `${glued.length} ops glued into one line (a write was missing its trailing newline), repairable: ${excerpt(text)}`,
         });
         continue;
       }
@@ -94,7 +94,7 @@ export function diagnose(dir: string): Diagnostic[] {
         kind: 'UnparsableLine',
         file: relative,
         line,
-        message: `無法解析，reducer 會丟棄這一行：${excerpt(text)}`,
+        message: `unparsable, the reducer will drop this line: ${excerpt(text)}`,
       });
     }
   }
@@ -123,9 +123,9 @@ function sharingMismatches(
       {
         kind: 'SharingMismatch',
         message:
-          `排除規則在，op-log 卻已經被 git 追蹤：這塊 board 實際上是共享的` +
-          `（被追蹤的路徑勝過 ignore 規則），而且沒有零衝突保證 —— 正在靜默累積衝突風險。` +
-          `執行 nook share 讓規則與事實一致。`,
+          `the exclude rule is present, but the op-log is already tracked by git: this board is ` +
+          `actually shared (a tracked path beats an ignore rule), and it has no zero-conflict ` +
+          `guarantee — conflict risk is silently accumulating. Run nook share to make the rule match reality.`,
       },
     ];
   }
@@ -147,16 +147,16 @@ function sharingMismatches(
     const rule = overridingRule(dir);
     const why =
       rule === null
-        ? `而 git 指不出是哪一條規則壓過它 —— 請自己跑 ` +
-          `git check-ignore -v --non-matching "${dir}/.issues" 找出來。`
-        : `你那一行被 ${rule} 壓過去了 —— 移除或調整那一條規則（nook 只動自己寫的那一行），` +
-          `再跑一次 nook doctor 確認。`;
+        ? `and git cannot point at which rule overrides it — run ` +
+          `git check-ignore -v --non-matching "${dir}/.issues" yourself to find it.`
+        : `your line is being overridden by ${rule} — remove or adjust that rule (nook only ever ` +
+          `touches its own line), then run nook doctor again to confirm.`;
     return [
       {
         kind: 'SharingMismatch',
         message:
-          `排除規則在，git 卻說這塊 board 沒有被 ignore：規則沒有效果，` +
-          `所以整塊 board 進得了 git —— 下一次 git add -A 就會把它推出去。${why}`,
+          `the exclude rule is present, but git says this board is not ignored: the rule has no ` +
+          `effect, so the whole board can enter git — the next git add -A will push it in. ${why}`,
       },
     ];
   }
@@ -173,10 +173,10 @@ function sharingMismatches(
     {
       kind: 'SharingMismatch',
       message:
-        `沒有 nook 寫的排除規則，git 卻 ignore 了 op-log：${source}` +
-        `。這塊 board 看起來是共享的，同事 clone 下來卻會是空的。` +
-        `如果這是刻意的，執行 nook init --private 把它記下來；` +
-        `不是的話，把那一條 ignore 規則拿掉。`,
+        `there is no exclude rule written by nook, but git is ignoring the op-log: ${source}` +
+        `. This board looks shared, but a colleague's clone would be empty. ` +
+        `If this is intentional, run nook init --private to record it; ` +
+        `if not, remove that ignore rule.`,
     },
   ];
 }

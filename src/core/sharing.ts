@@ -38,14 +38,14 @@ export type UnexcludeOutcome = 'removed' | 'unchanged';
 export class AlreadySharedBoard extends Error {
   constructor(readonly dir: string) {
     super(
-      `${dir} 的 op-log 已經被 git 追蹤：這塊 board 已經共享出去了。\n` +
-        `被追蹤的路徑勝過 ignore 規則（git check-ignore 會查 index），` +
-        `所以寫一條排除規則不會有任何效果 —— 它只會讓你以為成功了。\n` +
+      `${dir}'s op-log is already tracked by git: this board is already shared.\n` +
+        `A tracked path beats an ignore rule (git check-ignore checks the index), ` +
+        `so writing an exclude rule would have no effect — it would only make you think it worked.\n` +
         // 指令帶上完整路徑而不是相對的 `.issues`：board 可能不在 repo 根目錄
         // （`/services/api/.issues/` 是支援且被測試的形狀），那時貼上一條相對
         // 指令的人會在錯的目錄下執行它，而 git 只會說 pathspec 沒命中。
-        `要降級成 private，請自己執行 git rm -r --cached "${dir}/.issues" 並 commit；` +
-        `那會從同事的 clone 裡刪掉這塊 board，所以 nook 不替你跑任何會寫入的 git 指令。`,
+        `To downgrade to private, run git rm -r --cached "${dir}/.issues" and commit it yourself; ` +
+        `that would delete this board from your colleagues' clones, so nook runs no git command that writes.`,
     );
     this.name = 'AlreadySharedBoard';
   }
@@ -62,9 +62,9 @@ export class AlreadySharedBoard extends Error {
 export class NoGitDir extends Error {
   constructor(readonly dir: string) {
     super(
-      `${dir} 不在任何 git work tree 內：private mode 靠 $GIT_DIR/info/exclude ` +
-        `把 board 藏起來，沒有 git 就沒有東西需要藏。\n` +
-        `這裡直接跑 nook init 就有一塊可用的 board。`,
+      `${dir} is not inside any git work tree: private mode relies on $GIT_DIR/info/exclude ` +
+        `to hide the board, and without git there is nothing to hide.\n` +
+        `Run nook init here directly to get a usable board.`,
     );
     this.name = 'NoGitDir';
   }

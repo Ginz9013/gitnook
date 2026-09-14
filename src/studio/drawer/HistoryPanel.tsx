@@ -68,7 +68,7 @@ export function HistoryPanel({ issueId }: HistoryPanelProps): React.JSX.Element 
           aria-hidden
           className={`size-3 transition-transform ${open ? 'rotate-90' : ''}`}
         />
-        變更歷史
+        History
       </button>
 
       {open ? <Body load={load} /> : null}
@@ -78,7 +78,7 @@ export function HistoryPanel({ issueId }: HistoryPanelProps): React.JSX.Element 
 
 function Body({ load }: { readonly load: Load | null }): React.JSX.Element {
   if (load === null || load.state === 'loading') {
-    return <p className="text-muted-foreground text-sm">讀取中…</p>;
+    return <p className="text-muted-foreground text-sm">Loading…</p>;
   }
 
   if (load.state === 'failed') {
@@ -86,7 +86,7 @@ function Body({ load }: { readonly load: Load | null }): React.JSX.Element {
     // 就是重試，所以那句話寫在這裡而不是另外給一顆按鈕。
     return (
       <p className="text-destructive text-sm">
-        讀不到變更歷史：{load.message}（收合再展開可以重試）
+        Failed to load history: {load.message} (collapse and expand to retry)
       </p>
     );
   }
@@ -94,7 +94,7 @@ function Body({ load }: { readonly load: Load | null }): React.JSX.Element {
   if (load.rows.length === 0) {
     // 空清單要用講的，不是畫一個空的 `<ol>`：一份空的清單看起來像「壞掉了」，
     // 而這裡的事實是「沒有東西被改過」。
-    return <p className="text-muted-foreground text-sm">這張 Issue 的欄位還沒有被改過。</p>;
+    return <p className="text-muted-foreground text-sm">No fields on this issue have been changed yet.</p>;
   }
 
   return (
@@ -143,7 +143,7 @@ function Row({ row }: { readonly row: HistoryRow }): React.JSX.Element {
           onClick={() => setExpanded(!expanded)}
           className="text-muted-foreground hover:text-foreground cursor-pointer self-start text-xs underline"
         >
-          {expanded ? '收合' : '展開'}
+          {expanded ? 'Collapse' : 'Expand'}
         </button>
       ) : null}
     </li>

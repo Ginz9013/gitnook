@@ -58,7 +58,7 @@ function notFound(message = 'not found'): StudioResponse {
 
 /** 405 的唯一形狀。Allow 講的是這個資源支援什麼（RFC 9110）。 */
 function methodNotAllowed(path: string, allow: string): StudioResponse {
-  return { status: 405, headers: { 'content-type': TEXT, allow }, body: `${path} 只接受 ${allow}\n` };
+  return { status: 405, headers: { 'content-type': TEXT, allow }, body: `${path} only accepts ${allow}\n` };
 }
 
 function badRequest(message: string): StudioResponse {
@@ -83,7 +83,7 @@ function gone(message: string): StudioResponse {
  * 非 Error 的擲出物不做猜測 —— 沒有 message 可信，就不要假裝有。
  */
 function serverError(err: unknown): StudioResponse {
-  const message = err instanceof Error ? err.message : '伺服器內部錯誤';
+  const message = err instanceof Error ? err.message : 'internal server error';
   return { status: 500, headers: { 'content-type': TEXT }, body: `${message}\n` };
 }
 
@@ -201,11 +201,11 @@ function missingAssetsPage(assetsDir: string): string {
   return (
     `<!doctype html>\n<html lang="en">\n<head>\n` +
     `<meta charset="utf-8">\n` +
-    `<title>Nook studio —— 前端資產尚未建置</title>\n` +
+    `<title>Nook studio — frontend assets not built</title>\n` +
     `</head>\n<body>\n` +
-    `<h1>studio 的前端資產不在</h1>\n` +
-    `<p>找不到：<code>${escapeHtml(assetsDir)}</code></p>\n` +
-    `<p>先執行 <code>npm run build</code>，再重新啟動 <code>nook studio</code>。</p>\n` +
+    `<h1>studio's frontend assets are missing</h1>\n` +
+    `<p>Not found: <code>${escapeHtml(assetsDir)}</code></p>\n` +
+    `<p>Run <code>npm run build</code> first, then restart <code>nook studio</code>.</p>\n` +
     `</body>\n</html>\n`
   );
 }
@@ -491,7 +491,7 @@ function parseChange(body: string): Change | undefined {
  */
 function applyChange(board: Board, ref: string, body: string): StudioResponse {
   const change = parseChange(body);
-  if (change === undefined) return badRequest('body 必須是一份 Change 的 JSON 物件');
+  if (change === undefined) return badRequest('body must be a JSON object representing a Change');
 
   try {
     return json(toIssueView(board.apply(ref, change), displayLength(board)));
@@ -530,27 +530,27 @@ function createIssue(board: Board, body: string): StudioResponse {
   } catch {
     parsed = undefined;
   }
-  if (!isRecord(parsed)) return badRequest('body 必須是一份 JSON 物件');
+  if (!isRecord(parsed)) return badRequest('body must be a JSON object');
 
   // 不認得的欄位一律拒絕，而不是忽略 —— 同 parseChange。被靜靜吃掉的欄位換來
   // 的是 201 加上一張少了東西的 Issue，而 append-only 之下沒有「被拒絕的寫入」
   // 可以事後翻查（ADR-0007）。
   for (const key of Object.keys(parsed)) {
-    if (!CREATE_FIELDS.has(key)) return badRequest(`不認得的欄位：${key}（只收 title 與 status）`);
+    if (!CREATE_FIELDS.has(key)) return badRequest(`unrecognized field: ${key} (only title and status are accepted)`);
   }
 
   // 標題是唯一的必填欄位，而且空白不算：一張沒有標題的 Issue 在板上是看不懂的
   // 一列空白，而 append-only 之下它刪不掉，只能再寫一次 op 蓋過去。
   const title = parsed['title'];
   if (typeof title !== 'string' || title.trim() === '') {
-    return badRequest('title 必須是非空字串');
+    return badRequest('title must be a non-empty string');
   }
 
   // status 原樣交給 core：前綴解析（`rev` → `review`）與合法性只有一份實作，
   // 就是 resolveStatus 那一份。這裡只確認它是個字串。
   const status = parsed['status'];
   if (status !== undefined && typeof status !== 'string') {
-    return badRequest('status 必須是字串');
+    return badRequest('status must be a string');
   }
 
   try {

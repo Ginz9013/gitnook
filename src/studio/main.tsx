@@ -10,7 +10,7 @@ import '@/index.css';
  * 沒有它就是殼與 bundle 對不上，早點大聲壞掉比默默空白好。
  */
 const root = document.getElementById('root');
-if (root === null) throw new Error('找不到 #root —— SPA 的殼與 bundle 對不上');
+if (root === null) throw new Error('#root not found — the SPA shell and bundle are out of sync');
 
 /**
  * **在 render 之前先套主題。** 晚一步就是第一幀閃一下亮色再變暗 —— 而那一閃

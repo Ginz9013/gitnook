@@ -12,9 +12,9 @@ const GAP = '  ';
 const TITLE_MAX = 48;
 const ELLIPSIS = '…';
 /** 空清單的訊息。輸出一個空表頭比一句話更浪費，也更難讀。 */
-const EMPTY = '沒有 issue';
+const EMPTY = 'no issues';
 /** 同上，但問的是一張 Issue 的 Op-log。 */
-const EMPTY_OPS = '沒有 set op';
+const EMPTY_OPS = 'no set ops';
 
 /**
  * 短 ID 的長度由呼叫端算好後傳進來 —— 長度是「整批的性質」，單張 Issue

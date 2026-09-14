@@ -44,9 +44,9 @@ export const storedTheme = (): ThemePreference => readTheme(window.localStorage)
  * 的退路。查表則由型別保證完備：少一個鍵編不過，也就沒有退路要寫。
  */
 const OPTIONS: Readonly<Record<ThemePreference, { label: string; Icon: typeof Sun }>> = {
-  light: { label: '亮色', Icon: Sun },
-  dark: { label: '暗色', Icon: Moon },
-  system: { label: '跟隨系統', Icon: Monitor },
+  light: { label: 'Light', Icon: Sun },
+  dark: { label: 'Dark', Icon: Moon },
+  system: { label: 'System', Icon: Monitor },
 };
 
 /** 選單列出來的順序。上面那張表是查詢用的，物件的鍵序不該拿來當版面。 */
@@ -73,7 +73,7 @@ export function ThemeToggle(): React.JSX.Element {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="icon" aria-label={`主題：${current.label}`}>
+        <Button variant="outline" size="icon" aria-label={`Theme: ${current.label}`}>
           <current.Icon aria-hidden />
         </Button>
       </DropdownMenuTrigger>

@@ -160,7 +160,7 @@ export function BoardHeader({
                 看得到的是縮過的，唸出來與滑過去的是完整的那一條 —— 縮短是版面的
                 事，不該讓螢幕閱讀器與滑鼠使用者也拿不到真正的路徑。
               */}
-              <span aria-label={`board 路徑：${info.root}`} title={info.root}>
+              <span aria-label={`board path: ${info.root}`} title={info.root}>
                 {shortenPath(info.root, MAX_PATH)}
               </span>
               {/*
@@ -171,7 +171,7 @@ export function BoardHeader({
               {info.branch !== null && (
                 <>
                   <Separator />
-                  <span aria-label={`分支：${info.branch}`}>{info.branch}</span>
+                  <span aria-label={`branch: ${info.branch}`}>{info.branch}</span>
                 </>
               )}
               <Separator />
@@ -183,7 +183,7 @@ export function BoardHeader({
                 「這塊板子是他的」。
               */}
               <span
-                aria-label={`你在這裡寫的變更都記在 ${info.actor} 名下；這不是負責人，Nook 沒有負責人的概念`}
+                aria-label={`changes you make here are recorded under ${info.actor}; this is not an owner — Nook has no concept of ownership`}
               >
                 {info.actor}
               </span>
@@ -193,10 +193,10 @@ export function BoardHeader({
 
         {/* 左邊那一塊有多長由路徑決定，所以右邊那組靠 `ml-auto` 推過去。 */}
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <span className="text-muted-foreground text-xs">{visibleCount} 張 Issue</span>
+          <span className="text-muted-foreground text-xs">{visibleCount} issues</span>
 
           <Button {...entry.trigger} type="button" size="sm">
-            新增 Issue
+            New Issue
           </Button>
 
           {/*
@@ -216,12 +216,12 @@ export function BoardHeader({
                   size="sm"
                   aria-label={
                     filtering
-                      ? `依 Label 篩選，篩選中：${selectedLabels.join('、')}`
-                      : '依 Label 篩選'
+                      ? `Filter by label, filtering: ${selectedLabels.join(', ')}`
+                      : 'Filter by label'
                   }
                 >
                   <ListFilter aria-hidden className="size-4" />
-                  篩選
+                  Filter
                   {/*
                     勾了幾個。**數字畫在按鈕上**，因為面板關起來之後它是唯一
                     還留在畫面上的痕跡 —— 下面那條說明列講的是「藏了幾張」，
@@ -231,7 +231,7 @@ export function BoardHeader({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="max-h-80 w-56 overflow-y-auto">
-                <DropdownMenuLabel>依 Label 篩選（越加越窄）</DropdownMenuLabel>
+                <DropdownMenuLabel>Filter by label (narrows as you add more)</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {labels.map((label) => (
                   <DropdownMenuCheckboxItem
@@ -259,7 +259,7 @@ export function BoardHeader({
               aria-pressed={showArchived}
               onClick={onToggleArchived}
             >
-              {showArchived ? '隱藏已封存' : `顯示已封存（${archivedCount}）`}
+              {showArchived ? 'Hide archived' : `Show archived (${archivedCount})`}
             </Button>
           )}
 
@@ -297,13 +297,13 @@ export function BoardHeader({
           className="border-primary bg-primary/10 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border px-3 py-2 text-sm"
         >
           <ListFilter aria-hidden className="text-primary size-4 shrink-0" />
-          <span className="font-medium">篩選中</span>
+          <span className="font-medium">Filtering</span>
           <span className="[overflow-wrap:anywhere]">
             {/*
               「以及」不是「或」—— 多選之間是 AND（`filter.ts`）。把它寫在畫面上，
               使用者才不會把兩個勾勾讀成「這兩種都給我看」。
             */}
-            同時帶著 <span className="font-mono font-semibold">{selectedLabels.join(' + ')}</span>
+            with <span className="font-mono font-semibold">{selectedLabels.join(' + ')}</span>
           </span>
           {/*
             **藏了幾張**。一張都沒藏時照樣講（「沒有藏起任何一張」）——
@@ -312,8 +312,8 @@ export function BoardHeader({
           */}
           <span className="text-muted-foreground">
             {hiddenByLabel > 0
-              ? `${hiddenByLabel} 張被隱藏`
-              : '沒有藏起任何一張（另外被封存藏起來的不算在內）'}
+              ? `${hiddenByLabel} hidden`
+              : 'none hidden (not counting those hidden by archiving)'}
           </span>
           {/*
             一鍵清除。`ml-auto` 推到最右邊，跟上面那組動作對齊 —— 出路要永遠
@@ -321,7 +321,7 @@ export function BoardHeader({
           */}
           <Button variant="outline" size="sm" className="ml-auto" onClick={onClearLabels}>
             <X aria-hidden className="size-4" />
-            清除篩選
+            Clear filter
           </Button>
         </div>
       )}
@@ -369,10 +369,10 @@ function AlertBar({ alert }: { readonly alert: BoardAlert }): React.JSX.Element 
             同一種問題只列第一條（`health.ts`）。剩下幾條要說出來，否則修完
             第一條的人會以為修完了 —— `nook doctor` 印的是全部。
           */}
-          {alert.more > 0 && `（另外還有 ${alert.more} 條同樣的問題）`}
+          {alert.more > 0 && ` (${alert.more} more of the same)`}
         </span>
         <span className="text-xs">
-          下一步：在 repo 根目錄跑 <code className="font-mono font-semibold">{alert.fix}</code>
+          Next: run this at the repo root <code className="font-mono font-semibold">{alert.fix}</code>
         </span>
       </div>
     </div>

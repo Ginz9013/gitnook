@@ -99,7 +99,7 @@ describe('找不到 board 時的錯誤訊息', () => {
     // 兩塊的破壞性操作 —— 訊息必須交代從哪裡找到哪裡。
     expect(thrown).toBeInstanceOf(BoardNotInitialized);
     expect(thrown?.message).toContain(deep);
-    expect(thrown?.message).toContain(`至 ${repo}`);
+    expect(thrown?.message).toContain(`up to ${repo}`);
     expect(thrown?.message).toContain('.issues/issues');
   });
 });

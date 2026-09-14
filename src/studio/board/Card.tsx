@@ -95,7 +95,7 @@ export function Card({ projected, selected, onSelect }: CardProps): React.JSX.El
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: issue.id,
     data: { title: issue.title, status: issue.status },
-    attributes: { roleDescription: '可拖曳的 Issue' },
+    attributes: { roleDescription: 'draggable issue' },
   });
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {

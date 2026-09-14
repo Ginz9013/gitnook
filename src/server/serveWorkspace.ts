@@ -28,10 +28,10 @@ function renderLanding(workspace: Workspace): string {
   const rows = workspace.members.map((member, n) => memberRow(n, member)).join('\n');
   const body =
     workspace.members.length === 0
-      ? '<p>沒有偵測到任何 Board。</p>'
+      ? '<p>No boards detected.</p>'
       : `<ul>\n${rows}\n</ul>`;
   return `<!doctype html>
-<html lang="zh-Hant">
+<html lang="en">
 <head><meta charset="utf-8"><title>nook workspace</title></head>
 <body>
 <h1>nook workspace</h1>
@@ -100,7 +100,7 @@ export function serveWorkspace(workspace: Workspace, opts: ServeOptions = {}): P
       const member = workspace.members[n];
       if (member === undefined) {
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-        res.end('沒有這個成員');
+        res.end('no such member');
         return;
       }
       void launch(n, member).then(
@@ -114,9 +114,9 @@ export function serveWorkspace(workspace: Workspace, opts: ServeOptions = {}): P
           // EADDRINUSE 這一種）。這裡若不接住，就是一個沒人接的 rejection——
           // 當場整個 landing process 死掉，連帶拖走所有已經啟動的子 studio。
           const message = err instanceof Error ? err.message : String(err);
-          console.error(`nook workspace studio: 啟動成員 ${member.path} 的 studio 失敗 —— ${message}`);
+          console.error(`nook workspace studio: failed to start studio for member ${member.path} — ${message}`);
           res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
-          res.end(`啟動這個成員的 studio 失敗：${message}`);
+          res.end(`failed to start studio for this member: ${message}`);
         },
       );
       return;

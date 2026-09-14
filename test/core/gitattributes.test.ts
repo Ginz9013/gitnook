@@ -99,7 +99,7 @@ describe('initBoard 在既有 board 的子目錄', () => {
     // 兩塊 board 會各自累積 Issue，而且沒有任何東西會提示 ——
     // 這是資料完整性問題，所以拒絕而不是照做。
     expect(err.name).toBe('NestedBoard');
-    expect(err.message).toContain(`根目錄 ${dir}`);
+    expect(err.message).toContain(`root ${dir}`);
     expect(existsSync(join(sub, '.issues'))).toBe(false);
   });
 });

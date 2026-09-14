@@ -43,7 +43,7 @@ export interface ServeOptions {
 
 export class PortInUse extends Error {
   constructor(readonly port: number) {
-    super(`port ${port} 已被占用（用 --port 指定另一個 port）`);
+    super(`port ${port} is already in use (use --port to pick another one)`);
     this.name = 'PortInUse';
   }
 }

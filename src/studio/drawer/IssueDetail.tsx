@@ -53,7 +53,7 @@ export function IssueDetail({ projected, onSubmit }: IssueDetailProps): React.JS
           的 Title 會讓可及名稱變成空字串（input 沒有文字內容）。
         */}
         <SheetTitle className="sr-only">{shown.title}</SheetTitle>
-        <SheetDescription className="sr-only">Issue {shown.id} 的詳情與編輯</SheetDescription>
+        <SheetDescription className="sr-only">Details and editing for issue {shown.id}</SheetDescription>
 
         <TitleField
           title={shown.title}
@@ -152,19 +152,19 @@ function IssueActions({
         // 對所有呼叫端的契約，不是這個呼叫端的義務。
         onClick={() => onSubmit(archiveChange(!archived, archived))}
       >
-        {archived ? '取消封存' : '封存'}
+        {archived ? 'Unarchive' : 'Archive'}
       </Button>
 
       <AlertDialog>
         <AlertDialogTrigger asChild>
           {/* destructive —— 這一版裡該用到那個 token 的少數幾處之一（D9）。 */}
           <Button variant="destructive" size="sm">
-            刪除
+            Delete
           </Button>
         </AlertDialogTrigger>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>刪除這張 Issue？</AlertDialogTitle>
+            <AlertDialogTitle>Delete this issue?</AlertDialogTitle>
             {/*
               這段話說的是「刪除跟封存差在哪」與「按錯了怎麼辦」。它必須在框裡
               而不是在文件裡：讀它的人正在猶豫要不要按，而那正是這兩件事唯一
@@ -177,21 +177,21 @@ function IssueActions({
               仍然在 `.ndjson` 裡，但這句話不該讓人以為 `history` 撈得到。
             */}
             <AlertDialogDescription>
-              封存只是把它從看板上收起來，<code className="font-mono">nook list --all</code>{' '}
-              還列得到；<strong className="text-foreground font-medium">刪除之後 --all 也不再列它</strong>。
-              檔案不會被刪掉：<code className="font-mono">nook history {shortId}</code>{' '}
-              仍然撈得回它每一個欄位寫過的值，
-              <code className="font-mono">nook set {shortId} deleted false</code> 可以把它放回來。
+              Archiving only tucks it away from the board — <code className="font-mono">nook list --all</code>{' '}
+              still lists it; <strong className="text-foreground font-medium">after deleting, --all won't list it either</strong>.
+              The file is not deleted: <code className="font-mono">nook history {shortId}</code>{' '}
+              still recovers every value ever written to its fields, and{' '}
+              <code className="font-mono">nook set {shortId} deleted false</code> brings it back.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             {/* 取消是預設焦點（Radix），關掉之後焦點回到上面那顆刪除按鈕。 */}
-            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive hover:bg-destructive/90 text-white"
               onClick={() => onSubmit(deleteChange())}
             >
-              刪除
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -210,7 +210,7 @@ function TitleField({ title, pending, onSubmit }: FieldProps & { readonly title:
   return (
     <input
       value={draft ?? title}
-      aria-label="標題"
+      aria-label="Title"
       className="focus-visible:border-ring focus-visible:ring-ring/50 -mx-2 rounded-md border border-transparent px-2 py-1 text-lg font-semibold outline-none focus-visible:ring-[3px]"
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
@@ -269,10 +269,10 @@ function DescriptionField({
               setDraft(null);
             }}
           >
-            儲存
+            Save
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setDraft(null)}>
-            取消
+            Cancel
           </Button>
         </div>
       </section>
@@ -289,13 +289,13 @@ function DescriptionField({
           className="h-6 px-2 text-xs"
           onClick={() => setDraft(description)}
         >
-          編輯
+          Edit
         </Button>
-        {pending ? <span className="text-muted-foreground text-xs">送出中…</span> : null}
+        {pending ? <span className="text-muted-foreground text-xs">Sending…</span> : null}
       </div>
 
       {description.trim() === '' ? (
-        <p className="text-muted-foreground text-sm">沒有描述。</p>
+        <p className="text-muted-foreground text-sm">No description.</p>
       ) : pending ? (
         <p className="text-sm wrap-break-word whitespace-pre-wrap">{description}</p>
       ) : (

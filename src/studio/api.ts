@@ -86,7 +86,7 @@ async function said(res: Response): Promise<string | null> {
  */
 export class MalformedResponseError extends Error {
   constructor(readonly url: string) {
-    super(`${url} 回了 200，但 body 不是 JSON`);
+    super(`${url} returned 200, but the body is not JSON`);
     this.name = 'MalformedResponseError';
   }
 }
@@ -161,7 +161,7 @@ async function getJson<T>(
   signal?: AbortSignal,
 ): Promise<T> {
   const res = await fetch(url, signal === undefined ? {} : { signal });
-  if (!res.ok) throw new HttpError(url, res.status, `${url} 回了 ${res.status}`, await said(res));
+  if (!res.ok) throw new HttpError(url, res.status, `${url} returned ${res.status}`, await said(res));
   // `res.json()` 丟的是一個裸的 `SyntaxError`，而裸的例外在 `poll.ts` 那裡跟
   // 「連不上」長得一模一樣。自己解，才有辦法丟一個說得出「伺服器答了」的錯誤。
   const body = await res.text();
@@ -217,7 +217,7 @@ export function fetchBoardInfo(signal?: AbortSignal): Promise<BoardInfo> {
 export async function fetchHash(signal?: AbortSignal): Promise<string> {
   const res = await fetch(HASH_URL, signal === undefined ? {} : { signal });
   if (!res.ok) {
-    throw new HttpError(HASH_URL, res.status, `${HASH_URL} 回了 ${res.status}`, await said(res));
+    throw new HttpError(HASH_URL, res.status, `${HASH_URL} returned ${res.status}`, await said(res));
   }
   return await res.text();
 }
@@ -299,7 +299,7 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
     throw new HttpError(
       url,
       res.status,
-      `${url} 回了 ${res.status}：${text}`,
+      `${url} returned ${res.status}: ${text}`,
       detail === '' ? null : detail,
     );
   }

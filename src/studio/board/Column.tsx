@@ -106,7 +106,7 @@ export function Column({
 
   // 八欄的可及名稱只有這一份 —— 折起來的那一條唸出來要與展開時是同一件東西，
   // 否則螢幕閱讀器使用者折疊之後會以為那一欄不見了。
-  const label = `${status}，${issues.length} 張 Issue`;
+  const label = `${status}, ${issues.length} issue(s)`;
   const frame = cn(
     'bg-muted/40 flex shrink-0 flex-col rounded-lg border transition-colors',
     collapsed ? COLLAPSED : 'w-64',
@@ -131,9 +131,9 @@ export function Column({
           // 講。把動詞寫進名稱（「展開 backlog」／「折疊 backlog」）的話，按下去
           // 的瞬間使用者剛按的那顆鈕改了名字，而 `aria-expanded` 已經把同一件事
           // 講過一次了。
-          aria-label={`${status} 欄`}
+          aria-label={`${status} column`}
           aria-expanded={false}
-          title={`展開 ${status}`}
+          title={`Expand ${status}`}
           className="hover:bg-accent focus-visible:ring-ring/50 flex flex-1 cursor-pointer flex-col items-center gap-2 rounded-lg py-2 outline-none focus-visible:ring-[3px]"
         >
           <ChevronsLeftRight aria-hidden className="size-3.5 shrink-0" />
@@ -175,7 +175,7 @@ export function Column({
             // 八顆按鈕都叫「新增」時，螢幕閱讀器唸出來的是八個一模一樣的東西，
             // 使用者分不出自己按的是哪一欄 —— 而「哪一欄」正是這顆按鈕全部的
             // 意義所在。
-            aria-label={`在 ${status} 新增 Issue`}
+            aria-label={`New issue in ${status}`}
             className="ml-auto size-6"
           >
             <PlusIcon />
@@ -185,9 +185,9 @@ export function Column({
             variant="ghost"
             size="icon"
             onClick={onToggleCollapsed}
-            aria-label={`${status} 欄`}
+            aria-label={`${status} column`}
             aria-expanded={true}
-            title={`折疊 ${status}`}
+            title={`Collapse ${status}`}
             className="size-6"
           >
             <ChevronsRightLeft />

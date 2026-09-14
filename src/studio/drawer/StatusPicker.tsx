@@ -53,7 +53,7 @@ export function StatusPicker({ status, pending, onSubmit }: StatusPickerProps): 
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      {pending ? <span className="text-muted-foreground text-xs">送出中…</span> : null}
+      {pending ? <span className="text-muted-foreground text-xs">Sending…</span> : null}
     </div>
   );
 }

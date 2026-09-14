@@ -335,7 +335,7 @@ export function Board({
       // 交代狀況的時候：那張 Issue 剛從看板上消失了。沒有名稱時 screen reader
       // 唸到的只有「main」，使用者不知道自己被丟到哪裡。`data-slot` 是給 CSS
       // 與測試看的，輔助技術讀不到它。
-      aria-label="Nook 看板"
+      aria-label="Nook board"
     >
       {/* 整條 header 在 `BoardHeader.tsx` —— B5 與 B6 都還要往上加東西，而這個
           檔案已經是 DndContext 的持有者。 */}

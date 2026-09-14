@@ -29,7 +29,7 @@ export function LabelEditor({ labels, pending, onSubmit }: LabelEditorProps): Re
           {label}
           <button
             type="button"
-            aria-label={`移除 label ${label}`}
+            aria-label={`Remove label ${label}`}
             className="hover:text-destructive cursor-pointer rounded-xs opacity-60 hover:opacity-100"
             onClick={() => onSubmit(removeLabelChange(label))}
           >
@@ -49,13 +49,13 @@ export function LabelEditor({ labels, pending, onSubmit }: LabelEditorProps): Re
       >
         <input
           value={draft}
-          aria-label="新增 label"
+          aria-label="Add label"
           placeholder="+ label"
           className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-6 w-24 rounded-md border bg-transparent px-2 text-xs outline-none focus-visible:ring-[3px]"
           onChange={(e) => setDraft(e.target.value)}
         />
         <Button type="submit" size="sm" variant="ghost" className="h-6 px-2 text-xs">
-          新增
+          Add
         </Button>
       </form>
     </div>

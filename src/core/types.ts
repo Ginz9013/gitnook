@@ -152,9 +152,9 @@ export class BoardNotInitialized extends Error {
   constructor(dir: string, ceiling?: string) {
     super(
       ceiling === undefined
-        ? `不是一個 Nook board：${dir}（先執行 nook init）`
-        : `不是一個 Nook board：${dir}` +
-          `（向上搜尋至 ${ceiling} 都沒有 .issues/issues/；請在專案根目錄執行 nook init）`,
+        ? `not a Nook board: ${dir} (run nook init first)`
+        : `not a Nook board: ${dir}` +
+          ` (searched up to ${ceiling} without finding .issues/issues/; run nook init at the project root)`,
     );
     this.name = 'BoardNotInitialized';
   }
@@ -162,14 +162,14 @@ export class BoardNotInitialized extends Error {
 
 export class RefNotFound extends Error {
   constructor(ref: string) {
-    super(`找不到 issue：${ref}`);
+    super(`issue not found: ${ref}`);
     this.name = 'RefNotFound';
   }
 }
 
 export class AmbiguousRef extends Error {
   constructor(ref: string, readonly candidates: readonly string[]) {
-    super(`前綴 ${ref} 對應到 ${candidates.length} 張 issue：${candidates.join(', ')}`);
+    super(`prefix ${ref} matches ${candidates.length} issues: ${candidates.join(', ')}`);
     this.name = 'AmbiguousRef';
   }
 }
@@ -177,7 +177,7 @@ export class AmbiguousRef extends Error {
 /** 跨 board 操作要求完整 ULID（spec.md Non-goals）：ref 不是完整 26 碼時拋這個。 */
 export class IncompleteRef extends Error {
   constructor(readonly ref: string) {
-    super(`不完整的 ref：${ref}（跨 board 操作需要完整 26 碼 ULID，不支援短前綴）`);
+    super(`incomplete ref: ${ref} (cross-board operations require the full 26-character ULID, no short prefixes)`);
     this.name = 'IncompleteRef';
   }
 }
@@ -185,7 +185,7 @@ export class IncompleteRef extends Error {
 /** `locateInWorkspace()` 掃過全部成員都沒找到這個 ref。 */
 export class RefNotFoundInWorkspace extends Error {
   constructor(readonly ref: string, readonly searchedCount: number) {
-    super(`在 ${searchedCount} 個成員裡都找不到 ref：${ref}`);
+    super(`ref not found in any of ${searchedCount} members: ${ref}`);
     this.name = 'RefNotFoundInWorkspace';
   }
 }
@@ -196,7 +196,7 @@ export class RefNotFoundInWorkspace extends Error {
  */
 export class AmbiguousWorkspaceRef extends Error {
   constructor(readonly ref: string, readonly memberPaths: readonly string[]) {
-    super(`ref ${ref} 同時存在於 ${memberPaths.length} 個成員：${memberPaths.join(', ')}`);
+    super(`ref ${ref} exists in ${memberPaths.length} members at once: ${memberPaths.join(', ')}`);
     this.name = 'AmbiguousWorkspaceRef';
   }
 }
@@ -204,7 +204,7 @@ export class AmbiguousWorkspaceRef extends Error {
 /** `memberAt()` 解析出來的 Board 根目錄不在這個 workspace 的 members 裡。 */
 export class NotAWorkspaceMember extends Error {
   constructor(readonly resolvedRoot: string, readonly workspaceRoot: string) {
-    super(`${resolvedRoot} 不是 workspace ${workspaceRoot} 底下掃到的成員`);
+    super(`${resolvedRoot} is not a member found under workspace ${workspaceRoot}`);
     this.name = 'NotAWorkspaceMember';
   }
 }
@@ -212,14 +212,14 @@ export class NotAWorkspaceMember extends Error {
 /** 對一張已刪的 Issue 寫入。復原（`{ deleted: false }`）不在此列 —— docs/adr/0009。 */
 export class IssueDeleted extends Error {
   constructor(readonly ref: string) {
-    super(`issue 已被刪除：${ref}`);
+    super(`issue already deleted: ${ref}`);
     this.name = 'IssueDeleted';
   }
 }
 
 export class InvalidStatus extends Error {
   constructor(value: string) {
-    super(`不是合法的 status：${value}（可用：${STATUSES.join(', ')}）`);
+    super(`not a valid status: ${value} (available: ${STATUSES.join(', ')})`);
     this.name = 'InvalidStatus';
   }
 }

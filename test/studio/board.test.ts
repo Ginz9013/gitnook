@@ -130,7 +130,7 @@ const asOrdinaryWordingFor = (ordinary: string, from: Status, to: Status): strin
 describe('dragInstructions —— Tab 到一張 Issue 就聽得到的操作說明', () => {
   it('四個鍵都講：抓起、移動、放下、取消', () => {
     expect(dragInstructions).toMatch(/Space/);
-    expect(dragInstructions).toMatch(/左右/);
+    expect(dragInstructions).toMatch(/left\/right/);
     expect(dragInstructions).toMatch(/Esc/);
   });
 
@@ -138,14 +138,14 @@ describe('dragInstructions —— Tab 到一張 Issue 就聽得到的操作說�
   // 說「欄位」等於多發明一個他們對不上的東西。
   it('用 Status 講，不講「欄」', () => {
     expect(dragInstructions).toMatch(/Status/);
-    expect(dragInstructions).not.toMatch(/欄/);
+    expect(dragInstructions).not.toMatch(/column|lane/i);
   });
 
   // ADR-0003 只定義八個 Status，同一個 Status 裡沒有順序。上下鍵若沉默不語，
   // 使用者會以為自己按壞了；若真的移動，等於發明一個不存在的排序。
   it('明講同一個 Status 裡沒有順序，上下鍵不會移動 Issue', () => {
-    expect(dragInstructions).toMatch(/上下/);
-    expect(dragInstructions).toMatch(/沒有順序/);
+    expect(dragInstructions).toMatch(/up\/down/);
+    expect(dragInstructions).toMatch(/no order/i);
   });
 });
 
@@ -158,20 +158,20 @@ describe('announceGrab —— 抓起來的那一下', () => {
   });
 
   it('接著告訴使用者能用什麼鍵換 Status', () => {
-    expect(announceGrab(TITLE, 'todo')).toMatch(/左右/);
+    expect(announceGrab(TITLE, 'todo')).toMatch(/left\/right/);
   });
 });
 
 describe('停在 Status 之外 —— 放開不會有事', () => {
   it('停在任何 Status 之外時，先說放開不會移動', () => {
-    expect(announceOver(TITLE, 'todo', null)).toMatch(/不會移動/);
+    expect(announceOver(TITLE, 'todo', null)).toMatch(/will not move/);
   });
 
   it('真的放開在 Status 之外時，說它維持在原本的 Status', () => {
     const said = announceDrop(TITLE, 'review', null);
 
     expect(said).toContain('review');
-    expect(said).toMatch(/維持/);
+    expect(said).toMatch(/stays/);
   });
 });
 
@@ -185,7 +185,7 @@ describe('放回原處 —— 沒有變化就不是一次搬移', () => {
     const said = announceDrop(TITLE, 'todo', 'todo');
 
     expect(said).toContain('todo');
-    expect(said).toMatch(/仍然/);
+    expect(said).toMatch(/still/);
     expect(said).not.toBe(announceDrop(TITLE, 'backlog', 'todo'));
   });
 });
@@ -250,8 +250,8 @@ describe('進 blocked —— 就是一次普通搬移', () => {
   const blockedDrop = announceDrop(TITLE, 'todo', 'blocked');
 
   it('停在 blocked 上與放下到 blocked 都不再提原因', () => {
-    expect(blockedOver).not.toMatch(/原因/);
-    expect(blockedDrop).not.toMatch(/原因/);
+    expect(blockedOver).not.toMatch(/reason/i);
+    expect(blockedDrop).not.toMatch(/reason/i);
   });
 
   it('措辭就是一般搬移換一個 Status 名 —— 沒有任何 blocked 專屬的字', () => {
@@ -412,7 +412,7 @@ describe('announceIssueState —— held × pending 四種組合', () => {
     const said = announceIssueState(flying('status'), NO_COMMENTS, false);
 
     expect(said).toContain('Status');
-    expect(said).not.toMatch(/抓/);
+    expect(said).not.toMatch(/held|grab/i);
   });
 
   // 「畫面停著不動」對指標使用者是自己按著造成的，對鍵盤使用者則是一個
@@ -421,16 +421,16 @@ describe('announceIssueState —— held × pending 四種組合', () => {
     const said = announceIssueState(NOTHING_FLYING, NO_COMMENTS, true);
 
     expect(said).not.toBeNull();
-    expect(said).toMatch(/抓/);
-    expect(said).toMatch(/不會|沒有/);
+    expect(said).toMatch(/held/i);
+    expect(said).toMatch(/will not/i);
   });
 
   it('又有變更又被抓著：兩件事都講', () => {
     const said = announceIssueState(flying('title'), comments(1), true);
 
-    expect(said).toContain('標題');
+    expect(said).toContain('title');
     expect(said).toMatch(/Comment/);
-    expect(said).toMatch(/抓/);
+    expect(said).toMatch(/held/i);
   });
 
   it('與卡片上那一行講的是同一件事 —— 兩邊各列一次遲早會分岔', () => {

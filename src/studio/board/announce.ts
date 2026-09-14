@@ -26,27 +26,27 @@ import type { OptimisticField, UnconfirmedComment } from '@/reconcile';
  * （ADR-0003 只定義八個 Status），讓 Issue 上下動會讓人以為自己改變了什麼。
  */
 export const dragInstructions =
-  '按 Space 抓起這張 Issue，用左右方向鍵在 Status 之間移動，再按一次 Space 放下，Esc 取消。' +
-  '按 Enter 開啟細節。同一個 Status 裡沒有順序，上下鍵不會移動 Issue。';
+  'Press Space to pick up this issue, use the left/right arrow keys to move between Status values, ' +
+  'press Space again to drop, Esc to cancel. Press Enter to open details. There is no order within a Status; up/down arrow keys do not move the issue.';
 
 export function announceGrab(title: string, from: Status): string {
-  return `抓起「${title}」，目前在 ${from}。用左右方向鍵換 Status。`;
+  return `Picked up "${title}", currently in ${from}. Use left/right arrow keys to change status.`;
 }
 
 export function announceOver(title: string, from: Status, to: Status | null): string {
-  if (to === null) return `「${title}」不在任何 Status 上，放開不會移動。`;
-  if (to === from) return `「${title}」回到原本的 ${to}。`;
-  return `「${title}」停在 ${to}。`;
+  if (to === null) return `"${title}" is not over any status; dropping will not move it.`;
+  if (to === from) return `"${title}" is back at its original ${to}.`;
+  return `"${title}" is over ${to}.`;
 }
 
 export function announceDrop(title: string, from: Status, to: Status | null): string {
-  if (to === null) return `放開「${title}」，沒有放進任何 Status，維持在 ${from}。`;
-  if (to === from) return `放回原處，「${title}」仍然在 ${from}。`;
-  return `已把「${title}」從 ${from} 移到 ${to}。`;
+  if (to === null) return `Dropped "${title}" without placing it in a status; it stays in ${from}.`;
+  if (to === from) return `Dropped back in place, "${title}" is still in ${from}.`;
+  return `Moved "${title}" from ${from} to ${to}.`;
 }
 
 export function announceCancel(title: string, from: Status): string {
-  return `取消拖曳，「${title}」仍然在 ${from}。`;
+  return `Drag cancelled, "${title}" is still in ${from}.`;
 }
 
 /**
@@ -65,16 +65,16 @@ export function pendingParts(
   unconfirmed: readonly UnconfirmedComment[],
 ): readonly string[] {
   const parts = FIELD_ORDER.filter((f) => optimistic.has(f)).map((f) => FIELD_WORD[f]);
-  return unconfirmed.length === 0 ? parts : [...parts, `${unconfirmed.length} 則 Comment`];
+  return unconfirmed.length === 0 ? parts : [...parts, `${unconfirmed.length} Comment(s)`];
 }
 
 /** 欄位念出來的名字。Status、Label、Comment 是領域語彙（CONTEXT.md），不翻。 */
 const FIELD_WORD: Record<OptimisticField, string> = {
-  title: '標題',
-  description: '描述',
+  title: 'title',
+  description: 'description',
   status: 'Status',
   labels: 'Label',
-  archived: '封存',
+  archived: 'archived',
 };
 
 const FIELD_ORDER: readonly OptimisticField[] = ['status', 'title', 'labels', 'description', 'archived'];
@@ -90,7 +90,7 @@ export function pendingLabel(
   unconfirmed: readonly UnconfirmedComment[],
 ): string | null {
   const parts = pendingParts(optimistic, unconfirmed);
-  return parts.length === 0 ? null : `送出中：${parts.join('、')}`;
+  return parts.length === 0 ? null : `Sending: ${parts.join(', ')}`;
 }
 
 /**
@@ -113,7 +113,7 @@ export function announceIssueState(
   const said: string[] = [];
   // 欄位名列在冒號後面而不是接在「的變更」前面：`Status`、`Label` 是拉丁字，
   // 直接黏上中文會念成「Status的」。開頭與卡片上那一行同樣是「送出中」。
-  if (parts.length > 0) said.push(`送出中，還沒有得到伺服器確認的變更：${parts.join('、')}。`);
-  if (held) said.push('這張 Issue 正被抓著，放開之前伺服器的更新不會套用到它。');
+  if (parts.length > 0) said.push(`Sending, not yet confirmed by the server: ${parts.join(', ')}.`);
+  if (held) said.push('This issue is being held; server updates will not apply to it until released.');
   return said.length === 0 ? null : said.join('');
 }

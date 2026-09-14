@@ -65,7 +65,7 @@ export function boardAlerts(diagnostics: readonly Diagnostic[]): readonly BoardA
  * 的人沒有意義（都是那幾行現在不算數），而 `said` 會說出是哪一種。
  */
 const DATA_LAYER = {
-  headline: 'op-log 上有 reducer 讀不動的資料 —— 那幾行的內容現在不算數',
+  headline: "There is data on the op-log the reducer can't read — those lines don't count right now",
   fix: 'nook doctor --fix',
 } as const;
 
@@ -83,12 +83,12 @@ const DATA_LAYER = {
  */
 const ADVICE: Record<Exclude<DiagnosticKind, 'NotAGitRepo'>, { readonly headline: string; readonly fix: string }> = {
   MissingMergeDriver: {
-    headline: '這塊 board 的零衝突保證不見了 —— 並行編輯會開始靜默衝突',
+    headline: "This board's conflict-free guarantee is gone — concurrent edits will start conflicting silently",
     fix: 'nook init',
   },
   SharingMismatch: {
     // 資料沒壞，壞的是「這塊 board 共享了嗎」有兩個互相矛盾的答案。
-    headline: '這塊 board 的共享狀態不一致 —— fs 與 git 說的不是同一件事',
+    headline: "This board's sharing state is inconsistent — the filesystem and git disagree",
     // **這一種的下一步不是一個指令。** 兩種狀態的解法不同（已經被追蹤的 board 是
     // `nook share`；被一條廣泛的 ignore 規則吃掉的則是 `nook init --private` 或把
     // 那條規則拿掉），而哪一條對只有使用者知道。`said` 已經把是哪一種說完了，所以

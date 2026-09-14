@@ -133,7 +133,7 @@ describe('dispatchWorkspace list — 空 workspace', () => {
     const code = await dispatchWorkspace(['list'], io);
 
     expect(code).toBe(0);
-    expect(io.out).toBe('沒有 issue\n');
+    expect(io.out).toBe('no issues\n');
     expect(io.err).toBe('');
   });
 });
@@ -217,7 +217,7 @@ describe('dispatchWorkspace list — 篩選後整組為空時的呈現', () => {
     const code = await dispatchWorkspace(['list'], io);
 
     expect(code).toBe(0);
-    expect(io.out).toBe('沒有 issue\n');
+    expect(io.out).toBe('no issues\n');
   });
 });
 
@@ -310,7 +310,7 @@ describe('dispatchWorkspace doctor — workspace 根目錄自己也是一個成�
     expect(io.out).toContain('MissingMergeDriver');
     // 不是裸的一個點：那樣讀起來像「workspace 這個工具自己」的問題。
     expect(io.out).not.toMatch(/^\.\s{2}MissingMergeDriver/m);
-    expect(io.out).toContain('workspace 根目錄本身');
+    expect(io.out).toContain('workspace root itself');
   });
 });
 
@@ -468,7 +468,7 @@ describe('dispatchWorkspace set — 短前綴拒絕', () => {
     const io = capture();
 
     await expect(dispatchWorkspace(['set', shortRef, 'title', '新標題'], io)).rejects.toThrow(
-      /完整.*ULID/,
+      /full.*ULID/,
     );
     expect(openBoard({ dir: a }).get(issue.id).title).toBe('原本標題');
   });
@@ -514,7 +514,7 @@ describe('dispatchWorkspace set — 非法欄位', () => {
     const io = capture();
 
     await expect(dispatchWorkspace(['set', issue.id, 'priority', 'high'], io)).rejects.toThrow(
-      '不是可寫的欄位：priority（可用：title, description, status, archived, deleted）',
+      'not a writable field: priority (available: title, description, status, archived, deleted)',
     );
   });
 });
@@ -584,7 +584,7 @@ describe('dispatchWorkspace mv — 短前綴拒絕', () => {
 
     const io = capture();
 
-    await expect(dispatchWorkspace(['mv', shortRef, 'queued'], io)).rejects.toThrow(/完整.*ULID/);
+    await expect(dispatchWorkspace(['mv', shortRef, 'queued'], io)).rejects.toThrow(/full.*ULID/);
     expect(openBoard({ dir: a }).get(issue.id).status).toBe('todo');
   });
 });
@@ -670,7 +670,7 @@ describe('dispatchWorkspace comment — 短前綴拒絕', () => {
     const io = capture();
 
     await expect(dispatchWorkspace(['comment', shortRef, 'safari 才會重現'], io)).rejects.toThrow(
-      /完整.*ULID/,
+      /full.*ULID/,
     );
     expect(openBoard({ dir: a }).get(issue.id).comments).toEqual([]);
   });
@@ -723,7 +723,7 @@ describe('dispatchWorkspace label — 缺少正負號或空 label', () => {
     const io = capture();
 
     await expect(dispatchWorkspace(['label', issue.id, 'bug'], io)).rejects.toThrow(
-      'label 要寫成 +<label> 或 -<label>：bug',
+      'a label must be written as +<label> or -<label>: bug',
     );
     expect(openBoard({ dir: a }).get(issue.id).labels).toEqual(['bug']);
   });
@@ -741,7 +741,7 @@ describe('dispatchWorkspace label — 短前綴拒絕', () => {
 
     const io = capture();
 
-    await expect(dispatchWorkspace(['label', shortRef, '+p1'], io)).rejects.toThrow(/完整.*ULID/);
+    await expect(dispatchWorkspace(['label', shortRef, '+p1'], io)).rejects.toThrow(/full.*ULID/);
     expect(openBoard({ dir: a }).get(issue.id).labels).toEqual(['bug']);
   });
 });
@@ -861,7 +861,7 @@ describe('dispatchWorkspace rm — 短前綴拒絕', () => {
 
     const io = capture();
 
-    await expect(dispatchWorkspace(['rm', shortRef, '--yes'], io)).rejects.toThrow(/完整.*ULID/);
+    await expect(dispatchWorkspace(['rm', shortRef, '--yes'], io)).rejects.toThrow(/full.*ULID/);
     expect(openBoard({ dir: a }).get(issue.id).deleted).toBe(false);
   });
 });

@@ -23,10 +23,11 @@ export function EmptyBoard(): React.JSX.Element {
   return (
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
       <div className="bg-card text-card-foreground max-w-md rounded-lg border p-6 text-center shadow-lg">
-        <p className="text-sm font-medium">這塊 board 還沒有任何 Issue</p>
+        <p className="text-sm font-medium">This board has no issues yet</p>
         <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
-          按上面的「新增 Issue」開第一張，或在終端機跑{' '}
-          <code className="text-foreground font-mono whitespace-nowrap">nook new &lt;標題&gt;</code>。
+          Click "New Issue" above to open the first one, or run{' '}
+          <code className="text-foreground font-mono whitespace-nowrap">nook new &lt;title&gt;</code>{' '}
+          in the terminal.
         </p>
       </div>
     </div>

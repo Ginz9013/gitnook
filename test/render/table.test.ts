@@ -69,7 +69,7 @@ describe('renderTable — 清單', () => {
 
   it('空清單輸出簡短訊息，而不是一個空的表頭', () => {
     // 訊息用語沿用 src/core/types.ts 既有的中文錯誤訊息風格。
-    expect(renderTable([])).toBe('沒有 issue');
+    expect(renderTable([])).toBe('no issues');
   });
 });
 
@@ -344,10 +344,10 @@ describe('renderWorkspaceList', () => {
   it('全部成員篩選後都是空的，印一句彙整版的「沒有 issue」，不是逐組重複', () => {
     const rendered = renderWorkspaceList([group('pkgs/a', []), group('pkgs/b', [])]);
 
-    expect(rendered).toBe('沒有 issue');
+    expect(rendered).toBe('no issues');
   });
 
   it('沒有任何成員（空 workspace）時同樣印彙整版的「沒有 issue」', () => {
-    expect(renderWorkspaceList([])).toBe('沒有 issue');
+    expect(renderWorkspaceList([])).toBe('no issues');
   });
 });

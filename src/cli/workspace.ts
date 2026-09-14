@@ -63,7 +63,7 @@ export async function dispatchWorkspace(argv: readonly string[], io: Io): Promis
   // 同 `run.ts` 的 `unknownCommand`：使用者錯誤只走 UsageError 這一條路徑，
   // 不在這裡另開一份手寫的 errLine + return 1。
   throw new UsageError(
-    `未知的 workspace 子指令：${sub ?? ''}（目前只有 list、doctor、studio、new、set、mv、comment、label、rm）`,
+    `unknown workspace subcommand: ${sub ?? ''} (available: list, doctor, studio, new, set, mv, comment, label, rm)`,
   );
 }
 
@@ -107,7 +107,7 @@ const relativeGroupPath = (root: string, path: string): string => {
  */
 const doctorLabel = (root: string, path: string): string => {
   const rel = relativeGroupPath(root, path);
-  return rel === '.' ? '. （workspace 根目錄本身也是一個成員 Board）' : rel;
+  return rel === '.' ? '. (the workspace root itself is also a member board)' : rel;
 };
 
 /**
@@ -199,7 +199,7 @@ async function cmdStudio(args: Args, io: Io): Promise<number> {
   const given = args.one('--port');
   const port = given === undefined ? undefined : Number(given);
   if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535)) {
-    throw new UsageError(`不是合法的 port：${given}`);
+    throw new UsageError(`not a valid port: ${given}`);
   }
 
   const workspace = openWorkspace({ dir: io.cwd });
@@ -226,11 +226,11 @@ async function cmdStudio(args: Args, io: Io): Promise<number> {
  */
 function cmdNew(args: Args, io: Io): number {
   const title = args.positional[0];
-  const usage = '用法：nook workspace new <title> --in <path>';
+  const usage = 'usage: nook workspace new <title> --in <path>';
   if (title === undefined) throw new UsageError(usage);
 
   const at = args.one('--in');
-  if (at === undefined) throw new UsageError(`${usage}（--in 必填，不支援從 cwd 自動推斷）`);
+  if (at === undefined) throw new UsageError(`${usage} (--in is required, no fallback to cwd)`);
 
   const workspace = openWorkspace({ dir: io.cwd });
   const target = memberAt(workspace, at);
@@ -257,11 +257,11 @@ function cmdNew(args: Args, io: Io): number {
  */
 function cmdSet(args: Args, io: Io): number {
   const [ref, field, value] = args.positional;
-  const usage = '用法：nook workspace set <ref> <title|description|status|archived|deleted> <value|->';
+  const usage = 'usage: nook workspace set <ref> <title|description|status|archived|deleted> <value|->';
   if (ref === undefined || field === undefined) throw new UsageError(usage);
   requireFullRef(ref);
   if (!isSettable(field)) {
-    throw new UsageError(`不是可寫的欄位：${field}（可用：${SETTABLE.join(', ')}）`);
+    throw new UsageError(`not a writable field: ${field} (available: ${SETTABLE.join(', ')})`);
   }
 
   const workspace = openWorkspace({ dir: io.cwd });
@@ -297,7 +297,7 @@ function cmdSet(args: Args, io: Io): number {
 function cmdMv(args: Args, io: Io): number {
   const [ref, status] = args.positional;
   if (ref === undefined || status === undefined) {
-    throw new UsageError('用法：nook workspace mv <ref> <status>');
+    throw new UsageError('usage: nook workspace mv <ref> <status>');
   }
   requireFullRef(ref);
 
@@ -320,7 +320,7 @@ function cmdMv(args: Args, io: Io): number {
 function cmdComment(args: Args, io: Io): number {
   const [ref, body] = args.positional;
   if (ref === undefined || body === undefined) {
-    throw new UsageError('用法：nook workspace comment <ref> <body>');
+    throw new UsageError('usage: nook workspace comment <ref> <body>');
   }
   requireFullRef(ref);
 
@@ -343,7 +343,7 @@ function cmdComment(args: Args, io: Io): number {
 function cmdLabel(args: Args, io: Io): number {
   const [ref, ...tokens] = args.positional;
   if (ref === undefined || tokens.length === 0) {
-    throw new UsageError('用法：nook workspace label <ref> +<label> -<label>');
+    throw new UsageError('usage: nook workspace label <ref> +<label> -<label>');
   }
   requireFullRef(ref);
 
@@ -371,8 +371,8 @@ function cmdLabel(args: Args, io: Io): number {
 function workspaceDeletedMessage(ref: string, memberPath: string): string {
   return (
     `${new IssueDeleted(ref).message}` +
-    `（cd ${memberPath} 後跑 nook history ${ref} 撈得回寫過的值，` +
-    `nook workspace set ${ref} deleted false 復原）`
+    ` (cd ${memberPath} then run nook history ${ref} to recover what was written; ` +
+    `nook workspace set ${ref} deleted false undoes this)`
   );
 }
 
@@ -391,7 +391,7 @@ function workspaceDeletedMessage(ref: string, memberPath: string): string {
  */
 function cmdRm(args: Args, io: Io): number {
   const [ref] = args.positional;
-  if (ref === undefined) throw new UsageError('用法：nook workspace rm <ref> [--yes]');
+  if (ref === undefined) throw new UsageError('usage: nook workspace rm <ref> [--yes]');
   requireFullRef(ref);
 
   const workspace = openWorkspace({ dir: io.cwd });
@@ -406,7 +406,7 @@ function cmdRm(args: Args, io: Io): number {
   }
 
   // 守門在任何寫入之前。組好的標題把成員路徑一起帶進 y/N 問句。
-  if (!args.has('--yes') && !confirmed(io, `${relPath} 底下的 ${issue.title}`)) return 1;
+  if (!args.has('--yes') && !confirmed(io, `${issue.title} under ${relPath}`)) return 1;
 
   member.board.apply(ref, { deleted: true });
   // 印正規化後的 issue.id，不是使用者輸入的 ref 原文——同單一 Board 版本的
