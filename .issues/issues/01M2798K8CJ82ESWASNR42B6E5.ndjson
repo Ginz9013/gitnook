@@ -1,0 +1,8 @@
+{"id":"01M2798K8C5D798RQHCXH8R8P8","t":1,"a":"83a1","op":"create","title":"nook workspace comment <ref> <body>"}
+{"id":"01M2798K8PV07M73M9M3QDQW2K","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：`.scratch/workspace-write/05-workspace-comment.md`（spec 同目錄）\n\n`nook workspace comment <ref> <body>` 找到擁有 `<ref>` 的成員並加一則留言。\n\n- `<body>` 接受 `-` 從 stdin 讀，同單一 Board 版本\n- 短前綴/找不到/找到多個的錯誤路徑同票 03\n\nWrite ownership：`src/cli/workspace.ts`、`test/cli/workspace.test.ts`\n\n不得碰：`src/cli/run.ts`（`longText`/`STDIN` 已在票 02 export）、`src/core/*`、`src/render/*`、`src/server/*`\n\n批次（單獨跑）。Blocked by：票 04。"}
+{"id":"01M2798K8P94JKWPPVYMXNE2GN","t":3,"a":"83a1","op":"label.add","v":"workspace-write"}
+{"id":"01M2798K8PBRXATPK7BCPRYRTE","t":4,"a":"83a1","op":"label.add","v":"cli"}
+{"id":"01M279BTA7ZADC4QSW2E3G0A39","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M27BJJ8QYH5J1HCAVSQ9E13M","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M27BZQ5TFQKNNRFTNX8Y719R","t":7,"a":"83a1","op":"comment","body":"**落地。** 整合者驗證：42 files / 756 tests 綠（基線 42/752）、`tsc --noEmit`\n0 錯誤。Worker 這次的紅燈證據很紮實：第一片是真的從零開始的紅（缺\ncomment 子指令）；第二片故意先不接 longText，讓「-」字面被存進去，逼出\n真紅燈再修正；第三片（短前綴）第一次就綠，於是暫時拔掉 routing 那行、\n換一個角度確認測試真的敏感於這張票新加的接線，不是碰巧靠其他票的機制\n過關。\n\n兩軸 review 抓到一條實質缺口：`comment` 少了 `set`/`mv` 兩個兄弟指令都有\n的「任何成員都不擁有這個 ref → RefNotFoundInWorkspace」測試——機制雖然\n共用（`locateInWorkspace` 已經測過），但覆蓋率不該因此比照別的指令少一截。\n已補上（commit `4b39879`，跟實作同一個 commit）。"}
+{"id":"01M27BZQ73JGH6445PGR1RPGHA","t":8,"a":"83a1","op":"set","k":"status","v":"done"}

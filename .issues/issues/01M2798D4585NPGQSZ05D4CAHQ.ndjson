@@ -1,0 +1,8 @@
+{"id":"01M2798D455X4Q0TJY2VR70TW0","t":1,"a":"83a1","op":"create","title":"nook workspace mv <ref> <status>"}
+{"id":"01M2798D4FGNKRAHQT7JZXYJ5Z","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：`.scratch/workspace-write/04-workspace-mv.md`（spec 同目錄）\n\n`nook workspace mv <ref> <status>` 是 `set <ref> status <value>` 的捷徑，重用票 03 定案的 `requireFullRef()`，不重寫路由邏輯。\n\n- status 接受無歧義前綴，同單一 Board 版本\n- 短前綴/找不到/找到多個的錯誤路徑同票 03\n\nWrite ownership：`src/cli/workspace.ts`、`test/cli/workspace.test.ts`\n\n不得碰：`src/cli/run.ts`（這張票不需要新的 export）、`src/core/*`、`src/render/*`、`src/server/*`\n\n批次（單獨跑）。Blocked by：票 03（同一個檔案 `src/cli/workspace.ts`）。"}
+{"id":"01M2798D4F9BRJ4PARH3W10BQ6","t":3,"a":"83a1","op":"label.add","v":"workspace-write"}
+{"id":"01M2798D4F89WCWR2AD1M0HCX8","t":4,"a":"83a1","op":"label.add","v":"cli"}
+{"id":"01M279BT94HR0TTTN7V83YWRCN","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M27B6ZZ282PH3CYSWV8BRCFW","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M27BJAYE9Z5HBVMHTDM0V39D","t":7,"a":"83a1","op":"comment","body":"**落地。** 整合者驗證：42 files / 752 tests 綠（基線 42/747）、`tsc --noEmit`\n0 錯誤。這次 worker 從一開始就照著票 03 學到的教訓走：每一條驗收條件都有\n真的觀察到的紅燈（含第一次跑就綠的那幾條，都用「暫時弄壞、觀察為了正確\n理由變紅、復原」的手法逼出證據），沒有需要重跑。\n\n兩軸 review 都乾淨。`cmdMv` 是 `cmdSet` 的薄捷徑，跟單一 Board 版本\n`mv`/`set` 的關係完全對稱，status 前綴解析交給既有 `resolveStatus()`，\n沒有重新實作任何東西。"}
+{"id":"01M27BJAZNSPX1EH54EENQ7P1C","t":8,"a":"83a1","op":"set","k":"status","v":"done"}

@@ -15,6 +15,7 @@ import {
   inspectMergeGuarantee,
 } from '../core/gitattributes.js';
 import { repair } from '../core/health.js';
+import type { Repair } from '../core/health.js';
 import { isValidRef, shortIdLength } from '../core/ids.js';
 import { fieldWrites } from '../core/reduce.js';
 import {
@@ -27,16 +28,21 @@ import {
 } from '../core/sharing.js';
 import {
   AmbiguousRef,
+  AmbiguousWorkspaceRef,
   BoardNotInitialized,
+  IncompleteRef,
   InvalidStatus,
   IssueDeleted,
+  NotAWorkspaceMember,
   RefNotFound,
+  RefNotFoundInWorkspace,
 } from '../core/types.js';
 import { renderJson } from '../render/json.js';
 import { renderSetOps, renderTable } from '../render/table.js';
 import { PortInUse, serve } from '../server/serve.js';
+import { dispatchWorkspace } from './workspace.js';
 import type { SetKey } from '../core/ops.js';
-import type { Board, Change, CreateInput, Filter } from '../core/types.js';
+import type { Board, Change, CreateInput, Diagnostic, Filter } from '../core/types.js';
 
 /**
  * argv → Board → render → exit code。
@@ -134,8 +140,12 @@ function readLineFromStdin(): string {
   }
 }
 
-/** CLI 自己發現的使用者錯誤（用法不對、欄位不存在）。與領域錯誤同樣是 exit 1。 */
-class UsageError extends Error {
+/**
+ * CLI 自己發現的使用者錯誤（用法不對、欄位不存在）。與領域錯誤同樣是 exit 1。
+ * export 供 `cli/workspace.ts` 重用（票 02）——同一種錯誤只走一條路徑
+ * （`run()` 的 catch），不在新檔裡另開一條手寫 errLine + return 1。
+ */
+export class UsageError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'UsageError';
@@ -166,6 +176,19 @@ const USER_ERRORS = [
   // 就得到他要的那塊 board。同樣是「改你的指令」，不是一個值得回報的 bug。
   NoGitDir,
   PortInUse,
+  // `memberAt()` 解析出來的 Board 不在這個 workspace 的 members 裡：使用者的
+  // `--in` 打到了掃描範圍外的路徑，改成範圍內的路徑就修好了 —— 同樣不是
+  // nook 的 bug（票 02，第一個用到 `memberAt` 的地方）。
+  NotAWorkspaceMember,
+  // 跨 board 操作給了短前綴：改成完整 26 碼 ULID 就修好了，訊息本身就是
+  // 下一步（票 03，第一個用到 `locateInWorkspace` 的地方）。
+  IncompleteRef,
+  // `locateInWorkspace()` 掃過全部成員都找不到這個 ref：使用者的 ref 打錯了，
+  // 不是 nook 的 bug。
+  RefNotFoundInWorkspace,
+  // 同一個 ref 同時存在於多個成員：資料完整性問題，使用者自己造成的（見
+  // spec.md Non-goals），不是 nook 的 bug。
+  AmbiguousWorkspaceRef,
 ] as const;
 
 export async function run(argv: readonly string[], io: Io): Promise<number> {
@@ -225,12 +248,29 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
       return cmdDoctor(parseArgs(rest, DOCTOR_FLAGS), io);
     case 'studio':
       return cmdStudio(parseArgs(rest, STUDIO_FLAGS), io);
+    case 'workspace':
+      return dispatchWorkspace(rest, io);
   }
 
   throw new UsageError(unknownCommand(command));
 }
 
-const COMMANDS = ['init', 'new', 'list', 'show', 'history', 'set', 'rm', 'mv', 'comment', 'label', 'share', 'doctor', 'studio'];
+const COMMANDS = [
+  'init',
+  'new',
+  'list',
+  'show',
+  'history',
+  'set',
+  'rm',
+  'mv',
+  'comment',
+  'label',
+  'share',
+  'doctor',
+  'studio',
+  'workspace',
+];
 
 /** 打錯字與想要一個不存在的功能是兩件事，回答也該不一樣。 */
 function unknownCommand(command: string): string {
@@ -257,8 +297,9 @@ function distance(a: string, b: string): number {
   return previous[b.length]!;
 }
 
-const line = (io: Io, text: string): void => io.write(`${text}\n`);
-const errLine = (io: Io, text: string): void => io.writeError(`${text}\n`);
+/** export 供 `cli/workspace.ts` 重用（票 02），不在新檔裡重寫一份同樣的兩行。 */
+export const line = (io: Io, text: string): void => io.write(`${text}\n`);
+export const errLine = (io: Io, text: string): void => io.writeError(`${text}\n`);
 
 /**
  * Ref 的分工：**顯示用短的，交付用完整的。**
@@ -274,8 +315,11 @@ const errLine = (io: Io, text: string): void => io.writeError(`${text}\n`);
  * 來源是 `board.refs()`（票 15）而不是 `list({ all: true })`：算長度只需要一串
  * Ref，而 list 會把整塊 Board 的 Op-log 摺一遍。走 refs() 只列目錄，所以連
  * `show` 都付得起 —— 票 13 的「show 只讀它要的那一張」因此仍然成立。
+ *
+ * export 供 `cli/workspace.ts` 重用（票 02）——ADR-0006「長度只有一個算法」，
+ * 兩處各自重算同一個公式正是那條規則要擋的漂移。
  */
-function displayLength(board: Board): number {
+export function displayLength(board: Board): number {
   return shortIdLength(board.refs());
 }
 
@@ -297,14 +341,15 @@ set <ref> <title|description|status|archived|deleted> <value|-> [--editor]
 rm <ref> [--yes]         刪除；非 TTY 需 --yes
 mv <ref> <status>
 comment <ref> <body|->
-label <ref> +bug -ui     加減 Label（無優先級欄位，用 Label）
-share                    private board 升級回共享；git add 要你自己跑
-doctor [--fix]           資料健康檢查，--fix 修復黏合行
-studio [--port <n>]      localhost 看板，可拖拉與編輯
+label <ref> +bug -ui     加減 Label
+share                    升級 private board 為 shared；git add 你自己跑
+doctor [--fix]           健康檢查，--fix 修復黏合行
+studio [--port <n>]      localhost 看板
+workspace list [flags]   依子專案分組，篩選旗標同 list
 
 status: backlog todo queued in_progress review blocked done cancelled
-<ref> 與 status 都接受無歧義前綴。<value> 用 - 從 stdin 讀。
-queued 是授權邊界：進入 queued 表示已授權 agent 直接動手。
+<ref>/status 接受無歧義前綴，<value> 用 - 從 stdin 讀。
+queued 是授權邊界：進入即表示已授權 agent 動手。
 list 預設隱藏 archived / done / cancelled。
 `;
 
@@ -327,8 +372,20 @@ function version(): string {
   }
 }
 
-/** 需要接一個值的旗標。其餘以 `--` 開頭者都是開關。 */
-const VALUED: ReadonlySet<string> = new Set(['--status', '--label', '--description', '--port']);
+/**
+ * 需要接一個值的旗標。其餘以 `--` 開頭者都是開關。
+ * export 供 `cli/workspace.ts` 重用（票 02）—— 兩處指令共用同一份判斷，
+ * 不重寫一份可能漂開的副本。
+ */
+export const VALUED: ReadonlySet<string> = new Set([
+  '--status',
+  '--label',
+  '--description',
+  '--port',
+  // `workspace new --in <path>`（票 02）：跟其餘會接一個值的旗標同一份判斷，
+  // 不在 `cli/workspace.ts` 重寫第二份可能漂開的副本。
+  '--in',
+]);
 
 /** 每個指令認得的旗標。不在名單上的一律報錯 —— 靜默吃掉一個打錯的旗標，
  * 呼叫端會拿到一份沒過濾的答案卻以為自己過濾了。 */
@@ -342,7 +399,8 @@ const RM_FLAGS: ReadonlySet<string> = new Set(['--yes']);
 const DOCTOR_FLAGS: ReadonlySet<string> = new Set(['--fix']);
 const STUDIO_FLAGS: ReadonlySet<string> = new Set(['--port']);
 
-interface Args {
+/** 供 `cli/workspace.ts` 重用（票 02），不在新檔裡重寫一份參數解析器。 */
+export interface Args {
   readonly positional: readonly string[];
   has(flag: string): boolean;
   /** 可重複的旗標 —— `--label a --label b` 是收斂條件（AND）。 */
@@ -350,7 +408,7 @@ interface Args {
   one(flag: string): string | undefined;
 }
 
-function parseArgs(args: readonly string[], allowed: ReadonlySet<string>): Args {
+export function parseArgs(args: readonly string[], allowed: ReadonlySet<string>): Args {
   const positional: string[] = [];
   const switches = new Set<string>();
   const values = new Map<string, string[]>();
@@ -503,16 +561,19 @@ function cmdShow(args: Args, io: Io): number {
  * `nook history <ref> deleted` 因此不必各寫一份 —— 刪除是既有 LWW 機器上的
  * 一個欄位，不是一種新的東西（ADR-0009）。
  */
-const SETTABLE = [
+/** export 供 `cli/workspace.ts` 重用（票 03）——欄位名單只有一份。 */
+export const SETTABLE = [
   'title',
   'description',
   'status',
   'archived',
   'deleted',
 ] as const satisfies readonly SetKey[];
-type Field = (typeof SETTABLE)[number];
+/** export 供 `cli/workspace.ts` 重用（票 03），`asChange()` 的參數型別。 */
+export type Field = (typeof SETTABLE)[number];
 
-const isSettable = (value: string): value is Field =>
+/** export 供 `cli/workspace.ts` 重用（票 03）——欄位驗證只有一份，不重打第二份。 */
+export const isSettable = (value: string): value is Field =>
   (SETTABLE as readonly string[]).includes(value);
 
 /**
@@ -556,7 +617,9 @@ function cmdHistory(args: Args, io: Io): number {
  */
 const STDIN = '-';
 
-function longText(value: string, io: Io): string {
+/** export 供 `cli/workspace.ts` 重用（票 02）—— `new --description`/`--in` 組裝
+ * 邏輯的長文一半，不重寫一份可能漂開的副本。 */
+export function longText(value: string, io: Io): string {
   if (value !== STDIN) return value;
   // 檔案結尾的換行是檔案的事，不該變成內容的一部分。
   return io.readStdin().replace(/\r?\n$/, '');
@@ -568,7 +631,8 @@ function longText(value: string, io: Io): string {
  * 非 TTY 時報錯而不是卡住：agent 的管線正是非 TTY，掛在一個等不到輸入的
  * 編輯器上等於整條管線掛死。兩道守門都在任何寫入之前。
  */
-function fromEditor(io: Io, seed: string): string {
+/** export 供 `cli/workspace.ts` 重用（票 02），理由同 `longText`。 */
+export function fromEditor(io: Io, seed: string): string {
   if (!io.isTty) throw new UsageError('--editor 需要互動終端；非 TTY 請改用 - 從 stdin 讀');
 
   const editor = (io.env.VISUAL ?? io.env.EDITOR ?? '').trim();
@@ -583,10 +647,14 @@ function fromEditor(io: Io, seed: string): string {
   return readFileSync(file, 'utf8').replace(/\r?\n$/, '');
 }
 
-/** 兩個 boolean 欄位。`yes` 被靜默讀成真值，就是一次沒有人打算下達的刪除。 */
-const BOOLEAN_FIELDS: ReadonlySet<string> = new Set(['archived', 'deleted']);
+/**
+ * 兩個 boolean 欄位。`yes` 被靜默讀成真值，就是一次沒有人打算下達的刪除。
+ * export 供 `cli/workspace.ts` 重用（票 03），理由同 `SETTABLE`。
+ */
+export const BOOLEAN_FIELDS: ReadonlySet<string> = new Set(['archived', 'deleted']);
 
-function asChange(field: Field, value: string): Change {
+/** export 供 `cli/workspace.ts` 重用（票 03）——欄位組裝邏輯只有一份。 */
+export function asChange(field: Field, value: string): Change {
   if (BOOLEAN_FIELDS.has(field)) {
     if (value !== 'true' && value !== 'false') {
       throw new UsageError(`${field} 只接受 true 或 false：${value}`);
@@ -636,8 +704,11 @@ function cmdSet(args: Args, io: Io): number {
  *
  * 問句帶著標題：前綴打錯而刪掉另一張，正是這道關卡存在的理由。它走 stderr，
  * 因為 stdout 是資料。
+ *
+ * export 供 `cli/workspace.ts` 重用（票 07）——workspace 版的 `rm` 靠組好帶
+ * 成員路徑的字串當 `title` 傳進來，簽章與行為原封不動，不改這個函式本身。
  */
-function confirmed(io: Io, title: string): boolean {
+export function confirmed(io: Io, title: string): boolean {
   if (!io.isTty) throw new UsageError('rm 預設要互動確認；非 TTY 請加 --yes');
   if (io.readLine === undefined) {
     throw new UsageError('rm 預設要互動確認；這個 io 沒有 readLine，問不出問題，請加 --yes');
@@ -750,12 +821,29 @@ async function cmdStudio(args: Args, io: Io): Promise<number> {
  * `--fix` 先修再診斷：報告一個「可修復」卻不給任何修復途徑，等於只是在指責
  * 使用者。修完必須重跑，否則印出來的是一份已經過期的診斷。
  */
+/**
+ * `repair()` 修好一個黏合行印的那一句。export 供 `cli/workspace.ts` 重用
+ * （票 03）——同一句措辭只有一份，不在兩個 `cmdDoctor` 各自重打一次。
+ */
+export function formatRepaired(fixed: Repair): string {
+  return `Repaired  ${fixed.file}:${fixed.line}  拆回 ${fixed.ops} 個 op`;
+}
+
+/**
+ * 一條 Diagnostic 印成的那一行（不含開頭的縮排/標籤，呼叫端各自決定要不要
+ * 加）。export 供 `cli/workspace.ts` 重用（票 03），理由同 `formatRepaired`。
+ */
+export function formatDiagnostic(d: Diagnostic): string {
+  const where = d.file === undefined ? '' : `${d.file}${d.line === undefined ? '' : `:${d.line}`}  `;
+  return `${d.kind}  ${where}${d.message}`;
+}
+
 function cmdDoctor(args: Args, io: Io): number {
   if (args.has('--fix')) {
     // 修的必須是 board 根目錄那一塊。拿 io.cwd 去修，在子目錄執行時掃不到
     // 任何 op-log —— 那是靜默不修：它會 exit 0 卻什麼都沒動。
     for (const fixed of repair(boardDir(io))) {
-      line(io, `Repaired  ${fixed.file}:${fixed.line}  拆回 ${fixed.ops} 個 op`);
+      line(io, formatRepaired(fixed));
     }
   }
 
@@ -764,8 +852,7 @@ function cmdDoctor(args: Args, io: Io): number {
   // 實作。這也是 README 給 library 呼叫端的承諾：board.health() 就是 nook doctor 報的。
   const found = openBoard({ dir: io.cwd }).health();
   for (const d of found) {
-    const where = d.file === undefined ? '' : `${d.file}${d.line === undefined ? '' : `:${d.line}`}  `;
-    line(io, `${d.kind}  ${where}${d.message}`);
+    line(io, formatDiagnostic(d));
   }
   return found.length === 0 ? 0 : 1;
 }
@@ -783,18 +870,17 @@ function cmdComment(args: Args, io: Io): number {
 }
 
 /**
- * Nook 沒有優先級欄位 —— 優先級用 Label 表達（CONTEXT.md）。`+bug -ui` 的寫法
- * 讓加與減在同一行說完，而不是兩個子指令。
+ * `+bug -ui` 形狀的 token 分成 add/remove 兩堆——單一 Board 版本
+ * （`cmdLabel`）與 workspace 版本（`cli/workspace.ts` 票 06）共用同一份解析，
+ * 不重寫第二份可能漂開的迴圈。
  *
- * OR-Set 的 `seen` 語意完全在 core：這裡只把 token 分成兩堆交給 apply()。
+ * OR-Set 的 `seen` 語意完全在 core：這裡只負責把 token 分堆交給 apply()。
+ * export 供 `cli/workspace.ts` 重用（票 06）。
  */
-function cmdLabel(args: Args, io: Io): number {
-  const [ref, ...tokens] = args.positional;
-  if (ref === undefined || tokens.length === 0) {
-    throw new UsageError('用法：nook label <ref> +<label> -<label>');
-  }
-  requireRef(ref);
-
+export function parseLabelTokens(tokens: readonly string[]): {
+  add: string[];
+  remove: string[];
+} {
   const add: string[] = [];
   const remove: string[] = [];
   for (const token of tokens) {
@@ -807,6 +893,23 @@ function cmdLabel(args: Args, io: Io): number {
     }
     (sign === '+' ? add : remove).push(value);
   }
+  return { add, remove };
+}
+
+/**
+ * Nook 沒有優先級欄位 —— 優先級用 Label 表達（CONTEXT.md）。`+bug -ui` 的寫法
+ * 讓加與減在同一行說完，而不是兩個子指令。
+ *
+ * token 的解析邏輯本身在 `parseLabelTokens()`——這裡只接線。
+ */
+function cmdLabel(args: Args, io: Io): number {
+  const [ref, ...tokens] = args.positional;
+  if (ref === undefined || tokens.length === 0) {
+    throw new UsageError('用法：nook label <ref> +<label> -<label>');
+  }
+  requireRef(ref);
+
+  const { add, remove } = parseLabelTokens(tokens);
 
   const board = openBoard({ dir: io.cwd });
   const updated = board.apply(ref, { labels: { add, remove } });
@@ -978,10 +1081,15 @@ function cmdShare(args: Args, io: Io): number {
   return 0;
 }
 
-function cmdNew(args: Args, io: Io): number {
-  const title = args.positional[0];
-  if (title === undefined) throw new UsageError('用法：nook new <title>');
-
+/**
+ * `title` 之外的 `CreateInput` 組裝——`--editor`/`--description`/`--label`。
+ * export 供 `cli/workspace.ts` 重用（票 02）：workspace 版的 `new` 只是目標
+ * board 換一個來源，其餘欄位組裝跟單一 Board 版本一字不差，不重寫一份
+ * 可能漂開的副本。`title` 由呼叫端自己驗證並傳進來——兩邊的「缺標題」用法
+ * 錯誤訊息不一樣（`nook new` vs `nook workspace new ... --in`），不適合
+ * 塞進這個共用函式。
+ */
+export function assembleCreateInput(title: string, args: Args, io: Io): CreateInput {
   // 編輯器與 `-` 是同一件事的兩條路，不會同時走。
   let description: string | undefined;
   if (args.has('--editor')) {
@@ -992,12 +1100,18 @@ function cmdNew(args: Args, io: Io): number {
   }
 
   const labels = args.all('--label');
-  const input: CreateInput = {
+  return {
     title,
     ...(description === undefined ? {} : { description }),
     ...(labels.length === 0 ? {} : { labels }),
   };
+}
 
+function cmdNew(args: Args, io: Io): number {
+  const title = args.positional[0];
+  if (title === undefined) throw new UsageError('用法：nook new <title>');
+
+  const input = assembleCreateInput(title, args, io);
   const issue = openBoard({ dir: io.cwd }).create(input);
   // 印完整的 26 碼 ULID 而非短 ID —— 那是唯一**永久有效**的 Ref。短 ID 只在
   // 印出的當下無歧義：ULID 前綴編的是時間高位，下一張 Issue 就可能延伸同一個

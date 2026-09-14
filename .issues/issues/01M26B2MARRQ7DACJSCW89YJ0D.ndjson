@@ -1,0 +1,7 @@
+{"id":"01M26B2MAR90BQJX8GR4FFFQ4H","t":1,"a":"83a1","op":"create","title":"Workspace 可寫入 —— 跨 board 的 new/set/mv（未來，非這次範圍）"}
+{"id":"01M26B2MB9SF36MS3K0X90TGRB","t":2,"a":"83a1","op":"set","k":"description","v":"這次 Workspace（`.scratch/workspace/spec.md`）刻意只做唯讀彙整。寫入（在 workspace 層級對某個成員 board 建立/更新/搬移 issue）留給未來，理由是：一個 Change 該落在哪個成員 board，需要一套選擇機制（明確指定路徑？互動選單？當前目錄推斷？），複雜度與這次的唯讀彙整不成比例，值得單獨規劃。\n\n開這張票只是為了不要忘記——目前沒有設計，也沒有排進任何一批。"}
+{"id":"01M26B2MB9045WZZ8W4MVQZMXC","t":3,"a":"83a1","op":"label.add","v":"workspace"}
+{"id":"01M26B2MB9XZN41VTZQYACYPS2","t":4,"a":"83a1","op":"label.add","v":"future"}
+{"id":"01M279AK1SRTM7A0Y1BJJTAMCB","t":5,"a":"83a1","op":"comment","body":"已經規劃：`.scratch/workspace-write/spec.md` + 八張票（同 label `workspace-write`）。維持 backlog 狀態，等這批票全部落地（票 08 收尾）之後再一併關閉這張——它存在的目的是「不要忘記」，現在有完整的板子接手了，但實際能力還沒真的做出來，先不標 done。"}
+{"id":"01M27D54XY799GHC0SGZVTTQ68","t":6,"a":"83a1","op":"comment","body":"**做完了。** `.scratch/workspace-write/` 的八張票全部落地：`nook workspace\nnew/set/mv/comment/label/rm` 六個寫入指令都實作完成，跟 list/doctor/studio\n一起構成完整的 Workspace 指令集。`npm run bench` 六列閘門全綠。這張佔位票\n的存在目的（不要忘記可寫入能力）已經達成，收掉。"}
+{"id":"01M27D54Z7BX2YPNW593WQYD82","t":7,"a":"83a1","op":"set","k":"status","v":"done"}

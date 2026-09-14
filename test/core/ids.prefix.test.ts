@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolvePrefix, shortIdLength } from '../../src/core/ids.js';
+import { isFullRef, resolvePrefix, shortIdLength } from '../../src/core/ids.js';
 import { AmbiguousRef, RefNotFound } from '../../src/core/types.js';
 
 /** 測試用的完整 ULID：不足 26 碼補 0，字元皆屬 Crockford base32。 */
@@ -51,5 +51,21 @@ describe('resolvePrefix', () => {
     // 空的 board 沒有任何候選，連完整識別碼也解析不到。
     expect(() => resolvePrefix(ids[0]!, [])).toThrow(RefNotFound);
     expect(() => resolvePrefix('01JBX', ids)).toThrow(AmbiguousRef);
+  });
+});
+
+describe('isFullRef', () => {
+  it('26 碼、字元皆屬 Crockford base32 → true', () => {
+    expect(isFullRef(fullId('01JBXA'))).toBe(true);
+  });
+
+  it('25 碼或 27 碼 → false（即便字元合法）', () => {
+    expect(isFullRef(fullId('01JBXA').slice(0, 25))).toBe(false);
+    expect(isFullRef(fullId('01JBXA') + '0')).toBe(false);
+  });
+
+  it('含不合法字元 → false（即便長度剛好 26）', () => {
+    // I 不屬於 Crockford base32 的字母表。
+    expect(isFullRef('I'.repeat(26))).toBe(false);
   });
 });

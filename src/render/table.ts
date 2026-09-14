@@ -128,6 +128,32 @@ export function renderTable(input: readonly Issue[] | Issue, shortIdLen?: number
 }
 
 /**
+ * 一個成員 Board 分組後要印的份量：來源路徑（相對於 workspace 根目錄）、
+ * 篩選後的 issue 清單、以及**這個成員自己**的短 ID 顯示長度 —— 每個成員
+ * 完全維持自己的獨立性（CONTEXT.md 的 Workspace 詞條），不跨成員合算長度。
+ */
+export interface WorkspaceGroup {
+  readonly path: string;
+  readonly issues: readonly Issue[];
+  readonly shortIdLen: number;
+}
+
+/**
+ * 依來源路徑分組印出，組合既有 `renderTable`，不重新發明表格版面。
+ *
+ * 篩選後一張都沒有的成員整組不列出（不印一個空表頭）；全部成員都是空的
+ * 才印一句彙整版的 `EMPTY`，不是逐組重複同一句話。
+ */
+export function renderWorkspaceList(groups: readonly WorkspaceGroup[]): string {
+  const nonEmpty = groups.filter((g) => g.issues.length > 0);
+  if (nonEmpty.length === 0) return EMPTY;
+
+  return nonEmpty
+    .map((g) => `${g.path}\n${renderTable(g.issues, g.shortIdLen)}`)
+    .join('\n\n');
+}
+
+/**
  * 一張 Issue 的 Op-log 中的 set Op：誰、在哪個 lamport `t`、把哪個欄位寫成什麼。
  *
  * 不重排 —— 傳進來的順序就是 core 的 (t, a, id) 全序（`Board.opLog`）。在此

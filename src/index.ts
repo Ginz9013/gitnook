@@ -31,6 +31,7 @@
  * 只會讓呼叫端包不住它。同 `ServeOptions` 的理由。
  */
 export { openBoard } from './core/board.js';
+export { openWorkspace } from './core/workspace.js';
 export { initBoard, ConflictingGitAttributes, NestedBoard } from './core/gitattributes.js';
 /**
  * `initBoard(dir, { sharing: 'private' })` 的兩個出口。理由同
@@ -40,6 +41,7 @@ export { initBoard, ConflictingGitAttributes, NestedBoard } from './core/gitattr
 export { AlreadySharedBoard, NoGitDir } from './core/sharing.js';
 export { diagnose, repair } from './core/health.js';
 export { serve, PortInUse } from './server/serve.js';
+export { serveWorkspace } from './server/serveWorkspace.js';
 export {
   STATUSES,
   BoardNotInitialized,
@@ -61,6 +63,9 @@ export type {
   DiagnosticKind,
   IdSource,
   OpenBoardOptions,
+  Workspace,
+  WorkspaceMember,
+  OpenWorkspaceOptions,
 } from './core/types.js';
 export type { Repair } from './core/health.js';
 /** `board.opLog()` 交出的東西。唯讀 —— 寫入端仍然只有 Change。 */

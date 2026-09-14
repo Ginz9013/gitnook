@@ -9,6 +9,8 @@ describe('src/index.ts 的公開匯出', () => {
       [
         // 深模組本體的入口 —— spec.md 說的那個接縫。
         'openBoard',
+        // 跨 Board 的唯讀彙整入口 —— 一上公開面就是相容承諾，同 openBoard。
+        'openWorkspace',
         // 沒有它就沒有 board 可以開。
         'initBoard',
         // doctor 的兩半：README 承諾 board.health() 就是 nook doctor 報的東西，
@@ -17,6 +19,9 @@ describe('src/index.ts 的公開匯出', () => {
         'repair',
         // 唯讀檢視器。handleRequest 是它的內部零件，不是公開面。
         'serve',
+        // workspace 版的唯讀檢視器 —— landing page，點了才啟動子 serve()，
+        // 一上公開面就是相容承諾，同 serve。
+        'serveWorkspace',
         // 八個固定 Status 是領域模型的一部分，呼叫端要據以分欄或驗證輸入。
         'STATUSES',
         // 錯誤型別：呼叫端要 instanceof 才能分辨「使用者修得好」與「回報 bug」。

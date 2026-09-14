@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { renderTable } from '../../src/render/table.js';
+import { renderTable, renderWorkspaceList } from '../../src/render/table.js';
 import { renderJson } from '../../src/render/json.js';
 import { displayWidth } from '../../src/render/width.js';
 import { resolvePrefix, SHORT_ID_MIN } from '../../src/core/ids.js';
 import type { Issue } from '../../src/core/types.js';
+import type { WorkspaceGroup } from '../../src/render/table.js';
 
 const golden = (name: string): string =>
   readFileSync(join(import.meta.dirname, '__golden__', name), 'utf8');
@@ -304,5 +305,49 @@ describe('renderTable — CJK 的顯示欄寬', () => {
 
     expect(displayWidth(titleCell)).toBeLessThanOrEqual(48);
     expect([...titleCell].every((c) => c === 'a' || c === '中' || c === '…')).toBe(true);
+  });
+});
+
+/**
+ * `renderWorkspaceList` 依來源路徑分組印出，組合既有 `renderTable`，不重新
+ * 發明表格版面（票 02 spec.md「Design contract」）。
+ */
+describe('renderWorkspaceList', () => {
+  const group = (path: string, issues: readonly Issue[]): WorkspaceGroup => ({
+    path,
+    issues,
+    shortIdLen: SHORT_ID_MIN,
+  });
+
+  it('每組印一行路徑標頭 + renderTable 的內容，組間空一行', () => {
+    const a = issue({ id: '01JBX7AAAAAAAAAAAAAAAAAAAA', title: 'a', status: 'queued' });
+    const b = issue({ id: '01JBX8BBBBBBBBBBBBBBBBBBBB', title: 'b', status: 'todo' });
+
+    const rendered = renderWorkspaceList([group('pkgs/a', [a]), group('pkgs/b', [b])]);
+
+    expect(rendered).toBe(
+      ['pkgs/a', renderTable([a], SHORT_ID_MIN), '', 'pkgs/b', renderTable([b], SHORT_ID_MIN)].join(
+        '\n',
+      ),
+    );
+  });
+
+  it('篩選後一張都沒有的成員，整組不列出（不印空表頭）', () => {
+    const a = issue({ id: '01JBX7AAAAAAAAAAAAAAAAAAAA', title: 'a', status: 'queued' });
+
+    const rendered = renderWorkspaceList([group('pkgs/a', [a]), group('pkgs/empty', [])]);
+
+    expect(rendered).not.toContain('pkgs/empty');
+    expect(rendered).toBe(['pkgs/a', renderTable([a], SHORT_ID_MIN)].join('\n'));
+  });
+
+  it('全部成員篩選後都是空的，印一句彙整版的「沒有 issue」，不是逐組重複', () => {
+    const rendered = renderWorkspaceList([group('pkgs/a', []), group('pkgs/b', [])]);
+
+    expect(rendered).toBe('沒有 issue');
+  });
+
+  it('沒有任何成員（空 workspace）時同樣印彙整版的「沒有 issue」', () => {
+    expect(renderWorkspaceList([])).toBe('沒有 issue');
   });
 });

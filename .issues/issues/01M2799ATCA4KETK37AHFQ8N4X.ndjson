@@ -1,0 +1,8 @@
+{"id":"01M2799ATCEWGBW23P71CZ8E4T","t":1,"a":"83a1","op":"create","title":"README 與 AGENT.md 交代 Workspace 的六個寫入指令"}
+{"id":"01M2799ATPB3ESM7KRG5GRTJQC","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：`.scratch/workspace-write/08-document-writes.md`（spec 同目錄）\n\nREADME/AGENT.md 補上六個寫入指令，並改掉 AGENT.md 現在錯誤的「## workspace is read-only」標題——workspace 已經不是唯讀的了。順手補上「`nook workspace mv <ref> queued` 跟單一 Board 一樣是人給的授權，agent 不能自己下」這條之前沒機會寫進去的規則。\n\n- README 的「## workspace」一節改掉「This cannot write anything」那段\n- Commands 表格反映新的六個子指令\n- CONTEXT.md/ADR-0012 跟實作對過一遍，預期不需要改（這次沒有新的探測規則）\n- `npm run bench` 整體跑過一次\n\nWrite ownership：`README.md`、`AGENT.md`、`CONTEXT.md`（僅有出入時）、`docs/adr/0012-*.md`（僅有出入時）\n\n不得碰：任何 `src/*`、非文件測試\n\n批次（單獨跑）。Blocked by：票 07。"}
+{"id":"01M2799ATP7D55P9S2ZKVK50Y9","t":3,"a":"83a1","op":"label.add","v":"workspace-write"}
+{"id":"01M2799ATP9DC2AA6CHPTDHSY7","t":4,"a":"83a1","op":"label.add","v":"docs"}
+{"id":"01M279BTDHG3XEWGJ4RPCNQHA5","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M27CR96VN14VP1E4G0FACJWD","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M27D45YXNDQRMFANJFPXJM1G","t":7,"a":"83a1","op":"comment","body":"**落地。** 這張票沒有新行為，驗證即是 `npx vitest run`（42 files / 766\ntests，跟基線一致）、`tsc --noEmit`（0 錯誤）、`test/agent-doc.test.ts`\n雙向綠燈。\n\nSpec 軸把 README/AGENT.md 每一句新增的話都對照原始碼重新核實過（不是只\n信 worker 的報告），確認 IncompleteRef/NotAWorkspaceMember 等錯誤訊息的\n措辭、只有 rm 標成員路徑這件事、以及最關鍵的「queued 授權邊界對\nworkspace mv 仍然適用」這條之前缺的規則，都真的寫進 AGENT.md 了。也確認\nCONTEXT.md/ADR-0012 真的沒被動到。\n\nStandards 軸抓到一條用詞小瑕疵：「cross-repo read」當名詞讀起來卡，跟\n旁邊 history 那一行「read-only」的形容詞寫法不一致——已改回\n「cross-repo, read-only」（commit `ccf2ed9`）。"}
+{"id":"01M27D460AQFGCE516MP842CA3","t":8,"a":"83a1","op":"set","k":"status","v":"done"}

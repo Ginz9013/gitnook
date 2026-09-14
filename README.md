@@ -300,6 +300,13 @@ label <ref> +bug -ui
 share                                  upgrade a private board back to a shared one
 doctor [--fix]                         data health check; --fix repairs glued lines
 studio [--port <n>]                    board on localhost; create, drag, edit, comment
+workspace list|doctor|studio           cross-repo, read-only — see workspace below
+workspace new <title> --in <path> [--description <text|->] [--label <l>] [--editor]
+workspace set <ref> <title|description|status|archived|deleted> <value|-> [--editor]
+workspace mv <ref> <status>            <ref> full ULID only — see workspace below
+workspace comment <ref> <body|->       <ref> full ULID only — see workspace below
+workspace label <ref> +bug -ui         <ref> full ULID only — see workspace below
+workspace rm <ref> [--yes]             <ref> full ULID only — see workspace below
 ```
 
 `-` as a value reads the value from stdin.
@@ -436,6 +443,95 @@ The frontend is a React SPA (`src/studio/`, built by Vite into `dist/studio/`).
 Markdown is still rendered to safe HTML on the server, by the same escape-first
 renderer as before — the browser is handed strings that are already safe rather
 than being trusted to sanitise them.
+
+## workspace
+
+```bash
+cd path/to/the/parent/folder
+npx nook workspace list
+```
+
+A monorepo's packages, or a folder where a few unrelated repos just happen to
+sit side by side — either way, `nook workspace` gives you one read-only view
+across however many boards it finds under the current directory, instead of
+`cd`-ing into each one and running `nook list` by hand. It is a **view**, not a
+new kind of storage: nothing is created, merged, or cached, and every member
+board keeps its own op-log, actor identity and sharing state exactly as if you
+had opened it alone.
+
+**Discovery is a filesystem scan, not a config file.** `openWorkspace()` walks
+the current directory looking for `.issues/issues/`; the first one found on a
+given branch of the tree stops that branch — the directory holding it is a
+member, and nothing beneath it is scanned. It skips directories named `.git`
+and `node_modules`, matched by name only, and never follows a symlinked
+directory, so a symlink cycle back up the tree terminates instead of hanging
+or double-counting a member. The starting directory itself counts as a member
+if it has a board of its own. It does **not** read `.gitmodules` — whether a
+folder is a git submodule is irrelevant; only `.issues/issues/` existing
+decides membership (ADR-0012).
+There is no depth limit, and nothing is cached: every call re-scans the tree.
+A folder with no boards under it is not an error — `members` is simply empty,
+unlike `openBoard()`, which throws when there is no board at all.
+
+- `nook workspace list [--all] [--status <s>] [--label <l>] [--json]` — every
+  member's issues, grouped by that member's path relative to the workspace
+  root, one table per member with a blank line between groups. The filter
+  flags mean exactly what they mean for plain `list`, applied independently
+  per member; a member that filters down to nothing is left out of the output
+  entirely rather than printed as an empty group.
+- `nook workspace doctor [--fix]` — runs the same `health()` (and, with
+  `--fix`, `repair()`) that `nook doctor` runs, once per member, and labels
+  every line with that member's path so a diagnostic is never mistaken for the
+  parent folder's own problem. Any member being unhealthy exits 1; `--fix`
+  repairs every member that needs it.
+- `nook workspace studio [--port <n>]` — opens a small landing page listing
+  every member found; clicking one starts (or reuses) that member's own,
+  completely unmodified `nook studio`, on its own port. Boards are never
+  merged into one screen — each member's studio is exactly as independent as
+  running it directly, drag-and-drop included.
+
+Six more subcommands write, each routed to the one member it belongs to
+without you naming that member twice:
+
+```
+nook workspace new <title> --in <path> [--description <text|->] [--label <l>] [--editor]
+nook workspace set <ref> <title|description|status|archived|deleted> <value|-> [--editor]
+nook workspace mv <ref> <status>
+nook workspace comment <ref> <body|->
+nook workspace label <ref> +bug -ui
+nook workspace rm <ref> [--yes]
+```
+
+`new` has no existing ref to route by, so it takes `--in <path>` instead —
+**required, with no fallback to the current directory**, even when you are
+already standing inside a member; if you are, plain `nook new` is more
+direct anyway. A `--in` path outside the workspace's scan (a real board,
+just not one this scan found) is rejected rather than silently adopted.
+
+The other five all start from an existing ref, and a ULID is unique across
+the whole workspace in the same way it is unique across one board, so the
+ref alone is enough to find the right member — no second "which one" flag
+to give. That ref must be the **full 26-character ULID**; a short prefix is
+rejected outright rather than guessed at, because a prefix that is
+unambiguous inside one member's board can collide with an unrelated issue in
+a different member — two independently-grown boards can each mint the same
+short prefix and mean two different issues. Only `new` and these five write;
+there is no workspace version of `history` or `show`.
+
+`set`, `mv`, `comment` and `label` print exactly what the equivalent
+single-board command would print — undecorated with any member path, because
+you just supplied the ref (or, for `new`, the `--in` path) yourself, so which
+member it landed in was already your decision. `rm` is the one exception:
+both its confirmation prompt and its final line name the member's path,
+because the rescue step (`nook workspace set <ref> deleted false`) needs
+that path to `cd` into before it means anything — and there is no workspace
+`history` to check first, so the message also says to `cd` in and run plain
+`nook history <ref>`.
+
+Semantics — filtering, `--editor`, label add/remove, the `--yes` TTY/non-TTY
+rule — match the single-board commands exactly; none of it is reimplemented
+here. Every single-board command still works exactly as documented above,
+unaffected.
 
 ## doctor
 

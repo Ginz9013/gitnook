@@ -174,6 +174,41 @@ export class AmbiguousRef extends Error {
   }
 }
 
+/** 跨 board 操作要求完整 ULID（spec.md Non-goals）：ref 不是完整 26 碼時拋這個。 */
+export class IncompleteRef extends Error {
+  constructor(readonly ref: string) {
+    super(`不完整的 ref：${ref}（跨 board 操作需要完整 26 碼 ULID，不支援短前綴）`);
+    this.name = 'IncompleteRef';
+  }
+}
+
+/** `locateInWorkspace()` 掃過全部成員都沒找到這個 ref。 */
+export class RefNotFoundInWorkspace extends Error {
+  constructor(readonly ref: string, readonly searchedCount: number) {
+    super(`在 ${searchedCount} 個成員裡都找不到 ref：${ref}`);
+    this.name = 'RefNotFoundInWorkspace';
+  }
+}
+
+/**
+ * 同一個 ref 同時存在於多個成員 —— 資料完整性問題（通常是檔案被手動複製
+ * 造成），`locateInWorkspace()` 只負責清楚報錯、不猜、不自動選一個。
+ */
+export class AmbiguousWorkspaceRef extends Error {
+  constructor(readonly ref: string, readonly memberPaths: readonly string[]) {
+    super(`ref ${ref} 同時存在於 ${memberPaths.length} 個成員：${memberPaths.join(', ')}`);
+    this.name = 'AmbiguousWorkspaceRef';
+  }
+}
+
+/** `memberAt()` 解析出來的 Board 根目錄不在這個 workspace 的 members 裡。 */
+export class NotAWorkspaceMember extends Error {
+  constructor(readonly resolvedRoot: string, readonly workspaceRoot: string) {
+    super(`${resolvedRoot} 不是 workspace ${workspaceRoot} 底下掃到的成員`);
+    this.name = 'NotAWorkspaceMember';
+  }
+}
+
 /** 對一張已刪的 Issue 寫入。復原（`{ deleted: false }`）不在此列 —— docs/adr/0009。 */
 export class IssueDeleted extends Error {
   constructor(readonly ref: string) {
@@ -187,5 +222,31 @@ export class InvalidStatus extends Error {
     super(`不是合法的 status：${value}（可用：${STATUSES.join(', ')}）`);
     this.name = 'InvalidStatus';
   }
+}
+
+/**
+ * 遞迴掃描檔案系統找出的一塊子 Board。純粹是觀察的角度 —— 不建立任何新的
+ * 儲存或狀態，`board` 完全維持自己的獨立性（見 CONTEXT.md 的 Workspace 詞條）。
+ */
+export interface WorkspaceMember {
+  /** 絕對路徑，同 Board.root()。 */
+  readonly path: string;
+  /** `openBoard({ dir: path })` 的產物。 */
+  readonly board: Board;
+}
+
+/**
+ * 從一個根目錄往下遞迴掃描找到的一組 Board，供跨 Board 檢視（列表、篩選、
+ * 健康檢查）之用 —— 不合併任何 Op-log，見 ADR-0012。
+ */
+export interface Workspace {
+  /** 依 path 字典序排序。 */
+  readonly members: readonly WorkspaceMember[];
+  root(): string;
+}
+
+export interface OpenWorkspaceOptions {
+  /** 預設 process.cwd()。 */
+  readonly dir?: string;
 }
 
