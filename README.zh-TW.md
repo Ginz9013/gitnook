@@ -49,7 +49,7 @@ Op-log**，一行一個不可變更的 Op，而讀取時摺疊的是那些 Op �
 欄位的散文，所以沒有「標題慣例」會壞掉，也沒有來回轉換會遺失資訊。
 
 **它像一個普通的 dev dependency 一樣安裝。** 一次 `npm i -D gitnook`，解壓後
-約 675 KB，零執行期相依，沒有各平台一份的原生 binary，沒有常駐程式，沒有帳號，
+約 706 KB，零執行期相依，沒有各平台一份的原生 binary，沒有常駐程式，沒有帳號，
 也沒有**衍生的**本機狀態需要寫進 `.gitignore`。（有一樣東西你可以刻意留在 git
 之外 —— board 本身，用下面的 `nook init --private` —— 而即使是它，寫的也是
 `$GIT_DIR/info/exclude`，永遠不是你的 `.gitignore`。）
@@ -179,7 +179,7 @@ board —— 那是破壞性的，所以由你自己執行。`init --private` �
 
 | 指標 | 預算 | 實測 |
 |---|---|---|
-| 套件體積，解壓後 | < 3 MB | **675,267 B**（閘門的 21%） |
+| 套件體積，解壓後 | < 3 MB | **722,869 B**（閘門的 23%） |
 | 冷啟動，從打包好的 tarball 跑 `nook --version` | < 500 ms | **≈25 ms** |
 | 同一張 Issue 在兩條分支上並行合併 | 零衝突 | **0** |
 | Agent token，40 張 Issue 的情境 | < 4.5 KB | **4,102 B** |
@@ -197,7 +197,7 @@ board —— 那是破壞性的，所以由你自己執行。`init --private` �
 
 | 列 | 預算 | 實測 |
 |---|---|---|
-| studio 資產，`dist/studio/` | < 768 KB | **441,497 B** |
+| studio 資產，`dist/studio/` | < 768 KB | **441,610 B** |
 | `dist/cli/run.js` 裡的 React 痕跡 | 0 | **0** |
 
 studio 佔了整包的四分之三，所以它可以再長一半而套件體積那一列看起來仍然很寬裕 ——
@@ -266,6 +266,13 @@ label <ref> +bug -ui
 share                                  把一塊 private board 升級回共享
 doctor [--fix]                         資料健康檢查；--fix 修復黏合行
 studio [--port <n>]                    localhost 上的看板；可新增、拖拉、編輯、留言
+workspace list|doctor|studio           跨 repo，唯讀 —— 見下面的 workspace
+workspace new <title> --in <path> [--description <text|->] [--label <l>] [--editor]
+workspace set <ref> <title|description|status|archived|deleted> <value|-> [--editor]
+workspace mv <ref> <status>            <ref> 只接受完整 ULID —— 見下面的 workspace
+workspace comment <ref> <body|->       <ref> 只接受完整 ULID —— 見下面的 workspace
+workspace label <ref> +bug -ui         <ref> 只接受完整 ULID —— 見下面的 workspace
+workspace rm <ref> [--yes]             <ref> 只接受完整 ULID —— 見下面的 workspace
 ```
 
 值的位置寫 `-` 表示從 stdin 讀。
@@ -344,12 +351,14 @@ board.health();                             // `nook doctor` 回報的東西
 去重、全序、摺疊、OR-Set 的簿記，以及前綴解析。**呼叫端永遠不會看到一個 Op。**
 你說的是 `{ labels: { add: ['bug'] } }`；add-wins 是 gitNook 的問題。
 
-同時匯出的還有：`initBoard`、`diagnose`、`repair`、`serve`、`STATUSES`、那份 API
-裡的每一個型別，以及錯誤型別（`RefNotFound`、`AmbiguousRef`、`InvalidStatus`、
-`BoardNotInitialized`、`IssueDeleted`、`ConflictingGitAttributes`、`NestedBoard`、
-`AlreadySharedBoard`、`NoGitDir`、`PortInUse`）—— 讓呼叫端能用 `instanceof` 分辨
-「這你自己修得好」與「回報一個 bug」。那份清單被 `test/index.test.ts` 釘住，而它
-就是這句話過期時會來通知你的那個東西。
+同時匯出的還有：`openWorkspace`、`initBoard`、`diagnose`、`repair`、`serve`、
+`serveWorkspace`、`STATUSES`、那份 API 裡的每一個型別（含 `Workspace` 與
+`WorkspaceMember`），以及錯誤型別（`RefNotFound`、`AmbiguousRef`、
+`InvalidStatus`、`BoardNotInitialized`、`IssueDeleted`、
+`ConflictingGitAttributes`、`NestedBoard`、`AlreadySharedBoard`、`NoGitDir`、
+`PortInUse`）—— 讓呼叫端能用 `instanceof` 分辨「這你自己修得好」與「回報一個
+bug」。那份清單被 `test/index.test.ts` 釘住，而它就是這句話過期時會來通知你
+的那個東西。
 
 那份清單刻意很短。渲染器與 studio 的 request handler **沒有**被匯出：它們是呈現與
 管線，而每一個匯出都是永久的相容負債。日後新增一個是相容的改動；拿掉一個不是，
@@ -391,6 +400,84 @@ Op 都歸屬於你 `git config user.email` 那個 Actor，而那是它不能被�
 前端是一個 React SPA（`src/studio/`，由 Vite 建進 `dist/studio/`）。Markdown 仍然
 在伺服器端被渲染成安全的 HTML，用的是和以前同一個「先轉義」的渲染器 —— 交給瀏覽器
 的字串已經是安全的，而不是信任瀏覽器去清理它們。
+
+## workspace
+
+```bash
+cd path/to/the/parent/folder
+npx nook workspace list
+```
+
+一個 monorepo 底下的各個套件，或是一個資料夾裡剛好並排放著幾個不相干的
+repo —— 不管是哪一種，`nook workspace` 都能給你一份跨越目前目錄底下所有
+偵測到的 board 的唯讀彙整視角，不必自己一個一個 `cd` 進去跑 `nook list`。
+它是一個**檢視角度**，不是新的一種儲存：不建立、不合併、不快取任何東西，
+每個成員 board 完全維持自己的 op-log、actor 身分與 sharing 狀態，就跟你
+單獨開它一樣。
+
+**探測是檔案系統掃描，不是設定檔。** `openWorkspace()` 往下走訪目前的目錄
+找 `.issues/issues/`；某一支路徑上第一個找到的地方就會讓那一支停下來 ——
+找到它的那個目錄算一個成員，它底下不會再被掃描。它會跳過名字叫 `.git` 與
+`node_modules` 的目錄（只比對名字），而且永遠不追蹤 symlink 目錄，所以
+一個往上指回去的 symlink 環會讓掃描正常結束，而不是卡住或把同一個成員算
+兩次。起始目錄自己如果也有一塊 board，也算一個成員。它**不**讀
+`.gitmodules` —— 一個資料夾是不是 git submodule 無關緊要，只有
+`.issues/issues/` 存不存在才決定成員資格（ADR-0012）。深度不設上限，
+也不快取任何東西：每次呼叫都是重新掃描一次整棵樹。一個底下完全沒有
+board 的資料夾不是錯誤 —— `members` 就只是空陣列，跟 `openBoard()` 在
+完全找不到 board 時會丟錯不一樣。
+
+- `nook workspace list [--all] [--status <s>] [--label <l>] [--json]` ——
+  依每個成員相對於 workspace 根目錄的路徑分組列出它的 issue，一個成員
+  一張表，組間空一行。篩選旗標的意思跟單純的 `list` 完全一樣，各自獨立
+  套用在每個成員上；一個成員篩選完一張都不剩，就整組不列出，而不是印
+  一個空表格。
+- `nook workspace doctor [--fix]` —— 對每個成員各跑一次跟 `nook doctor`
+  一樣的 `health()`（加上 `--fix` 時的 `repair()`），每一行都標上那個
+  成員的路徑，讓一則診斷不會被誤會成母資料夾自己的問題。任一個成員不
+  健康就 exit 1；`--fix` 會修好每一個需要修的成員。
+- `nook workspace studio [--port <n>]` —— 開一個小小的入口頁，列出找到
+  的每一個成員；點其中一個就會啟動（或重用）那個成員自己、完全沒被改動
+  過的 `nook studio`，在它自己的 port 上。Board 永遠不會被合併進同一個
+  畫面 —— 每個成員的 studio 都跟直接執行它一樣獨立，拖拉放也一樣。
+
+還有六個子指令會寫入，各自被路由到它所屬的那一個成員，不必你自己再講
+一次是哪一個：
+
+```
+nook workspace new <title> --in <path> [--description <text|->] [--label <l>] [--editor]
+nook workspace set <ref> <title|description|status|archived|deleted> <value|-> [--editor]
+nook workspace mv <ref> <status>
+nook workspace comment <ref> <body|->
+nook workspace label <ref> +bug -ui
+nook workspace rm <ref> [--yes]
+```
+
+`new` 沒有既有的 ref 可以拿來路由，所以它改用 `--in <path>` ——
+**必填，不會退回目前目錄**，就算你人已經站在某個成員裡面也一樣；如果是
+這樣，直接用單純的 `nook new` 更直接。`--in` 給的路徑如果落在 workspace
+掃描範圍之外（就算那裡真的有一塊 board），會被拒絕，不會被悄悄當成
+目標。
+
+其餘五個都是從一個既有的 ref 開始，而一個 ULID 在整個 workspace 裡唯一，
+就跟它在單一 board 裡唯一一樣，所以光是 ref 本身就足夠找到對的成員 ——
+不必再給第二個「是哪一個」的旗標。但那個 ref 必須是**完整的 26 碼
+ULID**；短前綴一律直接拒絕，不會用猜的 —— 因為一個在某個成員的 board
+裡無歧義的前綴，可能剛好撞上另一個成員裡一張不相干的 issue：兩塊各自
+獨立長大的 board 完全可能各自產生同一個短前綴、卻指向兩張不同的 issue。
+只有 `new` 加上這五個會寫入；沒有 workspace 版的 `history` 或 `show`。
+
+`set`、`mv`、`comment`、`label` 印出來的東西跟對應的單一 board 指令
+一模一樣 —— 不會加上任何成員路徑，因為 ref（或 `new` 的話，`--in` 那個
+路徑）是你自己給的，它落在哪個成員本來就是你的決定。`rm` 是唯一的
+例外：它的確認句與最後印出的那一行都會標出成員的路徑，因為救援步驟
+（`nook workspace set <ref> deleted false`）要先知道要 `cd` 進哪裡才有
+意義 —— 而且沒有 workspace 版的 `history` 可以先查，所以那則訊息也會
+提示你 `cd` 進去、跑單純的 `nook history <ref>`。
+
+語意 —— 篩選、`--editor`、label 的加減、`--yes` 的 TTY/非 TTY 規則 ——
+跟單一 board 的指令完全一致，這裡沒有重新實作任何一條。每一個單一 board
+的指令照樣完全按照上面說的運作，不受影響。
 
 ## doctor
 

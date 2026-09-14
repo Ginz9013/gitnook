@@ -55,7 +55,7 @@ with no `git config` for anyone on the team.
 fields — not prose to be parsed back into fields, so there is no heading
 convention to break and no round-trip to lose information.
 
-**It installs like a normal dev dependency.** One `npm i -D gitnook`, ~675 KB
+**It installs like a normal dev dependency.** One `npm i -D gitnook`, ~706 KB
 unpacked, zero runtime dependencies, no native binary per platform, no daemon,
 no account, no *derived* local state to gitignore. (There is one thing you can
 deliberately keep out of git — the board itself, with `nook init --private`
@@ -206,7 +206,7 @@ structural rows below them — and exits non-zero if any is over budget.
 
 | Metric | Budget | Measured |
 |---|---|---|
-| Package size, unpacked | < 3 MB | **675,267 B** (21% of the gate) |
+| Package size, unpacked | < 3 MB | **722,869 B** (23% of the gate) |
 | Cold start, `nook --version` from the packed tarball | < 500 ms | **≈25 ms** |
 | Concurrent merge of one issue on two branches | zero conflicts | **0** |
 | Agent tokens, 40-issue scenario | < 4.5 KB | **4,102 B** |
@@ -226,7 +226,7 @@ Two more rows exist because those four cannot see what they need to see:
 
 | Row | Budget | Measured |
 |---|---|---|
-| studio assets, `dist/studio/` | < 768 KB | **441,497 B** |
+| studio assets, `dist/studio/` | < 768 KB | **441,610 B** |
 | React markers in `dist/cli/run.js` | 0 | **0** |
 
 studio is three quarters of the package, so it could grow by half and package
@@ -387,13 +387,14 @@ trailing-newline discipline, dedupe, total ordering, the fold, OR-Set bookkeepin
 and prefix resolution. **A caller never sees an operation.** You say
 `{ labels: { add: ['bug'] } }`; add-wins is gitNook's problem.
 
-Also exported: `initBoard`, `diagnose`, `repair`, `serve`, `STATUSES`, every
-type in that API, and the error types (`RefNotFound`, `AmbiguousRef`,
-`InvalidStatus`, `BoardNotInitialized`, `IssueDeleted`, `ConflictingGitAttributes`,
-`NestedBoard`, `AlreadySharedBoard`, `NoGitDir`, `PortInUse`) — so a caller can
-tell "you can fix this" from "report a bug" with `instanceof`. That list is pinned
-by `test/index.test.ts`, which is the one that will tell you when this sentence
-goes stale.
+Also exported: `openWorkspace`, `initBoard`, `diagnose`, `repair`, `serve`,
+`serveWorkspace`, `STATUSES`, every type in that API (`Workspace` and
+`WorkspaceMember` included), and the error types (`RefNotFound`,
+`AmbiguousRef`, `InvalidStatus`, `BoardNotInitialized`, `IssueDeleted`,
+`ConflictingGitAttributes`, `NestedBoard`, `AlreadySharedBoard`, `NoGitDir`,
+`PortInUse`) — so a caller can tell "you can fix this" from "report a bug"
+with `instanceof`. That list is pinned by `test/index.test.ts`, which is the
+one that will tell you when this sentence goes stale.
 
 That list is deliberately short. The renderers and the studio request handler
 are **not** exported: they are presentation and plumbing, and every export is a

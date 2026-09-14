@@ -8,6 +8,76 @@ While the major version is `0`, a minor bump may contain changes that would be
 breaking after `1.0.0`. Any such change is listed under **Changed** or
 **Removed** with what it means for you.
 
+## [0.4.0] - 2026-09-14
+
+The theme of this release is **workspace**: one view — and now one set of
+write commands — across every board a parent folder contains, for a
+monorepo's packages or a folder where a few unrelated repos just happen to
+sit side by side. Nothing is merged or cached; every member board keeps its
+own op-log, actor identity and sharing state exactly as if you had opened it
+alone.
+
+### Added
+
+- **`nook workspace <list|doctor|studio>`** — read-only aggregation. `list`
+  groups every member's issues by path, with the same filter flags as plain
+  `list`, applied independently per member. `doctor` runs each member's
+  health check once and labels every line with that member's path, so a
+  diagnostic is never mistaken for the parent folder's own problem. `studio`
+  opens a small landing page listing every member; clicking one starts (or
+  reuses) that member's own, completely unmodified `nook studio` on its own
+  port — boards are never merged into one screen.
+- **`nook workspace <new|set|mv|comment|label|rm>`** — the same six write
+  commands as a single board, routed to whichever member they belong to.
+  `new` has no existing ref to route by, so it takes `--in <path>` instead —
+  required, with no fallback to the current directory. The other five find
+  their member by the ref alone, so **the ref must be the full 26-character
+  ULID**: a short prefix that would resolve fine inside one board could
+  silently mean a different issue in another, so it is refused outright
+  rather than guessed at. Only `rm`'s confirmation prompt and final line name
+  the member's path — the other five print exactly what the equivalent
+  single-board command would, because you just supplied the ref (or `--in`
+  path) yourself.
+- **Discovery is a filesystem scan, not a config file or `.gitmodules`.** Any
+  directory with `.issues/issues/` on disk counts as a member — submodule or
+  not — found by walking down from the current directory and stopping at the
+  first hit on each branch. It skips `.git` and `node_modules` by name, never
+  follows a symlink, and never creates, merges, or infers a board (ADR-0012).
+- **`openWorkspace()` and `serveWorkspace()`**, exported from the package
+  entry point alongside the `Workspace`, `WorkspaceMember` and
+  `OpenWorkspaceOptions` types — the library surface behind the CLI, for
+  programmatic use. `locateInWorkspace()` and `memberAt()` — the functions
+  that route a write to its owning member — stay internal to the CLI for now:
+  they're plain functions taking a `Workspace`, not new methods on the
+  `Workspace` type, precisely so that adding them to the already-public
+  `Workspace` shape stays a choice for later rather than a commitment made
+  today.
+
+### Changed
+
+- **All user-facing UI text is now English.** CLI runtime output (`--help`,
+  error messages, `doctor`/`list` diagnostics, interactive prompts) and the
+  studio frontend (buttons, `aria-label`s, dialogs, error banners) no longer
+  mix in Traditional Chinese. Code comments, `CONTEXT.md`, ADRs and commit
+  messages are unaffected — this is a UI-only change, not a project-language
+  change. If you were matching on Chinese substrings in `nook`'s output
+  (piping `list`/`doctor`/`--help` into something that greps for them), that
+  match will now fail; match on the surrounding structure or the English text
+  instead.
+- **`nook --help`'s `workspace` row stays one line** (`workspace list
+  [flags]`) even though nine subcommands exist now — the full command set is
+  documented in `AGENT.md` and the README, not in the token-budget-gated
+  `--help` text. A few neighbouring lines lost parenthetical asides to make
+  room; no information was removed, only re-homed to context you already
+  have after reading this file once.
+
+### Internal
+
+- **`CONTEXT.md` gained `Workspace`** as a defined domain term. `workspace`
+  used to be listed only as a banned synonym for **Board** — now that ban
+  points at this definition instead: a Board is not a workspace, and a
+  workspace is not a Board.
+
 ## [0.3.0] - 2026-09-10
 
 The theme of this release is **private mode**: a board that never enters git at
