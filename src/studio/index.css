@@ -117,6 +117,38 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /**
+   * macOS 的捲軸原生就是細的 overlay 樣式；Windows 上的 Chrome/Edge 預設是
+   * 粗的、方角的、不透明底的那種，跟其他地方全部走 token 的視覺不搭。
+   * `scrollbar-*` 是 Firefox 的標準屬性，`::-webkit-scrollbar` 系列是
+   * Chromium／WebKit 的私有實作 —— 兩組一起寫才能跨瀏覽器都套到，缺一組
+   * 只在部分瀏覽器上生效。顏色一樣綁 token，跟著 light/dark 自動切換。
+   */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    background-clip: content-box;
+    border: 2px solid transparent;
+    border-radius: 9999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
 }
 
 /**
