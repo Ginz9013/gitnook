@@ -9,6 +9,7 @@
  */
 @import "tailwindcss" source("./");
 @import "tw-animate-css";
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -116,4 +117,41 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/**
+ * `@tailwindcss/typography` 的顏色綁到既有的 semantic token，而不是用
+ * `prose-invert`。`--foreground`／`--muted-foreground`／`--border` 這些變數
+ * 本身已經在 `:root` 與 `.dark` 兩邊各自定義好，绑在這裡之後，`.prose` 底下的
+ * 顏色會跟著同一份階序自動切換 light／dark，不需要另外套 `dark:` 變體 ——
+ * 也就不用去驗證這個外掛的工具類別吃不吃得到上面 `@custom-variant dark`
+ * 這個自訂規則。inline code 前後的反引號是外掛預設加的裝飾，這裡關掉，
+ * 換成跟其他地方一致的等寬字體＋淡底色。
+ */
+.prose {
+  --tw-prose-body: var(--foreground);
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-lead: var(--muted-foreground);
+  --tw-prose-links: var(--primary);
+  --tw-prose-bold: var(--foreground);
+  --tw-prose-counters: var(--muted-foreground);
+  --tw-prose-bullets: var(--muted-foreground);
+  --tw-prose-hr: var(--border);
+  --tw-prose-quotes: var(--foreground);
+  --tw-prose-quote-borders: var(--border);
+  --tw-prose-captions: var(--muted-foreground);
+  --tw-prose-code: var(--foreground);
+  --tw-prose-pre-code: var(--foreground);
+  --tw-prose-pre-bg: var(--muted);
+  --tw-prose-th-borders: var(--border);
+  --tw-prose-td-borders: var(--border);
+}
+
+.prose :where(code):not(:where([class~='not-prose'] *))::before,
+.prose :where(code):not(:where([class~='not-prose'] *))::after {
+  content: none;
+}
+
+.prose :where(code):not(:where(pre code)):not(:where([class~='not-prose'] *)) {
+  @apply bg-muted rounded px-1 py-0.5 font-mono;
 }

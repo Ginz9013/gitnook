@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { archiveChange, deleteChange, descriptionChange, titleChange } from './changes';
 import type { DrawerChange } from './changes';
+import { MARKDOWN_CONTENT_CLASS } from './markdownContent';
 
 export interface IssueDetailProps {
   /** 快照 + 樂觀覆蓋。`project()` 的產物，由 App 持有的那一份 reducer 算出來。 */
@@ -303,7 +304,7 @@ function DescriptionField({
         // 注入，且不再過第二套消毒 —— 兩套模型對同一段輸入遲早會給出不同
         // 答案，那個分歧才是漏洞。
         <div
-          className="prose-sm text-sm wrap-break-word [&_a]:underline [&_code]:font-mono [&_pre]:overflow-x-auto"
+          className={MARKDOWN_CONTENT_CLASS}
           dangerouslySetInnerHTML={{ __html: descriptionHtml }}
         />
       )}
