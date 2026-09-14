@@ -6,6 +6,7 @@ import type { CommentView } from '@/api';
 import type { UnconfirmedComment } from '@/reconcile';
 import { commentChange } from './changes';
 import type { DrawerChange } from './changes';
+import { MARKDOWN_CONTENT_CLASS } from './markdownContent';
 
 export interface CommentTimelineProps {
   readonly comments: readonly CommentView[];
@@ -54,7 +55,7 @@ export function CommentTimeline({
                 會對同一段輸入給出不同答案，而那個分歧才是漏洞。
               */}
               <div
-                className="prose-sm text-sm wrap-break-word [&_a]:underline [&_code]:font-mono [&_pre]:overflow-x-auto"
+                className={MARKDOWN_CONTENT_CLASS}
                 dangerouslySetInnerHTML={{ __html: c.bodyHtml }}
               />
             </li>
