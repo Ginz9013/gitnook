@@ -32,6 +32,13 @@
  *
  * 每一對前景／底色的對比度由 `test/studio/tokens.test.ts` 守著：文字 4.5:1、
  * `--border` 與 `--ring` 3:1，light 與 dark 兩邊都算。改顏色時那個閘門會說話。
+ *
+ * `--secondary` 目前只有一個實際用途：Label 的 badge 底色（`Card.tsx`、
+ * `LabelEditor.tsx`）。原本的值跟 `--card`（light）／`--card` 附近（dark）
+ * 亮度差不到 0.03，Label 幾乎融進卡片裡，light/dark 都一樣不明顯 —— 這次
+ * 拉開亮度差（light 0.965→0.89，dark 0.295→0.4）並加一點點彩度，讓它讀起來
+ * 是一顆獨立的 chip 而不是卡片本身的一部分。這個 token 不在上面的對比閘門裡
+ * （它沒有跟自己的前景色配對測），純粹是「看不看得出來是兩個顏色」的人工判斷。
  */
 :root {
   --radius: 0.625rem;
@@ -43,7 +50,7 @@
   --popover-foreground: oklch(0.235 0.012 250);
   --primary: oklch(0.55 0.1 200);
   --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.965 0.006 235);
+  --secondary: oklch(0.89 0.012 235);
   --secondary-foreground: oklch(0.3 0.012 250);
   --muted: oklch(0.975 0.005 235);
   --muted-foreground: oklch(0.47 0.012 250);
@@ -67,7 +74,7 @@
   --popover-foreground: oklch(0.965 0.005 250);
   --primary: oklch(0.72 0.11 200);
   --primary-foreground: oklch(0.2 0.02 220);
-  --secondary: oklch(0.295 0.012 250);
+  --secondary: oklch(0.4 0.016 250);
   --secondary-foreground: oklch(0.955 0.005 250);
   --muted: oklch(0.235 0.012 250);
   --muted-foreground: oklch(0.72 0.012 250);
