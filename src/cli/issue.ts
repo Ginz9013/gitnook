@@ -34,7 +34,9 @@ import type { Filter } from '../core/types.js';
  * `case 'issue': return dispatchIssue(rest, io)`。
  *
  * 這十一個函式本體是票 05 之前 `run.ts` 頂層 11 個扁平指令的原樣搬遷 ——
- * 邏輯一行都不改，只調整 import 路徑（同票的 acceptance criteria）。
+ * 判斷邏輯一行都不改，只調整 import 路徑，以及使用者可見的 usage／錯誤
+ * 訊息裡把 `nook <verb>` 換成 `nook issue <verb>`（同票的 acceptance
+ * criteria：新指令名稱本身就是這張票的內容，不換字串等於沒搬完）。
  *
  * 這裡自己不接任何錯誤，跟 `dispatchWorkspace` 一樣：使用者錯誤直接往外丟，
  * 由 `run()` 既有的 `USER_ERRORS` 清單接住並轉成 exit 1 / exit 2 —— 那份清單

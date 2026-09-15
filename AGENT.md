@@ -53,7 +53,7 @@ Issues are plain text files in the repo. They travel with the branch, merge with
 Two representations, deliberately different:
 
 - **`nook issue new` prints the full 26-character ULID.** That is the only permanently valid ref. **Store this one**, pass it to later commands, put it in commit messages.
-- **`list` / `show` / the board print a short prefix** computed against the board *at that moment*. It is correct on screen and may stop being unique later.
+- **`nook issue list` / `nook issue show` / the board print a short prefix** computed against the board *at that moment*. It is correct on screen and may stop being unique later.
 
 A ULID's first 10 characters encode the timestamp, so **everything created in the same ~17-minute window shares its first 6 characters**. A short ref copied out of `list` and used an hour later can resolve to several issues.
 

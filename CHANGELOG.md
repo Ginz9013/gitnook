@@ -38,12 +38,17 @@ breaking after `1.0.0`. Any such change is listed under **Changed** or
 
 ### Added
 
-- **`nook decision <init|new|show>`** — the first slice of a second, parallel
-  op-log for Architecture Decision Records, alongside Issues. Same
+- **`nook decision <init|new|show|list>`** — the first slice of a second,
+  parallel op-log for Architecture Decision Records, alongside Issues. Same
   append-only NDJSON-per-record shape and `merge=union` guarantee, its own
   `.decisions/` directory; deliberately smaller than Issue (no labels,
-  comments, archiving, or private mode). A Decision has a `disposition`
-  (`proposed`/`accepted`/`superseded`/`rejected`), not a workflow `status` —
+  comments, archiving, or private mode). `list` prints the same compact-table
+  style as `nook issue list`, filterable with `--disposition`, and shows
+  every Decision by default — there is no archived/done/cancelled-equivalent
+  hidden by default. `nook doctor` now also checks `.decisions/`'s
+  `merge=union` line whenever that directory exists (silent otherwise). A
+  Decision has a `disposition` (`proposed`/`accepted`/`superseded`/
+  `rejected`), not a workflow `status` —
   the two are different axes of meaning and are not interchangeable.
 
 ## [0.4.1] - 2026-09-15
