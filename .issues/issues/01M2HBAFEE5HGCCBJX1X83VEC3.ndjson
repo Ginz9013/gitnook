@@ -2,3 +2,5 @@
 {"id":"01M2HBAFERR0HNRGC1R8KZB1V6","t":2,"a":"83a1","op":"set","k":"description","v":"Decision（ADR）op-log NDJSON 一等公民實體的第一顆曳光彈：貫穿儲存層到領域層，並含 nook decision init/new/show 三個 CLI 動詞。詳見 .scratch/decision-module/01-core-init-new-show.md"}
 {"id":"01M2HBAFERY0BDYJ7ND4ARCRWF","t":3,"a":"83a1","op":"label.add","v":"decision-module"}
 {"id":"01M2HBAYJ8HZEM0KTT894NA3DB","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M2HDF9JB0G9K5Z5KCQSRW24G","t":5,"a":"83a1","op":"comment","body":"落地：4f5b61a（實作）、e4d11c9（review 修 supersededBy 形狀驗證 + 註解修正）。review 另追加票 08（decision show 版面）。829 tests passed / 48 files，0 型別錯誤。"}
+{"id":"01M2HDF9KMJF1XNPM3J8H6NS46","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
