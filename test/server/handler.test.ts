@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBoard } from '../../src/index.js';
 import type { Board, CreateInput, IdSource, Issue } from '../../src/index.js';
+import { openDecisionLog } from '../../src/core/decisionLog.js';
+import type { DecisionLog } from '../../src/core/decisionTypes.js';
 import { handleRequest } from '../../src/server/handler.js';
-import type { IssueView } from '../../src/server/handler.js';
+import type { DecisionBoardSnapshot, IssueView } from '../../src/server/handler.js';
 
 // ADR-0004：無 storage 接縫、無 in-memory fake。每個測試用例一個 mkdtemp 的真實 board。
 let dir: string;
@@ -38,11 +41,13 @@ function seeded(issueId: string): IdSource {
 }
 
 const board = (): Board => openBoard({ dir, actor: 'test' });
+const decisionLog = (): DecisionLog => openDecisionLog({ dir, actor: 'test' });
 
 const createWith = (issueId: string, input: CreateInput): Issue =>
   openBoard({ dir, actor: 'test', ids: seeded(issueId) }).create(input);
 
-const get = (url: string) => handleRequest(board(), { method: 'GET', url }, { assetsDir: assets });
+const get = (url: string) =>
+  handleRequest(board(), decisionLog(), { method: 'GET', url }, { assetsDir: assets });
 
 describe('GET /', () => {
   it('回傳 SPA 殼，200', () => {
@@ -186,7 +191,7 @@ describe('方法白名單收窄而非移除', () => {
 
     for (const method of ['PUT', 'DELETE', 'PATCH']) {
       for (const url of ['/', '/i/01JBXA', '/hash']) {
-        const res = handleRequest(board(), { method, url });
+        const res = handleRequest(board(), decisionLog(), { method, url });
         expect(res.status, `${method} ${url}`).toBe(405);
         // 405 必須告訴呼叫端還剩什麼方法可用（RFC 9110）。
         expect(res.headers['allow'], `${method} ${url}`).toBeDefined();
@@ -194,7 +199,7 @@ describe('方法白名單收窄而非移除', () => {
     }
 
     for (const url of ['/', '/hash']) {
-      const res = handleRequest(board(), { method: 'POST', url });
+      const res = handleRequest(board(), decisionLog(), { method: 'POST', url });
       expect(res.status, `POST ${url}`).toBe(405);
       expect(res.headers['allow'], `POST ${url}`).toBe('GET');
     }
@@ -247,6 +252,7 @@ describe('「哪些路徑存在」不能決定「能不能寫」', () => {
       for (const url of [...NOT_WRITABLE, `/i/${id}`, '/i/01JBXA']) {
         const res = handleRequest(
           board(),
+          decisionLog(),
           { method, url, body: JSON.stringify({ comment: 'should never land' }) },
           { assetsDir: assets },
         );
@@ -260,7 +266,9 @@ describe('「哪些路徑存在」不能決定「能不能寫」', () => {
   it('/i/<ref> 的 Allow 說的是 POST —— 伺服器渲染的詳情頁在票 01 就沒了', () => {
     createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
 
-    expect(handleRequest(board(), { method: 'PUT', url: '/i/01JBXA' }).headers['allow']).toBe('POST');
+    expect(handleRequest(board(), decisionLog(), { method: 'PUT', url: '/i/01JBXA' }).headers['allow']).toBe(
+      'POST',
+    );
   });
 });
 
@@ -300,7 +308,7 @@ describe('新增端點沒有讓 405 白名單鬆動', () => {
 
   it('/api/issues 上的 PUT / DELETE / PATCH 是 405，Allow 說 POST', () => {
     for (const method of ['PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']) {
-      const res = handleRequest(board(), {
+      const res = handleRequest(board(), decisionLog(), {
         method,
         url: '/api/issues',
         body: JSON.stringify({ title: 'should never land' }),
@@ -335,6 +343,7 @@ describe('新增端點沒有讓 405 白名單鬆動', () => {
 const post = (url: string, body: unknown) =>
   handleRequest(
     board(),
+    decisionLog(),
     { method: 'POST', url, body: typeof body === 'string' ? body : JSON.stringify(body) },
     { assetsDir: assets },
   );
@@ -972,7 +981,7 @@ function fakeAssets(files: Readonly<Record<string, string>>): string {
 }
 
 const getAsset = (url: string, assetsDir: string) =>
-  handleRequest(board(), { method: 'GET', url }, { assetsDir });
+  handleRequest(board(), decisionLog(), { method: 'GET', url }, { assetsDir });
 
 describe('GET /assets/<file>', () => {
   it('服務 dist/studio/ 底下的檔案，帶對的 content-type', () => {
@@ -1115,7 +1124,7 @@ describe('未預期的例外', () => {
 
     rmSync(join(dir, '.issues'), { recursive: true, force: true });
 
-    const res = handleRequest(alive, { method: 'GET', url: '/api/board' }, { assetsDir: assets });
+    const res = handleRequest(alive, decisionLog(), { method: 'GET', url: '/api/board' }, { assetsDir: assets });
 
     expect(res.status).toBe(500);
     expect(res.headers['content-type']).toMatch(/^text\/plain/);
@@ -1129,7 +1138,7 @@ describe('未預期的例外', () => {
     const alive = board();
     rmSync(join(dir, '.issues'), { recursive: true, force: true });
 
-    const res = handleRequest(alive, { method: 'GET', url: '/api/board' }, { assetsDir: assets });
+    const res = handleRequest(alive, decisionLog(), { method: 'GET', url: '/api/board' }, { assetsDir: assets });
 
     expect(res.status).toBe(500);
     expect(res.body).not.toMatch(/\n\s*at /);
@@ -1144,13 +1153,13 @@ describe('未預期的例外', () => {
     const alive = board();
 
     // 對應得到的仍然照舊 —— 兜底不得把 400 吃成 500。
-    const invalid = handleRequest(alive, { method: 'POST', url: `/i/${id}`, body: '{"status":"nope"}' });
+    const invalid = handleRequest(alive, decisionLog(), { method: 'POST', url: `/i/${id}`, body: '{"status":"nope"}' });
     expect(invalid.status).toBe(400);
 
     rmSync(join(dir, '.issues'), { recursive: true, force: true });
 
     // board 消失不是「找不到這張 issue」（404），也不是請求的錯（400）。
-    const gone = handleRequest(alive, { method: 'POST', url: `/i/${id}`, body: '{"status":"queued"}' });
+    const gone = handleRequest(alive, decisionLog(), { method: 'POST', url: `/i/${id}`, body: '{"status":"queued"}' });
     expect(gone.status).toBe(500);
     expect(gone.body).toContain('not a Nook board');
   });
@@ -1162,7 +1171,7 @@ describe('未預期的例外', () => {
  * 每次全量讀取都多一個子行程，而快照在 ACK 落空時還會被重抓。
  */
 const boardInfo = () =>
-  handleRequest(board(), { method: 'GET', url: '/api/board-info' }, { assetsDir: assets });
+  handleRequest(board(), decisionLog(), { method: 'GET', url: '/api/board-info' }, { assetsDir: assets });
 
 describe('GET /api/board-info', () => {
   it('回傳這塊 board 的絕對路徑', () => {
@@ -1275,7 +1284,7 @@ describe('/api/board-info 的 root 就是這個 Board 的根', () => {
     mkdirSync(deep, { recursive: true });
     const fromDeep = openBoard({ dir: deep, actor: 'test' });
 
-    const res = handleRequest(fromDeep, { method: 'GET', url: '/api/board-info' }, { assetsDir: assets });
+    const res = handleRequest(fromDeep, decisionLog(), { method: 'GET', url: '/api/board-info' }, { assetsDir: assets });
 
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as { root: string; branch: string | null };
@@ -1289,7 +1298,7 @@ describe('/api/board-info 的 root 就是這個 Board 的根', () => {
 
 /** 一張 Issue 的變更歷史。drawer 底部那塊折疊區塊的資料來源（票 B7）。 */
 const history = (ref: string) =>
-  handleRequest(board(), { method: 'GET', url: `/api/history/${ref}` }, { assetsDir: assets });
+  handleRequest(board(), decisionLog(), { method: 'GET', url: `/api/history/${ref}` }, { assetsDir: assets });
 
 interface WriteView {
   field: string;
@@ -1458,7 +1467,7 @@ describe('唯讀端點沒有讓 405 白名單鬆動', () => {
   it('PUT / DELETE / PATCH 也是 405，Allow 說 GET', () => {
     for (const url of READ_ONLY) {
       for (const method of ['PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']) {
-        const res = handleRequest(board(), { method, url }, { assetsDir: assets });
+        const res = handleRequest(board(), decisionLog(), { method, url }, { assetsDir: assets });
         expect(res.status, `${method} ${url}`).toBe(405);
         expect(res.headers['allow'], `${method} ${url}`).toBe('GET');
       }
@@ -1483,3 +1492,121 @@ describe('GET /api/history/ 沒有 ref', () => {
     }
   });
 });
+
+/**
+ * 票 01：Studio 開始知道 Decision 存在。第一片是唯讀 —— 兩條 GET 端點，
+ * 鏡射 Issue 的 `/api/board`／`/hash`。
+ *
+ * **每個用例自己 `mkdir .decisions/decisions`，不是共用的 `beforeEach`** ——
+ * 這個目錄一存在，既有的 `board.health()` 就會連帶檢查 Decision 那份
+ * merge=union 保證（`diagnose()` 已泛化成掃描已知實體清單），把它放進全域
+ * `beforeEach` 會讓 `/api/board-info 的 diagnostics` 那組既有測試多一條
+ * 不相干的 `MissingMergeDriver`。
+ */
+function initDecisionLog(): void {
+  mkdirSync(join(dir, '.decisions', 'decisions'), { recursive: true });
+}
+
+const createDecisionWith = (decisionId: string, title: string, over: { body?: string; disposition?: string } = {}) => {
+  initDecisionLog();
+  return openDecisionLog({ dir, actor: 'test', ids: seeded(decisionId) }).create({ title, ...over });
+};
+
+describe('GET /api/decisions', () => {
+  it('回傳 DecisionBoardSnapshot：decisions 陣列與 hash', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    const res = get('/api/decisions');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+
+    const snapshot = JSON.parse(res.body) as DecisionBoardSnapshot;
+    expect(snapshot.decisions).toHaveLength(1);
+    expect(snapshot.decisions[0]).toMatchObject({
+      id: fullId('01JDEC1'),
+      title: 'Adopt trunk-based development',
+      disposition: 'proposed',
+      body: '',
+    });
+    // bodyHtml 是預渲染的安全 HTML，同 IssueView.descriptionHtml 的既有規則。
+    expect(snapshot.decisions[0]!.bodyHtml).toBeTypeOf('string');
+    expect(snapshot.hash).toBeTypeOf('string');
+  });
+
+  it('一個 Decision 都沒有時回空陣列，不炸開', () => {
+    initDecisionLog();
+
+    const res = get('/api/decisions');
+
+    expect(res.status).toBe(200);
+    expect((JSON.parse(res.body) as DecisionBoardSnapshot).decisions).toEqual([]);
+  });
+
+  it('shortId 對整塊 decision log 算，同 IssueView 既有的 displayLength 規則', () => {
+    createDecisionWith(fullId('01JDECQ'), 'Adopt trunk-based development');
+    createDecisionWith(fullId('01JDECR'), 'Use conventional commits');
+
+    const snapshot = JSON.parse(get('/api/decisions').body) as DecisionBoardSnapshot;
+    const view = snapshot.decisions.find((d) => d.id === fullId('01JDECQ'));
+
+    // 兩筆只在第 7 碼分開，所以 6 碼不夠 —— shortId 因此對整塊 log 算。
+    expect(view!.shortId).toBe('01JDECQ');
+  });
+
+  it('supersededBy／legacyRef 沒被寫過時整格不存在，不是空字串', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    const [view] = JSON.parse(get('/api/decisions').body).decisions as Record<string, unknown>[];
+
+    expect(Object.hasOwn(view!, 'supersededBy')).toBe(false);
+    expect(Object.hasOwn(view!, 'legacyRef')).toBe(false);
+  });
+
+  it('POST /api/decisions 是 405，Allow 說 GET —— 這票沒有寫入端點', () => {
+    // 405 白名單在路由**之前**判斷，這則請求連不到 decisionLog，
+    // 所以這裡不必先 `initDecisionLog()`。
+    const res = post('/api/decisions', { title: 'should never land' });
+
+    expect(res.status).toBe(405);
+    expect(res.headers['allow']).toBe('GET');
+  });
+});
+
+describe('GET /decision-hash', () => {
+  it('回傳裸文字指紋，同 /hash 的形狀（不是 JSON）', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    const res = get('/decision-hash');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^text\/plain/);
+    expect(res.body).toBe(decisionHashOf());
+  });
+
+  it('新增一筆之後指紋跟著換', () => {
+    initDecisionLog();
+    const before = get('/decision-hash').body;
+
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    expect(get('/decision-hash').body).not.toBe(before);
+  });
+
+  it('POST /decision-hash 是 405，Allow 說 GET', () => {
+    // 同上：405 白名單先擋下，這則請求連不到 decisionLog。
+    const res = post('/decision-hash', {});
+
+    expect(res.status).toBe(405);
+    expect(res.headers['allow']).toBe('GET');
+  });
+});
+
+/** `/decision-hash` 的期望值：對 `decisionLog.list({})` 的雜湊，直接算一次來比對。 */
+function decisionHashOf(): string {
+  return createHashOfDecisions(decisionLog().list({}));
+}
+
+function createHashOfDecisions(decisions: unknown): string {
+  return createHash('sha256').update(JSON.stringify(decisions)).digest('hex');
+}

@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deriveActor } from '../core/actor.js';
+import type { Decision, DecisionLog, Disposition } from '../core/decisionTypes.js';
 import { shortIdLength } from '../core/ids.js';
 import type { SetKey } from '../core/ops.js';
 import { fieldWrites } from '../core/reduce.js';
@@ -38,6 +39,8 @@ const API_BOARD_INFO_PATH = '/api/board-info';
 const API_HISTORY_PREFIX = '/api/history/';
 const ASSETS_PREFIX = '/assets/';
 const ISSUE_PREFIX = '/i/';
+const API_DECISIONS_PATH = '/api/decisions';
+const DECISION_HASH_PATH = '/decision-hash';
 
 function html(body: string): StudioResponse {
   return { status: 200, headers: { 'content-type': HTML }, body };
@@ -95,6 +98,16 @@ function serverError(err: unknown): StudioResponse {
  */
 export function boardHash(board: Board): string {
   return createHash('sha256').update(JSON.stringify(board.list({ all: true }))).digest('hex');
+}
+
+/**
+ * 當前 Decision Log 狀態的指紋 —— 同 `boardHash` 的雜湊規則，量測對象換成
+ * `decisionLog.list({})`。**沒有 `all` 概念**：Decision 沒有 archived／done
+ * 這種被預設過濾掉的可見性欄位（spec.md Design contract），`list({})` 本來
+ * 就不隱藏任何東西。
+ */
+export function decisionHash(log: DecisionLog): string {
+  return createHash('sha256').update(JSON.stringify(log.list({}))).digest('hex');
 }
 
 /**
@@ -300,6 +313,66 @@ function boardSnapshot(board: Board): BoardSnapshot {
   // done 與 cancelled 是看板上實際存在的兩欄，被預設過濾掉就永遠是空的。
   const len = displayLength(board);
   return { issues: board.list({ all: true }).map((i) => toIssueView(i, len)), hash: boardHash(board) };
+}
+
+/**
+ * SPA 眼中的一筆 Decision。同 `IssueView` 之於 `Issue`——一個檢視模型，加的是
+ * client 自己算不出來（或算了會不安全）的東西：`shortId` 與預渲染的 `bodyHtml`。
+ *
+ * 沒有 `deleted`、沒有 `archived`、沒有 `comments`——Decision 沒有這些欄位
+ * （spec.md Non-goals，core 的 `decisionTypes.ts`）。
+ */
+export interface DecisionView {
+  readonly id: string;
+  /** 顯示用的短 Ref。長度對整塊 Decision Log 算，見 decisionDisplayLength()。 */
+  readonly shortId: string;
+  readonly title: string;
+  readonly disposition: Disposition;
+  /** 原文，供編輯用。 */
+  readonly body: string;
+  /** renderMarkdown 的產物，已安全。 */
+  readonly bodyHtml: string;
+  /** 指向另一個 Decision 的 ref，只驗形狀不驗存在（spec.md Non-goals）。 */
+  readonly supersededBy?: string;
+  /** 遷移用的歷史欄位，只在遷移既有 ADR 時標記一次（spec.md Domain decisions）。 */
+  readonly legacyRef?: string;
+}
+
+/**
+ * 短 Ref 的顯示長度，對整塊 Decision Log 算一次 —— 同 `displayLength` 之於
+ * `Board`。`decisionLog.refs()` 就是解析所看的那一串識別碼。
+ */
+function decisionDisplayLength(log: DecisionLog): number {
+  return shortIdLength(log.refs());
+}
+
+function toDecisionView(decision: Decision, shortIdLen: number): DecisionView {
+  return {
+    id: decision.id,
+    shortId: decision.id.slice(0, shortIdLen),
+    title: decision.title,
+    disposition: decision.disposition,
+    body: decision.body,
+    bodyHtml: renderMarkdown(decision.body),
+    // optional 欄位是「從沒被寫過」用鍵不存在表達，不是空字串
+    // （core 的 `reduceDecision` 對它們的既有規則，這裡原樣延續）。
+    ...(decision.supersededBy === undefined ? {} : { supersededBy: decision.supersededBy }),
+    ...(decision.legacyRef === undefined ? {} : { legacyRef: decision.legacyRef }),
+  };
+}
+
+/**
+ * SPA 對 Decisions 視圖的一次讀取。同 `BoardSnapshot`——快照與指紋一起送。
+ */
+export interface DecisionBoardSnapshot {
+  readonly decisions: readonly DecisionView[];
+  readonly hash: string;
+}
+
+function decisionSnapshot(log: DecisionLog): DecisionBoardSnapshot {
+  // 沒有 `all` 概念——Decision 不像 Issue 有需要預設過濾掉的可見性欄位。
+  const len = decisionDisplayLength(log);
+  return { decisions: log.list({}).map((d) => toDecisionView(d, len)), hash: decisionHash(log) };
 }
 
 /**
@@ -585,11 +658,12 @@ function createIssue(board: Board, body: string): StudioResponse {
  */
 export function handleRequest(
   board: Board,
+  decisionLog: DecisionLog,
   req: StudioRequest,
   opts: HandlerOptions = {},
 ): StudioResponse {
   try {
-    return route(board, req, opts);
+    return route(board, decisionLog, req, opts);
   } catch (err) {
     // 認得的例外在 applyChange 裡就已經對應完畢（404 / 400）；走到這裡的
     // 一律是「沒預期到」—— 例如 session 進行中 board 目錄被移走。
@@ -597,7 +671,7 @@ export function handleRequest(
   }
 }
 
-function route(board: Board, req: StudioRequest, opts: HandlerOptions): StudioResponse {
+function route(board: Board, decisionLog: DecisionLog, req: StudioRequest, opts: HandlerOptions): StudioResponse {
   // 手動切掉 query string，不走 new URL() —— 後者會把 `..` 正規化掉，
   // 使路徑穿越在到達 /assets/ 的守衛之前就消失，而那個守衛正是這一層要證明的。
   const path = req.url.split('?')[0]!;
@@ -655,6 +729,17 @@ function route(board: Board, req: StudioRequest, opts: HandlerOptions): StudioRe
 
   if (path === HASH_PATH) {
     return { status: 200, headers: { 'content-type': TEXT }, body: boardHash(board) };
+  }
+
+  // Decisions 的唯讀端點（票 01）。同 Issue 的兩條：一份全量快照 + 一份裸文字
+  // 指紋。這兩條目前也不在寫入白名單裡，所以非 GET 落到上面的方法檢查，
+  // 一律 405 Allow: GET —— 這一批唯一新增的寫入路徑要等票 02／03。
+  if (path === API_DECISIONS_PATH) {
+    return json(decisionSnapshot(decisionLog));
+  }
+
+  if (path === DECISION_HASH_PATH) {
+    return { status: 200, headers: { 'content-type': TEXT }, body: decisionHash(decisionLog) };
   }
 
   return notFound();

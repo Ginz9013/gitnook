@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  readActiveView,
   readCollapsed,
   readTheme,
   resolveTheme,
+  writeActiveView,
   writeCollapsed,
   writeTheme,
 } from '../../src/studio/prefs.js';
@@ -84,6 +86,36 @@ describe('readCollapsed / writeCollapsed', () => {
     writeCollapsed(s, new Set());
 
     expect([...readCollapsed(s)]).toEqual([]);
+  });
+});
+
+/**
+ * 頂層視圖偏好（Issues／Decisions）。同 `readTheme` 的既有模式：任何讀不懂
+ * 的值都退回預設 `'issues'`，絕不拋 —— 這一格決定的是重新整理後掛哪一個
+ * composition root，讀壞了不該讓整個 studio 開不起來。
+ */
+describe('readActiveView', () => {
+  it('空的 storage 回 issues —— 第一次開 studio 停在 Issues 視圖', () => {
+    expect(readActiveView(storage())).toBe('issues');
+  });
+
+  it('寫進去的偏好讀得回來', () => {
+    const s = storage();
+    writeActiveView(s, 'decisions');
+
+    expect(readActiveView(s)).toBe('decisions');
+  });
+
+  it.each([
+    ['不是兩個值之一', 'kanban'],
+    ['空的 JSON 陣列', '[]'],
+    ['根本不是 JSON', '{oops'],
+    ['空字串', ''],
+  ])('手改成 %s 時退回 issues 而不拋', (_label, raw) => {
+    const s = storage({ 'nook.studio.activeView': raw });
+
+    expect(() => readActiveView(s)).not.toThrow();
+    expect(readActiveView(s)).toBe('issues');
   });
 });
 

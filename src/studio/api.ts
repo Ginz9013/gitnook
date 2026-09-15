@@ -2,11 +2,14 @@ import type {
   BoardInfo,
   BoardSnapshot,
   CommentView,
+  DecisionBoardSnapshot,
+  DecisionView,
   IssueHistory,
   IssueView,
   WriteView,
 } from '../server/handler.js';
 import type { Change, Diagnostic, DiagnosticKind, Status } from '../core/types.js';
+import type { Disposition } from '../core/decisionTypes.js';
 
 /**
  * SPA 與 server 之間的那一面 —— 讀取與寫入都在這裡，**只有這裡**。
@@ -21,8 +24,11 @@ export type {
   BoardSnapshot,
   Change,
   CommentView,
+  DecisionBoardSnapshot,
+  DecisionView,
   Diagnostic,
   DiagnosticKind,
+  Disposition,
   IssueHistory,
   IssueView,
   Status,
@@ -143,12 +149,24 @@ export function isIssueHistory(value: unknown): value is IssueHistory {
   return Array.isArray((value as { writes?: unknown }).writes);
 }
 
+/**
+ * 這塊 body 是不是一份 `DecisionBoardSnapshot` —— 只看頂層，同 `isBoardSnapshot`。
+ * 存在的理由一模一樣：擋的是「打錯 port，另一個 server 在那裡回了 JSON」。
+ */
+export function isDecisionBoardSnapshot(value: unknown): value is DecisionBoardSnapshot {
+  if (value === null || typeof value !== 'object') return false;
+  const body = value as { decisions?: unknown; hash?: unknown };
+  return Array.isArray(body.decisions) && typeof body.hash === 'string';
+}
+
 const BOARD_URL = '/api/board';
 const BOARD_INFO_URL = '/api/board-info';
 const HASH_URL = '/hash';
 const ISSUE_PREFIX = '/i/';
 const ISSUES_URL = '/api/issues';
 const HISTORY_PREFIX = '/api/history/';
+const DECISIONS_URL = '/api/decisions';
+const DECISION_HASH_URL = '/decision-hash';
 
 /**
  * `isShape` 是必填而不是選填：這個位置以前是 `as T`，而 `as T` 對編譯器來說
@@ -181,6 +199,15 @@ async function getJson<T>(
 /** 一次全量快照。ADR-0002：沒有快取也沒有增量 —— 全量掃描加摺疊就是實作。 */
 export function fetchBoard(signal?: AbortSignal): Promise<BoardSnapshot> {
   return getJson(BOARD_URL, isBoardSnapshot, signal);
+}
+
+/**
+ * Decisions 視圖的一次全量快照 —— `GET /api/decisions`，同 `fetchBoard` 的
+ * 節奏。**沒有 `all` 概念**：Decision 不像 Issue 有需要預設過濾掉的可見性
+ * 欄位，這條端點本來就不隱藏任何一筆（`handler.ts` 的 `decisionSnapshot`）。
+ */
+export function fetchDecisions(signal?: AbortSignal): Promise<DecisionBoardSnapshot> {
+  return getJson(DECISIONS_URL, isDecisionBoardSnapshot, signal);
 }
 
 /**
@@ -218,6 +245,24 @@ export async function fetchHash(signal?: AbortSignal): Promise<string> {
   const res = await fetch(HASH_URL, signal === undefined ? {} : { signal });
   if (!res.ok) {
     throw new HttpError(HASH_URL, res.status, `${HASH_URL} returned ${res.status}`, await said(res));
+  }
+  return await res.text();
+}
+
+/**
+ * 當前 Decision Log 的指紋 —— `GET /decision-hash`，同 `fetchHash` 的形狀
+ * （裸文字，不是 JSON）。同一個理由：這裡刻意沒有形狀檢查，任何一段文字都是
+ * 合法的回應，錯的 server 會在下一次 `fetchDecisions` 被抓到。
+ */
+export async function fetchDecisionHash(signal?: AbortSignal): Promise<string> {
+  const res = await fetch(DECISION_HASH_URL, signal === undefined ? {} : { signal });
+  if (!res.ok) {
+    throw new HttpError(
+      DECISION_HASH_URL,
+      res.status,
+      `${DECISION_HASH_URL} returned ${res.status}`,
+      await said(res),
+    );
   }
   return await res.text();
 }

@@ -1,6 +1,8 @@
 import { createServer } from 'node:http';
 import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { openDecisionLog } from '../core/decisionLog.js';
+import type { DecisionLog } from '../core/decisionTypes.js';
 import type { Board } from '../core/types.js';
 import { handleRequest } from './handler.js';
 import type { HandlerOptions, StudioResponse } from './handler.js';
@@ -99,11 +101,41 @@ function logUnexpected(method: string, url: string, out: StudioResponse): void {
   console.error(`nook studio: ${out.status} ${method} ${url} —— ${out.body.trim()}`);
 }
 
+/**
+ * `board` 這塊 board 所在目錄的 Decision Log —— 惰性建構，且**每次呼叫才問
+ * `board.root()`**，不是在 `serve()` 起來的當下就問一次。
+ *
+ * 理由與 `board` 本身一模一樣：`board.root()` 要求那個目錄已經是一塊初始化
+ * 過的 board（`requireInitialized`），而 `nook studio` 允許在 `nook init`
+ * 之前就開起來 —— `GET /` 的殼本來就不碰 board，SPA 上場之後 `/api/board`
+ * 才會答一句「不是一個 Nook board」，讀的人因此看得到下一步（`App.tsx` 的
+ * `LoadFailure`）。若在這裡搶先呼叫 `board.root()`，`serve()` 回傳的 Promise
+ * 會在使用者看到那句話之前就直接 reject，連 `studio.url` 都印不出來。
+ *
+ * 惰性到「每次呼叫才問」而不是「呼叫一次後全部快取」：`board` 自己的
+ * `root()` 也是這樣 —— 目錄事後被移走時，這裡要跟著問到最新的答案，而不是
+ * 抱著開場那一次問到的路徑不放。
+ */
+function lazyDecisionLog(board: Board): DecisionLog {
+  const open = (): DecisionLog => openDecisionLog({ dir: board.root() });
+  return {
+    create: (input) => open().create(input),
+    get: (ref) => open().get(ref),
+    list: (filter) => open().list(filter),
+    refs: () => open().refs(),
+    apply: (ref, change) => open().apply(ref, change),
+    opLog: (ref) => open().opLog(ref),
+    root: () => open().root(),
+    health: () => open().health(),
+  };
+}
+
 export function serve(board: Board, opts: ServeOptions = {}): Promise<Studio> {
   const port = opts.port ?? DEFAULT_PORT;
   // 只把有指定的欄位往下傳：exactOptionalPropertyTypes 之下，
   // `{ assetsDir: undefined }` 與「沒給」不是同一件事。
   const handlerOpts: HandlerOptions = opts.assetsDir === undefined ? {} : { assetsDir: opts.assetsDir };
+  const decisionLog = lazyDecisionLog(board);
 
   const server = createServer((req, res) => {
     // 主體一律先讀完再交給 handler：handleRequest 是純函數（不接觸 node:http），
@@ -119,7 +151,7 @@ export function serve(board: Board, opts: ServeOptions = {}): Promise<Studio> {
       (body) => {
         const method = req.method ?? 'GET';
         const url = req.url ?? '/';
-        const out = handleRequest(board, { method, url, body }, handlerOpts);
+        const out = handleRequest(board, decisionLog, { method, url, body }, handlerOpts);
         // 記錄在回應之前，而且在同一個續行裡：拿到 500 的那一方（瀏覽器上的
         // 斷線橫幅）會叫讀者去看終端機，那則紀錄不能比它晚到。
         logUnexpected(method, url, out);
