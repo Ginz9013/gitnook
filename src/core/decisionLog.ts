@@ -144,7 +144,11 @@ export function openDecisionLog(opts: OpenDecisionLogOptions = {}): DecisionLog 
       if (change.body !== undefined) fields.push(['body', change.body]);
       if (disposition !== undefined) fields.push(['disposition', disposition]);
       // supersededBy 只驗證形狀不驗證存在——spec.md Non-goals，同 label 的既有態度。
-      if (change.supersededBy !== undefined) fields.push(['supersededBy', change.supersededBy]);
+      // 形狀檢查同 resolve()：擋下路徑穿越與明顯打錯的輸入，不驗證目標是否真的存在。
+      if (change.supersededBy !== undefined) {
+        if (!isValidRef(change.supersededBy)) throw new DecisionNotFound(change.supersededBy);
+        fields.push(['supersededBy', change.supersededBy]);
+      }
       if (change.legacyRef !== undefined) fields.push(['legacyRef', change.legacyRef]);
 
       const fresh: DecisionOp[] = fields.map(([k, v]) => ({ id: ids.ulid(), t: t++, a: actorId(), op: 'set', k, v }));

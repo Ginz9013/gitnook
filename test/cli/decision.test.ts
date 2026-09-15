@@ -151,12 +151,12 @@ describe('decision show', () => {
     const ref = newIo.out.trim();
 
     const log = openDecisionLog({ dir });
-    log.apply(ref, { supersededBy: '01SOMEOTHERDECISIONREF0000' });
+    log.apply(ref, { supersededBy: '01ARZ3NDEKTSV4RRFFQ69G5FAV' });
 
     const io = capture();
     await dispatchDecision(['show', ref], io);
 
-    expect(io.out).toContain('01SOMEOTHERDECISIONREF0000');
+    expect(io.out).toContain('01ARZ3NDEKTSV4RRFFQ69G5FAV');
   });
 
   it('--json 輸出可被解析回同一個 Decision', async () => {

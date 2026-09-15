@@ -40,7 +40,7 @@ export interface Decision {
 export interface CreateDecisionInput {
   readonly title: string;
   readonly body?: string;
-  /** 同 Change.disposition：接受完整值或無歧義前綴。未指定時預設 `proposed`。 */
+  /** 同 DecisionChange.disposition：接受完整值或無歧義前綴。未指定時預設 `proposed`。 */
   readonly disposition?: Disposition | string;
 }
 

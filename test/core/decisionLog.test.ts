@@ -135,9 +135,17 @@ describe('apply', () => {
     const log = openDecisionLog({ dir, actor: 'test' });
     const created = log.create({ title: 'Old' });
 
-    const updated = log.apply(created.id, { supersededBy: '01DOESNOTEXIST0000000000' });
+    const updated = log.apply(created.id, { supersededBy: '01ARZ3NDEKTSV4RRFFQ69G5FAV' });
 
-    expect(updated.supersededBy).toBe('01DOESNOTEXIST0000000000');
+    expect(updated.supersededBy).toBe('01ARZ3NDEKTSV4RRFFQ69G5FAV');
+  });
+
+  it('supersededBy 形狀不合法時拋 DecisionNotFound', () => {
+    initDecisionRoot(dir);
+    const log = openDecisionLog({ dir, actor: 'test' });
+    const created = log.create({ title: 'Old' });
+
+    expect(() => log.apply(created.id, { supersededBy: '../../etc/passwd' })).toThrow(DecisionNotFound);
   });
 });
 
