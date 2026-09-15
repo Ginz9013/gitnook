@@ -15,8 +15,13 @@ disposition、supersededBy（有值才顯示）、legacyRef（有值才顯示，
       `DecisionChange` JSON，回應是套用後的整份 `DecisionView`——直接
       鏡射 `decisionLog.apply(ref, change)`，不發明新詞彙；對不認得的
       欄位回 400（同 `POST /i/<ref>` 的規則）；`RefNotFound`→404，
-      `InvalidDisposition`→400，有歧義前綴→409（同既有 Issue 路由的
-      狀態碼對應表）
+      `InvalidDisposition`→400
+
+      > **完成後更正**：這裡原本寫「有歧義前綴→409」，是錯的——這個
+      > repo 從來沒用過 409。`POST /i/<ref>` 對 `AmbiguousRef` 的既有
+      > 行為就是 404（同 `RefNotFound` 共用 `notFound()`），`POST
+      > /d/<ref>` 照實鏡射這個既有行為：`AmbiguousDecisionRef` 一樣
+      > →404，不是 409。
 - [ ] `src/studio/api.ts`：`postDecisionChange(ref, change)`，重用既有
       `postJson`（不改）
 - [ ] `src/studio/decisionDrawer/`（新目錄）：
@@ -47,7 +52,7 @@ disposition、supersededBy（有值才顯示）、legacyRef（有值才顯示，
 
 `decisionChanges.ts` 的四個函式（純函數單元測試，同
 `drawer/changes.test.ts` 手法）、`handleRequest` 的新路由（server
-整合測試，涵蓋 404/400/409 三種既有狀態碼路徑）。
+整合測試，涵蓋 404/400 兩種既有狀態碼路徑——見上面對 409 那句的更正）。
 
 ## Write ownership
 
