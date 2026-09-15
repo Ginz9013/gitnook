@@ -15,10 +15,15 @@ import {
   DecisionNotFound,
   InvalidDisposition,
 } from '../core/decisionTypes.js';
-import type { CreateDecisionInput, Decision, DecisionFilter } from '../core/decisionTypes.js';
+import type {
+  CreateDecisionInput,
+  Decision,
+  DecisionChange,
+  DecisionFilter,
+} from '../core/decisionTypes.js';
 import { ConflictingGitAttributes, NestedBoard } from '../core/gitattributes.js';
 import { renderDecisionDetail, renderDecisionTable } from '../render/table.js';
-import { errLine, line, UsageError } from './run.js';
+import { errLine, fromEditor, line, longText, UsageError } from './run.js';
 import type { Io } from './run.js';
 
 /**
@@ -75,10 +80,12 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
       return cmdList(parseDecisionArgs(rest, LIST_VALUED_FLAGS, LIST_FLAGS), io);
     case 'show':
       return cmdShow(parseDecisionArgs(rest, NO_FLAGS, SHOW_FLAGS), io);
+    case 'set':
+      return cmdSet(parseDecisionArgs(rest, NO_FLAGS, SET_FLAGS), io);
   }
 
   throw new UsageError(
-    `unknown decision subcommand: ${sub ?? ''} (available: init, new, list, show)`,
+    `unknown decision subcommand: ${sub ?? ''} (available: init, new, list, show, set)`,
   );
 }
 
@@ -132,6 +139,7 @@ const NEW_FLAGS: ReadonlySet<string> = new Set(['--title', '--body', '--disposit
 const SHOW_FLAGS: ReadonlySet<string> = new Set(['--json']);
 const LIST_VALUED_FLAGS: ReadonlySet<string> = new Set(['--disposition']);
 const LIST_FLAGS: ReadonlySet<string> = new Set(['--disposition', '--json']);
+const SET_FLAGS: ReadonlySet<string> = new Set(['--editor']);
 
 /**
  * `.gitattributes` 的那一行這次發生了什麼事，講成一行字 —— 同 `run.ts` 的
@@ -231,6 +239,73 @@ function cmdShow(args: DecisionArgs, io: Io): number {
   const decision = log.get(ref);
 
   line(io, args.has('--json') ? renderDecisionJson(decision) : renderDecisionDetail(decision));
+  return 0;
+}
+
+/**
+ * `title`/`body`/`disposition`/`supersededBy`——`DecisionLog.apply()`（票 01）
+ * 已經接受的四個 LWW 欄位，這裡只是把欄位名單釘成一份 CLI 端可驗證的清單。
+ * 不像 Issue 的 `SETTABLE`（`run.ts`）沒有布林欄位，所以不需要一份
+ * `BOOLEAN_FIELDS` 對應物。
+ */
+const DECISION_SETTABLE = ['title', 'body', 'disposition', 'supersededBy'] as const;
+type DecisionField = (typeof DECISION_SETTABLE)[number];
+
+const isDecisionSettable = (value: string): value is DecisionField =>
+  (DECISION_SETTABLE as readonly string[]).includes(value);
+
+/** 欄位名 + 新值 → `DecisionChange`——同 `run.ts` 的 `asChange`，一個 switch
+ * 換掉那裡的 `BOOLEAN_FIELDS` 分支（Decision 沒有布林欄位可寫）。 */
+function decisionChangeFor(field: DecisionField, value: string): DecisionChange {
+  switch (field) {
+    case 'title':
+      return { title: value };
+    case 'body':
+      return { body: value };
+    case 'disposition':
+      return { disposition: value };
+    case 'supersededBy':
+      return { supersededBy: value };
+  }
+}
+
+/**
+ * `nook decision set <ref> <title|body|disposition|supersededBy> <value|->
+ * [--editor]`：語意同 `nook set`（`run.ts` 的 `cmdSet`）——`-` 讀 stdin、
+ * `--editor` 開 `$EDITOR`（兩者互斥的既有規則沿用 `longText`/`fromEditor`，
+ * 不重寫），回印更新後那一列走 `renderDecisionTable`（同 `list` 的緊湊列
+ * 版面，不是 `show` 的 detail 版面——這是「回印剛剛改了什麼」，不是「看
+ * 這張 Decision 的全貌」）。
+ *
+ * `disposition` 的前綴解析與 `supersededBy` 的形狀驗證都留給
+ * `DecisionLog.apply()`（票 01 已做完，見 `decisionLog.ts` 的 `apply()`）——
+ * 這裡不重複驗證一次，`InvalidDisposition`/`DecisionNotFound` 直接往外丟，
+ * 由 `dispatchDecision` 既有的 `DECISION_USER_ERRORS` 接住。
+ */
+function cmdSet(args: DecisionArgs, io: Io): number {
+  const [ref, field, value] = args.positional;
+  const usage = 'usage: nook decision set <ref> <title|body|disposition|supersededBy> <value|-> [--editor]';
+  if (ref === undefined || field === undefined) throw new UsageError(usage);
+  requireRef(ref);
+  if (!isDecisionSettable(field)) {
+    throw new UsageError(`not a writable field: ${field} (available: ${DECISION_SETTABLE.join(', ')})`);
+  }
+
+  const log = openDecisionLog({ dir: io.cwd });
+
+  let text: string;
+  if (args.has('--editor')) {
+    // 以現值開場——同 `run.ts` 的既有理由：編輯既有的長文才是這條路的實際用途。
+    const current = log.get(ref);
+    text = fromEditor(io, field === 'title' || field === 'body' ? current[field] : '');
+  } else {
+    if (value === undefined) throw new UsageError(usage);
+    text = longText(value, io);
+  }
+
+  const updated = log.apply(ref, decisionChangeFor(field, text));
+  // 回印更新後那一列——呼叫端不必再跑一次 show 才知道結果，同 `nook set`。
+  line(io, renderDecisionTable([updated], shortIdLength(log.refs())));
   return 0;
 }
 

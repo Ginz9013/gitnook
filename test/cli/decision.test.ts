@@ -24,13 +24,15 @@ interface Capture extends Io {
   err: string;
 }
 
-function capture(opts: { cwd?: string } = {}): Capture {
+function capture(
+  opts: { cwd?: string; stdin?: string; env?: Record<string, string | undefined>; isTty?: boolean } = {},
+): Capture {
   return {
     out: '',
     err: '',
     cwd: opts.cwd ?? dir,
-    env: {},
-    isTty: false,
+    env: opts.env ?? {},
+    isTty: opts.isTty ?? false,
     write(text: string) {
       this.out += text;
     },
@@ -38,7 +40,8 @@ function capture(opts: { cwd?: string } = {}): Capture {
       this.err += text;
     },
     readStdin() {
-      throw new Error('測試未提供 stdin');
+      if (opts.stdin === undefined) throw new Error('測試未提供 stdin');
+      return opts.stdin;
     },
   };
 }
@@ -267,6 +270,138 @@ describe('decision list', () => {
     expect(parsed[0].title).toBe('X');
     expect(parsed[0].body).toBe('why');
     expect(Object.keys(parsed[0])).toEqual([...Object.keys(parsed[0])].sort());
+  });
+});
+
+describe('decision set', () => {
+  it('title：更新後回印那一列，同 nook set 既有的回印風格', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'Old title'], newIo);
+    const ref = newIo.out.trim();
+
+    const io = capture();
+    const code = await dispatchDecision(['set', ref, 'title', 'New title'], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toContain('New title');
+    expect(openDecisionLog({ dir }).get(ref).title).toBe('New title');
+    expect(io.err).toBe('');
+  });
+
+  it('body：接受直接值與 stdin 的 -，語意同 nook set', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'X'], newIo);
+    const ref = newIo.out.trim();
+
+    const direct = capture();
+    await dispatchDecision(['set', ref, 'body', 'reasoning'], direct);
+    expect(openDecisionLog({ dir }).get(ref).body).toBe('reasoning');
+
+    const viaStdin = capture({ stdin: 'from stdin\n' });
+    await dispatchDecision(['set', ref, 'body', '-'], viaStdin);
+    expect(openDecisionLog({ dir }).get(ref).body).toBe('from stdin');
+  });
+
+  it('body --editor：非 TTY 時報錯，不留下半個更動', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'X', '--body', 'original'], newIo);
+    const ref = newIo.out.trim();
+
+    const io = capture({ isTty: false, env: { EDITOR: 'vi' } });
+    const code = await dispatchDecision(['set', ref, 'body', '--editor'], io);
+
+    expect(code).toBe(1);
+    expect(io.err).not.toBe('');
+    expect(openDecisionLog({ dir }).get(ref).body).toBe('original');
+  });
+
+  it('disposition：接受無歧義前綴', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'X'], newIo);
+    const ref = newIo.out.trim();
+
+    const io = capture();
+    const code = await dispatchDecision(['set', ref, 'disposition', 'acc'], io);
+
+    expect(code).toBe(0);
+    expect(openDecisionLog({ dir }).get(ref).disposition).toBe('accepted');
+  });
+
+  it('disposition：不合法值拋 InvalidDisposition，訊息列出四個合法值，exit 1', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'X'], newIo);
+    const ref = newIo.out.trim();
+
+    const io = capture();
+    const code = await dispatchDecision(['set', ref, 'disposition', 'bogus'], io);
+
+    expect(code).toBe(1);
+    expect(io.err).toContain('proposed');
+    expect(io.err).toContain('accepted');
+    expect(io.err).toContain('superseded');
+    expect(io.err).toContain('rejected');
+  });
+
+  it('supersededBy：只驗證 ref 形狀，不驗證目標存在', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'X'], newIo);
+    const ref = newIo.out.trim();
+
+    const io = capture();
+    const code = await dispatchDecision(
+      ['set', ref, 'supersededBy', '01ARZ3NDEKTSV4RRFFQ69G5FAV'],
+      io,
+    );
+
+    expect(code).toBe(0);
+    expect(openDecisionLog({ dir }).get(ref).supersededBy).toBe('01ARZ3NDEKTSV4RRFFQ69G5FAV');
+  });
+
+  it('不存在的欄位名（Issue 的 status 不是 Decision 的）→ UsageError，列出四個合法欄位名，exit 1', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'X'], newIo);
+    const ref = newIo.out.trim();
+
+    const io = capture();
+    const code = await dispatchDecision(['set', ref, 'status', 'done'], io);
+
+    expect(code).toBe(1);
+    expect(io.err).toContain('title, body, disposition, supersededBy');
+  });
+
+  it('不存在的 ref → DecisionNotFound，exit 1', async () => {
+    await dispatchDecision(['init'], capture());
+
+    const io = capture();
+    const code = await dispatchDecision(
+      ['set', '01DOESNOTEXIST00000000000', 'title', 'X'],
+      io,
+    );
+
+    expect(code).toBe(1);
+    expect(io.err).toContain('01DOESNOTEXIST00000000000');
+  });
+
+  it('有歧義的前綴 → AmbiguousDecisionRef，exit 1', async () => {
+    await dispatchDecision(['init'], capture());
+    const a = capture();
+    await dispatchDecision(['new', '--title', 'A'], a);
+    const b = capture();
+    await dispatchDecision(['new', '--title', 'B'], b);
+    const shared = a.out.trim().slice(0, 6);
+
+    const io = capture();
+    const code = await dispatchDecision(['set', shared, 'title', 'X'], io);
+
+    expect(code).toBe(1);
+    expect(io.err).toContain(shared);
   });
 });
 
