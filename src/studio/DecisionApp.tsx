@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { createDecision, fetchDecisionHash, fetchDecisions } from '@/api';
+import { createDecision, fetchDecisionHash, fetchDecisions, postDecisionChange } from '@/api';
 import type { DecisionView } from '@/api';
 import {
   clientDecisionReduce,
@@ -8,6 +8,8 @@ import {
   projectDecisions,
 } from '@/decisionReconcile';
 import type { ClientDecisionAction, ClientDecisionState } from '@/decisionReconcile';
+import { DecisionDrawer } from '@/decisionDrawer/DecisionDrawer';
+import type { DecisionDrawerChange } from '@/decisionDrawer/decisionChanges';
 import { DecisionList } from '@/decisions/DecisionList';
 import { DecisionListHeader } from '@/decisions/DecisionListHeader';
 import { DecisionListSkeleton } from '@/decisions/DecisionListSkeleton';
@@ -30,10 +32,11 @@ type Client = ClientDecisionState<DecisionView>;
  * state 的權威副本、輪詢迴圈、連線中斷橫幅），但**沒有拖曳相關的任何東西**：
  * Decision 沒有看板（spec.md Non-goals）。
  *
- * **新增（`onCreate`）是這一批（票 02）落地的第一個寫入**：`send`（drawer 的
- * EDIT/ACK/FAIL 那一整條）還不存在，那是票 03 的範圍。`selectedId` 先宣告、
- * 接上 `DecisionList` 的 `onSelect`，但沒有任何 drawer 會讀它 —— 那也是票 03
- * 的範圍（spec.md 的票面：「drawer 開關狀態先宣告但不使用」）。
+ * **新增（`onCreate`）是票 02 落地的第一個寫入**；這一批接上第二個：`send`
+ * （drawer 的 EDIT/ACK/FAIL 那一整條）——同 `IssueApp.tsx` 既有的「畫面先動、
+ * POST 隨後、回應蓋回快照、送不到就退場」節奏，重用票 01 已完整實作的
+ * `decisionReconcile.ts` 的 EDIT/ACK/FAIL action。`selectedId` 早在票 02 就
+ * 接上 `DecisionList` 的 `onSelect`，這一批補上真的會讀它的 `DecisionDrawer`。
  *
  * **輪詢迴圈是這裡自己寫的一份小接線，不是呼叫 `poll.ts` 的 `startPolling`**——
  * 那個函式本身寫死了 Issue 的 `fetchHash`/`fetchBoard` 與 `ClientAction<IssueView>`
@@ -57,9 +60,7 @@ export function DecisionApp(): React.JSX.Element {
   const [failed, setFailed] = useState<string | null>(null);
   const [hash, setHash] = useState<string | null>(null);
   const [disposition, setDisposition] = useState<string | undefined>(undefined);
-  // 宣告但這一批不使用：沒有任何 drawer 會讀它（票 03 的範圍）。
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  void selectedId;
 
   const stateRef = useRef<Client | null>(null);
 
@@ -71,6 +72,48 @@ export function DecisionApp(): React.JSX.Element {
     setState(next);
     return next;
   }, []);
+
+  /**
+   * 一次寫入：畫面先動（`action` 交給 reducer），`POST` 隨後，回應把伺服器
+   * 摺疊出來的整筆 decision 蓋回快照（`ACK`），送不到就退場（`FAIL`）——
+   * 同 `IssueApp.tsx` 的 `send`。
+   *
+   * 刻意不 abort：drawer 關掉、那一筆被輪詢挪走，都不代表使用者要收回這次
+   * 寫入，而 append-only 之下也收不回來。讓它飛完。
+   */
+  const send = useCallback(
+    (id: string, change: DecisionDrawerChange, action: ClientDecisionAction<DecisionView>): void => {
+      const next = apply(action);
+      if (next === null) return;
+      // reducer 剛剛配給這一筆的號碼 —— 讀的是結果，不是猜的。
+      const seq = next.seq;
+      postDecisionChange(id, change).then(
+        (decision) => {
+          apply({ type: 'ACK', seq, decision });
+          setFailed(null);
+        },
+        (err: unknown) => {
+          apply({ type: 'FAIL', seq });
+          setFailed(err instanceof Error ? err.message : String(err));
+        },
+      );
+    },
+    [apply],
+  );
+
+  /**
+   * drawer 一次編輯的入口。`undefined` = `decisionChanges.ts` 判定這一下沒有
+   * 東西要送，回 false 讓呼叫端知道不要清空輸入框 —— 同 `IssueApp.tsx` 的
+   * `onSubmit`。
+   */
+  const onSubmit = useCallback(
+    (id: string, change: DecisionDrawerChange | undefined): boolean => {
+      if (change === undefined) return false;
+      send(id, change, { type: 'EDIT', decisionId: id, change });
+      return true;
+    },
+    [send],
+  );
 
   /**
    * 一次新增。**沒有樂觀的那一半** —— 新 Decision 的 ULID 由 server 產生，
@@ -170,21 +213,26 @@ export function DecisionApp(): React.JSX.Element {
   if (error !== null) return <DecisionLoadFailure fault={error} />;
   if (state === null) return <DecisionListSkeleton />;
 
+  const selected = projected.find((p) => p.id === selectedId) ?? null;
+
   return (
-    <main className="flex h-full flex-col" aria-label="Nook decisions">
-      <DecisionListHeader
-        disposition={disposition}
-        onChangeDisposition={setDisposition}
-        visibleCount={filtered.length}
-        onCreate={onCreate}
-      />
-      {projected.length === 0 ? (
-        <EmptyDecisions />
-      ) : (
-        <DecisionList decisions={filtered} onSelect={setSelectedId} />
-      )}
-      <DecisionStatusBanner fault={fault} failed={failed} onDismiss={() => setFailed(null)} />
-    </main>
+    <>
+      <main className="flex h-full flex-col" aria-label="Nook decisions">
+        <DecisionListHeader
+          disposition={disposition}
+          onChangeDisposition={setDisposition}
+          visibleCount={filtered.length}
+          onCreate={onCreate}
+        />
+        {projected.length === 0 ? (
+          <EmptyDecisions />
+        ) : (
+          <DecisionList decisions={filtered} onSelect={setSelectedId} />
+        )}
+        <DecisionStatusBanner fault={fault} failed={failed} onDismiss={() => setFailed(null)} />
+      </main>
+      <DecisionDrawer decision={selected} onClose={() => setSelectedId(null)} onSubmit={onSubmit} />
+    </>
   );
 }
 

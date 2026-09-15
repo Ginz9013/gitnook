@@ -9,7 +9,7 @@ import type {
   WriteView,
 } from '../server/handler.js';
 import type { Change, Diagnostic, DiagnosticKind, Status } from '../core/types.js';
-import type { Disposition } from '../core/decisionTypes.js';
+import type { DecisionChange, Disposition } from '../core/decisionTypes.js';
 
 /**
  * SPA 與 server 之間的那一面 —— 讀取與寫入都在這裡，**只有這裡**。
@@ -25,6 +25,7 @@ export type {
   Change,
   CommentView,
   DecisionBoardSnapshot,
+  DecisionChange,
   DecisionView,
   Diagnostic,
   DiagnosticKind,
@@ -167,6 +168,7 @@ const ISSUES_URL = '/api/issues';
 const HISTORY_PREFIX = '/api/history/';
 const DECISIONS_URL = '/api/decisions';
 const DECISION_HASH_URL = '/decision-hash';
+const DECISION_PREFIX = '/d/';
 
 /**
  * `isShape` 是必填而不是選填：這個位置以前是 `as T`，而 `as T` 對編譯器來說
@@ -342,7 +344,24 @@ export async function createDecision(
 }
 
 /**
- * 一次 JSON 寫入。**兩個寫入端點共用這一份，這是刻意的。**
+ * 一次寫入 —— `POST /d/<ref>`。body 是一份 `DecisionChange`，回應是套用後的
+ * 整筆 `DecisionView`。端點直接鏡射 `decisionLog.apply(ref, change)`，同
+ * `postChange` 之於 `board.apply` 的既有理由：這裡不發明任何新詞彙，也不做
+ * 任何包裝。
+ *
+ * **只送 `DecisionChange` 定義的鍵。** 對不認得的欄位回 400 而不是忽略 ——
+ * append-only 之下沒有「被拒絕的寫入」可以事後翻查，一個打錯的欄位名若被
+ * 靜靜吃掉，呼叫端看到的是 200 加上一筆沒有變化的 Decision。`legacyRef`
+ * 唯讀（spec.md Non-goals），因此從不出現在呼叫端送出的 `DecisionChange` 裡。
+ */
+export async function postDecisionChange(ref: string, change: DecisionChange): Promise<DecisionView> {
+  // ref 是 server 給的 ULID（只有 [0-9A-Z]），編碼對它是恆等變換 —— 同
+  // `postChange` 的理由：讓「路徑片段就是路徑片段」不必靠 id 的字元集來成立。
+  return await postJson(`${DECISION_PREFIX}${encodeURIComponent(ref)}`, change);
+}
+
+/**
+ * 一次 JSON 寫入。**四個寫入端點共用這一份，這是刻意的。**
  *
  * 拆出來的理由與 `postChange` 當初被拖曳與 drawer 共用是同一個：兩處各寫一次
  * fetch 慣例（method、content-type、錯誤訊息的形狀、回應怎麼解）遲早會分歧，

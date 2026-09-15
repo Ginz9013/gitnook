@@ -4,8 +4,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deriveActor } from '../core/actor.js';
-import type { Decision, DecisionLog, Disposition } from '../core/decisionTypes.js';
-import { InvalidDisposition } from '../core/decisionTypes.js';
+import type { Decision, DecisionChange, DecisionLog, Disposition } from '../core/decisionTypes.js';
+import { AmbiguousDecisionRef, DecisionNotFound, InvalidDisposition } from '../core/decisionTypes.js';
 import { shortIdLength } from '../core/ids.js';
 import type { SetKey } from '../core/ops.js';
 import { fieldWrites } from '../core/reduce.js';
@@ -42,6 +42,7 @@ const ASSETS_PREFIX = '/assets/';
 const ISSUE_PREFIX = '/i/';
 const API_DECISIONS_PATH = '/api/decisions';
 const DECISION_HASH_PATH = '/decision-hash';
+const DECISION_PREFIX = '/d/';
 
 function html(body: string): StudioResponse {
   return { status: 200, headers: { 'content-type': HTML }, body };
@@ -584,6 +585,68 @@ function applyChange(board: Board, ref: string, body: string): StudioResponse {
 }
 
 /**
+ * `DecisionChange` 每個欄位的形狀。逐欄列出而不是信任 `as DecisionChange` ——
+ * 同 `CHANGE_SHAPE` 之於 `Change` 的既有理由。**沒有 `legacyRef`**：那格
+ * 唯讀（spec.md Non-goals，同 CLI 的 `set` 不曝露它的理由），drawer 從不送
+ * 它，送了就是一個不認得的欄位，同任何一個打錯的鍵一樣回 400。
+ */
+const DECISION_CHANGE_SHAPE: Readonly<Record<string, (value: unknown) => boolean>> = {
+  title: (v) => typeof v === 'string',
+  body: (v) => typeof v === 'string',
+  disposition: (v) => typeof v === 'string',
+  supersededBy: (v) => typeof v === 'string',
+};
+
+/**
+ * 把請求主體解讀成一份 DecisionChange，形狀不符時回傳 undefined ——
+ * 同 `parseChange` 之於 `Change` 的既有理由：不認得的欄位一律拒絕，而不是
+ * 忽略。
+ */
+function parseDecisionChange(body: string): DecisionChange | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+
+  if (!isRecord(parsed)) return undefined;
+  for (const [key, value] of Object.entries(parsed)) {
+    const shaped = DECISION_CHANGE_SHAPE[key];
+    if (shaped === undefined || !shaped(value)) return undefined;
+  }
+  return parsed as DecisionChange;
+}
+
+/**
+ * 一次寫入。端點直接鏡射 `decisionLog.apply(ref, change)` —— 同 `applyChange`
+ * 之於 `board.apply`：`DecisionChange` 已經是領域裡「呼叫端表達的意圖」的
+ * 型別，studio 因此不發明任何新詞彙。四個 Disposition 一視同仁，這裡沒有
+ * 任何一個值需要額外條件（見 `decisionChanges.ts` 對這條規則的說明）。
+ *
+ * ref 原樣交給 core：前綴解析、大小寫正規化與路徑穿越檢查只有一份實作，
+ * 就是 `decisionLog` 自己那一份。
+ */
+function applyDecisionChange(decisionLog: DecisionLog, ref: string, body: string): StudioResponse {
+  const change = parseDecisionChange(body);
+  if (change === undefined) {
+    return badRequest('body must be a JSON object representing a DecisionChange');
+  }
+
+  try {
+    return json(toDecisionView(decisionLog.apply(ref, change), decisionDisplayLength(decisionLog)));
+  } catch (err) {
+    // 解析不出來的 ref 是「這個 URL 沒有對應的東西」，不是伺服器錯誤 ——
+    // 同 `applyChange` 對 `RefNotFound`/`AmbiguousRef` 的既有對應：兩者都是
+    // 404，有歧義時把候選原樣送出去。
+    if (err instanceof DecisionNotFound || err instanceof AmbiguousDecisionRef) return notFound(err.message);
+    // 呼叫端送了一個不是 Disposition 的值 —— 這是請求的問題，不是找不到東西。
+    if (err instanceof InvalidDisposition) return badRequest(err.message);
+    throw err;
+  }
+}
+
+/**
  * `POST /api/issues` 收得的欄位。**`description` 與 `labels` 刻意不收** ——
  * 表單只填標題，端點不該提供一個沒有呼叫端的能力；要補描述就是接著一次
  * `POST /i/<ref>`。
@@ -753,8 +816,14 @@ function route(board: Board, decisionLog: DecisionLog, req: StudioRequest, opts:
   // `/api/issues` 這種只收 POST 的路徑。它因此也是唯一一條 Allow 要同時列出
   // `GET, POST` 的路徑（RFC 9110：Allow 講的是這個資源支援什麼），不是照搬
   // `/api/issues` 那份「只有 POST」。
+  //
+  // `/d/<ref>` 加進來是這一批唯一再擴大這份白名單的地方 —— 同 `/i/<ref>`：
+  // 純寫入路徑，GET 仍然不合法，落在下面 `readWrite` 的 false 那一半。
   const writable =
-    path.startsWith(ISSUE_PREFIX) || path === API_ISSUES_PATH || path === API_DECISIONS_PATH;
+    path.startsWith(ISSUE_PREFIX) ||
+    path === API_ISSUES_PATH ||
+    path === API_DECISIONS_PATH ||
+    path.startsWith(DECISION_PREFIX);
   const readWrite = path === API_DECISIONS_PATH;
   if (req.method !== 'GET' && !(req.method === 'POST' && writable)) {
     // 三種答案：純寫入路徑（`/i/<ref>`、`/api/issues`）只收 POST；讀寫都合法的
@@ -770,6 +839,9 @@ function route(board: Board, decisionLog: DecisionLog, req: StudioRequest, opts:
   if (req.method === 'POST') {
     if (path === API_ISSUES_PATH) return createIssue(board, req.body ?? '');
     if (path === API_DECISIONS_PATH) return createDecision(decisionLog, req.body ?? '');
+    if (path.startsWith(DECISION_PREFIX)) {
+      return applyDecisionChange(decisionLog, path.slice(DECISION_PREFIX.length), req.body ?? '');
+    }
     return applyChange(board, path.slice(ISSUE_PREFIX.length), req.body ?? '');
   }
 

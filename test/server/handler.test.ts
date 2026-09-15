@@ -1723,3 +1723,231 @@ function decisionHashOf(): string {
 function createHashOfDecisions(decisions: unknown): string {
   return createHash('sha256').update(JSON.stringify(decisions)).digest('hex');
 }
+
+/** 磁碟上那一份 Decision op-log 的每一行 —— 同 `opsOnDisk` 之於 Issue。 */
+const decisionOpsOnDisk = (id: string): Record<string, unknown>[] =>
+  readFileSync(join(dir, '.decisions', 'decisions', `${id}.ndjson`), 'utf8')
+    .split('\n')
+    .filter((l) => l !== '')
+    .map((l) => JSON.parse(l) as Record<string, unknown>);
+
+/**
+ * `POST /d/<ref>`（這一批）：直接鏡射 `decisionLog.apply(ref, change)`，同
+ * `POST /i/<ref>` 的薄度。這裡逐一鏡射 Issue 那三組既有測試
+ * （寫入本身、Change 的全部意圖、錯誤對應），而不是重新發明一套涵蓋範圍。
+ */
+describe('POST /d/<ref>', () => {
+  it('回印的 shortId 對整塊 decision log 算，不是對回印的那一筆算', () => {
+    createDecisionWith(fullId('01JDECQ'), 'Adopt trunk-based development');
+    createDecisionWith(fullId('01JDECR'), 'Use conventional commits');
+
+    const view = JSON.parse(
+      post(`/d/${fullId('01JDECQ')}`, { disposition: 'accepted' }).body,
+    ) as DecisionView;
+
+    // 兩筆只在第 7 碼分開，所以 6 碼不夠 —— 同 IssueView 既有的 displayLength 規則。
+    expect(view.shortId).toBe('01JDECQ');
+    expect(decisionLog().get(view.shortId).id).toBe(fullId('01JDECQ'));
+  });
+
+  it('改 disposition：回 200 + DecisionView，且 op 真的 append 到 .ndjson', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const beforeOps = decisionOpsOnDisk(id).length;
+
+    const res = post(`/d/${id}`, { disposition: 'accepted' });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+
+    const view = JSON.parse(res.body) as DecisionView;
+    expect(view.id).toBe(id);
+    expect(view.disposition).toBe('accepted');
+    // DecisionView，不是 Decision：預渲染的安全 HTML 一併回來，同 IssueView 的既有規則。
+    expect(view.bodyHtml).toBeTypeOf('string');
+
+    // 回應可能是任何東西編出來的 —— 檔案才是事實。
+    const ops = decisionOpsOnDisk(id);
+    expect(ops).toHaveLength(beforeOps + 1);
+    expect(ops.at(-1)).toMatchObject({ op: 'set', k: 'disposition', v: 'accepted', a: 'test' });
+  });
+
+  it('接受無歧義前綴，且大小寫不敏感 —— ref 原樣交給 core', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+
+    expect(post('/d/01jdec1', { disposition: 'rejected' }).status).toBe(200);
+
+    expect(decisionOpsOnDisk(id).at(-1)).toMatchObject({ op: 'set', k: 'disposition', v: 'rejected' });
+  });
+});
+
+describe('POST /d/<ref> 涵蓋 DecisionChange 的全部意圖', () => {
+  it('欄位編輯：title / body / disposition / supersededBy 各自成為一個 set op', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const other = fullId('01JDEC2');
+    createDecisionWith(other, 'Use conventional commits');
+
+    const view = JSON.parse(
+      post(`/d/${id}`, {
+        title: 'Adopt trunk-based development (revised)',
+        body: 'Because long-lived branches rot.',
+        disposition: 'accepted',
+        supersededBy: other,
+      }).body,
+    ) as DecisionView;
+
+    expect(view).toMatchObject({
+      title: 'Adopt trunk-based development (revised)',
+      body: 'Because long-lived branches rot.',
+      disposition: 'accepted',
+      supersededBy: other,
+    });
+    // 預渲染的 HTML 跟著新的原文走，不是回舊值 —— 同 IssueView.descriptionHtml 既有規則。
+    expect(view.bodyHtml).toBe('<p>Because long-lived branches rot.</p>');
+
+    const ops = decisionOpsOnDisk(id);
+    expect(ops.filter((o) => o['op'] === 'set')).toMatchObject([
+      { k: 'title', v: 'Adopt trunk-based development (revised)' },
+      { k: 'body', v: 'Because long-lived branches rot.' },
+      { k: 'disposition', v: 'accepted' },
+      { k: 'supersededBy', v: other },
+    ]);
+  });
+
+  it('寫入之後 /decision-hash 換值', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const before = get('/decision-hash').body;
+
+    post(`/d/${id}`, { disposition: 'accepted' });
+
+    expect(get('/decision-hash').body).not.toBe(before);
+  });
+});
+
+/**
+ * `legacyRef` 唯讀（spec.md Non-goals，同 CLI 的 `set` 不曝露它的理由）—— 這裡
+ * 釘的是「送了它」跟「送了任何一個打錯的鍵」是同一種失敗：一次 400，不是靜靜
+ * 忽略。
+ */
+describe('POST /d/<ref> 的錯誤對應', () => {
+  it('DecisionNotFound → 404，不是 500，也不外洩例外', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    for (const url of [`/d/${fullId('01JDEC9')}`, '/d/ZZZZZZZZZZZZZZZZZZZZZZZZZZ', '/d/']) {
+      const res = post(url, { disposition: 'accepted' });
+      expect(res.status, url).toBe(404);
+      expect(res.body, url).not.toContain('Adopt trunk-based development');
+      expect(res.body, url).not.toContain('at Object');
+    }
+  });
+
+  /**
+   * 有歧義的前綴 —— 同 `POST /i/<ref>` 既有的對應（`AmbiguousRef` → 404，內文
+   * 含足以區分的候選）。spec.md 的票面寫著這一格是 409，但那句話跟「同既有
+   * Issue 路由的狀態碼對應表」自相矛盾：`POST /i/<ref>` 對 `AmbiguousRef` 的
+   * 既有對應是 404（見上面的 `POST /i/<ref> 的錯誤對應`），這份程式碼裡從來
+   * 沒有出現過 409。這裡照抄那份既有對應表，而不是照抄那句寫錯的話 ——
+   * 「逐一鏡射既有 Issue 路由的錯誤處理慣例」是這一批唯一講得通的那一半。
+   */
+  it('AmbiguousDecisionRef → 404，且內文含足以區分的候選', () => {
+    createDecisionWith(fullId('01JDECAB'), 'Adopt trunk-based development');
+    createDecisionWith(fullId('01JDECAC'), 'Use conventional commits');
+
+    const res = post('/d/01JDECA', { disposition: 'accepted' });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toContain('01JDECAB');
+    expect(res.body).toContain('01JDECAC');
+    // 兩筆都不得被寫到 —— 有歧義時什麼都不做，而不是挑一筆。
+    for (const id of [fullId('01JDECAB'), fullId('01JDECAC')]) {
+      expect(decisionOpsOnDisk(id).some((o) => o['op'] === 'set')).toBe(false);
+    }
+  });
+
+  it('InvalidDisposition → 400', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const before = decisionOpsOnDisk(id).length;
+
+    for (const disposition of ['nope', '']) {
+      const res = post(`/d/${id}`, { disposition });
+      expect(res.status, disposition).toBe(400);
+    }
+
+    // 驗證先於任何寫入：被拒絕的 Change 不得留下半個 Op。
+    expect(decisionOpsOnDisk(id)).toHaveLength(before);
+  });
+
+  it('body 不是合法 JSON → 400，不是 500', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const before = decisionOpsOnDisk(id).length;
+
+    for (const body of ['', '{', 'not json', '{"disposition":}']) {
+      const res = post(`/d/${id}`, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    expect(decisionOpsOnDisk(id)).toHaveLength(before);
+  });
+
+  it('body 是合法 JSON 但不是 DecisionChange 的形狀 → 400', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const before = decisionOpsOnDisk(id).length;
+
+    const notChanges: unknown[] = [
+      null,
+      42,
+      'accepted',
+      ['accepted'],
+      { title: 5 },
+      { body: 5 },
+      { disposition: 5 },
+      { supersededBy: 5 },
+      // legacyRef 唯讀 —— 送它跟送任何一個打錯的鍵是同一種失敗（見本 describe 開頭）。
+      { legacyRef: 'ADR-0001' },
+      // 打錯的欄位名靜靜地什麼都不做，是最糟的失敗模式 —— 同 `Change` 既有規則。
+      { dispositon: 'accepted' },
+    ];
+
+    for (const body of notChanges) {
+      const res = post(`/d/${id}`, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    expect(decisionOpsOnDisk(id)).toHaveLength(before);
+  });
+
+  it('穿越用的 ref 在寫入面上同樣是 404，且不在 decision log 外面造出檔案', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    for (const url of ['/d/../../OUTSIDE', '/d/../../../etc/passwd', '/d/..%2f..%2fOUTSIDE']) {
+      const res = post(url, { body: 'LEAKED' });
+      expect(res.status, url).toBe(404);
+    }
+
+    expect(existsSync(join(dir, 'OUTSIDE.ndjson'))).toBe(false);
+  });
+});
+
+/**
+ * `/d/<ref>` 從來沒有一個讀取面 —— 同 `/i/<ref>`：它是一條純寫入路徑，這個
+ * 前綴上唯一存在過的動詞就是 POST。GET 因此是 404 而不是 405：那不是「這個
+ * 方法不被這個資源接受」，是這個 URL 上根本沒有東西可讀（見上面
+ * `describe('GET /i/<ref>')` 對同一件事的既有斷言）。
+ */
+describe('GET /d/<ref>', () => {
+  it('沒有讀取面，一律 404', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    for (const url of [`/d/${fullId('01JDEC1')}`, '/d/01JDEC1', '/d/01jdec1']) {
+      const res = get(url);
+      expect(res.status, url).toBe(404);
+      expect(res.body, url).not.toContain('Adopt trunk-based development');
+    }
+  });
+});
