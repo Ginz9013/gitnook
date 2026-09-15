@@ -186,6 +186,81 @@ describe('decision show', () => {
   });
 });
 
+describe('decision list', () => {
+  it('空的 Decision Log 印出空表格訊息，而非報錯', async () => {
+    await dispatchDecision(['init'], capture());
+
+    const io = capture();
+    const code = await dispatchDecision(['list'], io);
+
+    expect(code).toBe(0);
+    expect(io.out.trim()).toBe('no decisions');
+    expect(io.err).toBe('');
+  });
+
+  it('印出全部 Decision 的 ref/title/disposition，可用 grep 找到特定決策', async () => {
+    await dispatchDecision(['init'], capture());
+    const a = capture();
+    await dispatchDecision(['new', '--title', 'Use ULIDs for decisions', '--disposition', 'accepted'], a);
+    const refA = a.out.trim();
+    const b = capture();
+    await dispatchDecision(['new', '--title', 'Adopt oplog'], b);
+
+    const io = capture();
+    const code = await dispatchDecision(['list'], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toContain(refA.slice(0, 6));
+    expect(io.out).toContain('Use ULIDs for decisions');
+    expect(io.out).toContain('accepted');
+    expect(io.out).toContain('Adopt oplog');
+    expect(io.out).toContain('proposed');
+    expect(io.err).toBe('');
+  });
+
+  it('--disposition 接受無歧義前綴，只回傳符合的 Decision', async () => {
+    await dispatchDecision(['init'], capture());
+    await dispatchDecision(
+      ['new', '--title', 'Accepted one', '--disposition', 'accepted'],
+      capture(),
+    );
+    await dispatchDecision(['new', '--title', 'Still proposed'], capture());
+
+    const io = capture();
+    const code = await dispatchDecision(['list', '--disposition', 'acc'], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toContain('Accepted one');
+    expect(io.out).not.toContain('Still proposed');
+  });
+
+  it('--disposition 給不合法值時是使用者錯誤，exit 1', async () => {
+    await dispatchDecision(['init'], capture());
+
+    const io = capture();
+    const code = await dispatchDecision(['list', '--disposition', 'bogus'], io);
+
+    expect(code).toBe(1);
+    expect(io.err).not.toBe('');
+  });
+
+  it('--json 輸出可被解析為陣列，鍵依字母排序', async () => {
+    await dispatchDecision(['init'], capture());
+    await dispatchDecision(['new', '--title', 'X', '--body', 'why'], capture());
+
+    const io = capture();
+    const code = await dispatchDecision(['list', '--json'], io);
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(io.out);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].title).toBe('X');
+    expect(parsed[0].body).toBe('why');
+    expect(Object.keys(parsed[0])).toEqual([...Object.keys(parsed[0])].sort());
+  });
+});
+
 describe('未知子指令', () => {
   it('是使用者錯誤，exit 1', async () => {
     const io = capture();

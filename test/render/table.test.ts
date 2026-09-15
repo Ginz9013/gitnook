@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { renderTable, renderWorkspaceList } from '../../src/render/table.js';
+import { renderTable, renderWorkspaceList, renderDecisionTable } from '../../src/render/table.js';
 import { renderJson } from '../../src/render/json.js';
 import { displayWidth } from '../../src/render/width.js';
 import { resolvePrefix, SHORT_ID_MIN } from '../../src/core/ids.js';
 import type { Issue } from '../../src/core/types.js';
+import type { Decision } from '../../src/core/decisionTypes.js';
 import type { WorkspaceGroup } from '../../src/render/table.js';
 
 const golden = (name: string): string =>
@@ -312,6 +313,60 @@ describe('renderTable — CJK 的顯示欄寬', () => {
  * `renderWorkspaceList` 依來源路徑分組印出，組合既有 `renderTable`，不重新
  * 發明表格版面（票 02 spec.md「Design contract」）。
  */
+/**
+ * 票 02：Decision 的清單緊湊表格（ref/title/disposition），沿用 Issue 既有的
+ * 短 ID 無歧義前綴顯示規則（shortIdLength 由呼叫端算好傳入），不重寫比較器。
+ */
+describe('renderDecisionTable', () => {
+  const decision = (over: Partial<Decision> & Pick<Decision, 'id' | 'title'>): Decision => ({
+    body: '',
+    disposition: 'proposed',
+    ...over,
+  });
+
+  it('空清單輸出簡短訊息，而不是一個空的表頭', () => {
+    expect(renderDecisionTable([])).toBe('no decisions');
+  });
+
+  it('印出 ref/title/disposition 三欄，欄寬對齊', () => {
+    const decisions = [
+      decision({ id: '01AAAAAAAAAAAAAAAAAAAAAAAA', title: 'Use ULIDs', disposition: 'accepted' }),
+      decision({ id: '01BBBBBBBBBBBBBBBBBBBBBBBB', title: 'Adopt oplog', disposition: 'proposed' }),
+    ];
+
+    expect(renderDecisionTable(decisions)).toBe(
+      ['01AAAA  Use ULIDs    accepted', '01BBBB  Adopt oplog  proposed'].join('\n'),
+    );
+  });
+
+  it('沒給長度時依這批 Decision 算出彼此無歧義所需的短 ID 長度', () => {
+    const ids = ['01JBX7AAAAAAAAAAAAAAAAAAAA', '01JBX7BBBBBBBBBBBBBBBBBBBB'];
+    const decisions = ids.map((id, i) => decision({ id, title: `D${i}` }));
+
+    const shortIds = renderDecisionTable(decisions)
+      .split('\n')
+      .map((line) => line.split('  ')[0]);
+    expect(shortIds).toEqual(['01JBX7A', '01JBX7B']);
+  });
+
+  it('依呼叫端給定的短 ID 長度顯示，而不是只對手上這幾筆算', () => {
+    const decisions = [decision({ id: '01JBXAAAAAAAAAAAAAAAAAAAAA', title: 'a' })];
+
+    expect(renderDecisionTable(decisions, 13).split('  ')[0]).toBe('01JBXAAAAAAAA');
+  });
+
+  it('title 超過顯示欄上限時截斷為省略號，不破壞欄位對齊', () => {
+    const decisions = [
+      decision({ id: '01AAAAAAAAAAAAAAAAAAAAAAAA', title: 'x'.repeat(60), disposition: 'accepted' }),
+      decision({ id: '01BBBBBBBBBBBBBBBBBBBBBBBB', title: 'short', disposition: 'proposed' }),
+    ];
+
+    const titleCell = renderDecisionTable(decisions).split('\n')[0]!.split('  ')[1]!;
+    expect(titleCell.endsWith('…')).toBe(true);
+    expect(displayWidth(titleCell)).toBeLessThanOrEqual(48);
+  });
+});
+
 describe('renderWorkspaceList', () => {
   const group = (path: string, issues: readonly Issue[]): WorkspaceGroup => ({
     path,

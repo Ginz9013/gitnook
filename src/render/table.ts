@@ -2,6 +2,7 @@ import { shortIdLength } from '../core/ids.js';
 import { displayWidth } from './width.js';
 import type { SetOp } from '../core/ops.js';
 import type { Comment, Issue } from '../core/types.js';
+import type { Decision } from '../core/decisionTypes.js';
 
 /** 欄位分隔。ADR-0005 的量測範例即以兩個空白分隔。 */
 const GAP = '  ';
@@ -15,6 +16,8 @@ const ELLIPSIS = '…';
 const EMPTY = 'no issues';
 /** 同上，但問的是一張 Issue 的 Op-log。 */
 const EMPTY_OPS = 'no set ops';
+/** 同 EMPTY，但問的是空的 Decision Log —— 剛 init、還沒 new 過任何一篇。 */
+const EMPTY_DECISIONS = 'no decisions';
 
 /**
  * 短 ID 的長度由呼叫端算好後傳進來 —— 長度是「整批的性質」，單張 Issue
@@ -125,6 +128,29 @@ export function renderTable(input: readonly Issue[] | Issue, shortIdLen?: number
   return Array.isArray(input)
     ? renderList(input, shortIdLen)
     : renderDetail(input as Issue, shortIdLen);
+}
+
+const shortDecisionId = (decision: Decision, len: number): string => decision.id.slice(0, len);
+
+/**
+ * `nook decision list` 的緊湊表格：ref/title/disposition —— 票 02
+ * spec.md 的 Outcome。短 ID／無歧義前綴顯示規則沿用 `shortIdLength`（呼叫端
+ * 算好整個 Decision Log 的長度後傳進來，理由同 `renderList` 上的既有註解，
+ * 這裡不重寫比較器）。title 截斷沿用同一份 `truncate`/`TITLE_MAX`，理由同
+ * Issue 的清單：這是「緊湊表格」的既有版面慣例，只有一份實作。
+ */
+export function renderDecisionTable(decisions: readonly Decision[], shortIdLen?: number): string {
+  if (decisions.length === 0) return EMPTY_DECISIONS;
+
+  const len = shortIdLen ?? shortIdLength(decisions.map((d) => d.id));
+
+  const cells = decisions.map((decision) => [
+    shortDecisionId(decision, len),
+    truncate(decision.title, TITLE_MAX),
+    decision.disposition,
+  ]);
+
+  return grid(cells).join('\n');
 }
 
 /**

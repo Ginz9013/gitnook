@@ -8,15 +8,16 @@ import {
   initDecisionRoot,
   inspectMergeGuarantee,
 } from '../core/gitattributes.js';
-import { isValidRef } from '../core/ids.js';
+import { isValidRef, shortIdLength } from '../core/ids.js';
 import {
   AmbiguousDecisionRef,
   DecisionLogNotInitialized,
   DecisionNotFound,
   InvalidDisposition,
 } from '../core/decisionTypes.js';
-import type { CreateDecisionInput, Decision } from '../core/decisionTypes.js';
+import type { CreateDecisionInput, Decision, DecisionFilter } from '../core/decisionTypes.js';
 import { ConflictingGitAttributes, NestedBoard } from '../core/gitattributes.js';
+import { renderDecisionTable } from '../render/table.js';
 import { errLine, line, UsageError } from './run.js';
 import type { Io } from './run.js';
 
@@ -70,11 +71,15 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
       return cmdInit(parseDecisionArgs(rest, NO_FLAGS, NO_FLAGS), io);
     case 'new':
       return cmdNew(parseDecisionArgs(rest, NEW_FLAGS, NEW_FLAGS), io);
+    case 'list':
+      return cmdList(parseDecisionArgs(rest, LIST_VALUED_FLAGS, LIST_FLAGS), io);
     case 'show':
       return cmdShow(parseDecisionArgs(rest, NO_FLAGS, SHOW_FLAGS), io);
   }
 
-  throw new UsageError(`unknown decision subcommand: ${sub ?? ''} (available: init, new, show)`);
+  throw new UsageError(
+    `unknown decision subcommand: ${sub ?? ''} (available: init, new, list, show)`,
+  );
 }
 
 /**
@@ -125,6 +130,8 @@ function parseDecisionArgs(
 const NO_FLAGS: ReadonlySet<string> = new Set();
 const NEW_FLAGS: ReadonlySet<string> = new Set(['--title', '--body', '--disposition']);
 const SHOW_FLAGS: ReadonlySet<string> = new Set(['--json']);
+const LIST_VALUED_FLAGS: ReadonlySet<string> = new Set(['--disposition']);
+const LIST_FLAGS: ReadonlySet<string> = new Set(['--disposition', '--json']);
 
 /**
  * `.gitattributes` 的那一行這次發生了什麼事，講成一行字 —— 同 `run.ts` 的
@@ -183,6 +190,28 @@ function cmdNew(args: DecisionArgs, io: Io): number {
   return 0;
 }
 
+/**
+ * `nook decision list [--disposition <d>] [--json]`：compact table（ref/
+ * title/disposition），沒有索引沒有快取（ADR-0002 的既有取捨）——票 02
+ * spec.md 的 Outcome，「title list 快速搜尋是否有特定決策」的答案。
+ *
+ * 短 ID 長度對整個 Decision Log 算（`log.refs()`），不是對過濾後的結果算——
+ * 理由同 `run.ts` 的 `displayLength`／`cmdList`：對子集算出來的前綴會在解析端
+ * 撞號。`--disposition` 的無歧義前綴解析交給 `DecisionLog.list()` 內部呼叫的
+ * `resolveDisposition`，這裡不重複驗證一次。
+ */
+function cmdList(args: DecisionArgs, io: Io): number {
+  const disposition = args.one('--disposition');
+  const filter: DecisionFilter = disposition === undefined ? {} : { disposition };
+
+  const log = openDecisionLog({ dir: io.cwd });
+  const decisions = log.list(filter);
+  const len = shortIdLength(log.refs());
+
+  line(io, args.has('--json') ? renderDecisionListJson(decisions) : renderDecisionTable(decisions, len));
+  return 0;
+}
+
 /** Ref 是使用者輸入，完整識別碼會被接進檔案路徑——同 `run.ts` 的 `requireRef`。 */
 function requireRef(ref: string): string {
   if (!isValidRef(ref)) throw new UsageError(`not a valid ref: ${ref}`);
@@ -211,10 +240,22 @@ function renderDecisionText(decision: Decision): string {
   return lines.join('\n');
 }
 
-/** `--json`：鍵依字母排序，無縮排——同 `render/json.ts` 對 Issue 的既有慣例。 */
-function renderDecisionJson(decision: Decision): string {
+/** 鍵依字母排序——同 `render/json.ts` 的 `sortKeys` 對 Issue 的既有慣例，
+ * 這裡另起一份是因為那個檔案的簽章釘死在 `Issue` 且不在這張票的寫入範圍。 */
+function sortDecisionKeys(decision: Decision): Record<string, unknown> {
   const source = decision as unknown as Record<string, unknown>;
   const sorted: Record<string, unknown> = {};
   for (const key of Object.keys(source).sort()) sorted[key] = source[key];
-  return JSON.stringify(sorted);
+  return sorted;
+}
+
+/** `--json`：鍵依字母排序，無縮排——同 `render/json.ts` 對 Issue 的既有慣例。 */
+function renderDecisionJson(decision: Decision): string {
+  return JSON.stringify(sortDecisionKeys(decision));
+}
+
+/** `nook decision list --json`：同一份 shape，但陣列——沿用 `renderJson` 對
+ * Issue 清單的既有形狀（鍵排序後的物件陣列，無縮排），不另創一種 JSON shape。 */
+function renderDecisionListJson(decisions: readonly Decision[]): string {
+  return JSON.stringify(decisions.map(sortDecisionKeys));
 }
