@@ -4,3 +4,4 @@
 {"id":"01M2HBAYRZEVWCJ8AFDCTY0AS4","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M2HJXCBT33TW07PR3N0NNADD","t":5,"a":"83a1","op":"comment","body":"落地：5bda028（遷移）+ 1e64807（review 發現並修復 decision 指令打包後錯誤路徑會拋 TypeError 的 bug）+ 337efac（補迴歸測試）+ b829bfa（review 補掃 test/** 遺漏引用）。874 tests, 0 型別錯誤，bench 六列全綠。這是這一批的最後一張票。"}
 {"id":"01M2HJXCD1S50QN2EY7JKJ2P1N","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M2HKKR8GQ01TPKFK8N4YC1FS","t":7,"a":"83a1","op":"set","k":"archived","v":true}

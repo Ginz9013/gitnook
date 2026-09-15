@@ -4,3 +4,4 @@
 {"id":"01M2HBAYMJ2JMW6BQ97ZD8EENV","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M2HH5WBRJDGTJNP5A556GY8Q","t":5,"a":"83a1","op":"comment","body":"落地：fca486b。862 tests, 0 型別錯誤。review 兩軸皆無 hard violation。"}
 {"id":"01M2HH5WD2H49P2H52C8MX6427","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M2HKKR3NFFD9ET346YF51S86","t":7,"a":"83a1","op":"set","k":"archived","v":true}

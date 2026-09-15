@@ -4,3 +4,4 @@
 {"id":"01M2HDD3XNFTKFV7KDRGDWDR9V","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M2HG9SBY9H16S6H5XAAC790G","t":5,"a":"83a1","op":"comment","body":"落地：aaa70a1。853 tests, 0 型別錯誤，bench 六列全綠。review 兩軸皆無 hard violation；token 預算 AC 用結構論證確認滿足（新格式拿掉三個欄位標籤前綴，同內容下恆小於等於舊格式），不需另外量測。"}
 {"id":"01M2HG9SD4P3B69WGHR5D977RQ","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M2HKKR9NA45NW37E9J2E05Y3","t":7,"a":"83a1","op":"set","k":"archived","v":true}

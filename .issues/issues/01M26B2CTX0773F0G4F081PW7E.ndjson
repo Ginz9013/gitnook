@@ -6,3 +6,4 @@
 {"id":"01M26E1XNR561EV08BJZTHXSCR","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M26EHM21S0V6FMW1AG4EVE01","t":7,"a":"83a1","op":"comment","body":"**落地。** 這張票沒有新行為，驗證即是 `npx vitest run`（42 files / 723\ntests 綠，跟基線一致）、`tsc --noEmit`（0 錯誤）、`test/agent-doc.test.ts`\n雙向綠燈。\n\nSpec 軸把 README/AGENT.md 新增的每一句話都對照原始碼重新核實過一遍（不是\n只信 worker 的報告），沒有找到任何一句與實作不符；也確認 CONTEXT.md 與\nADR-0012 真的沒有被動到、且內容跟實作沒有漂移（worker 聲稱「沒有發現漂移」\n這件事本身也被獨立驗證過）。\n\nStandards 軸兩條觀察：\n1. AGENT.md 的指令表把 `workspace` 那一行收成 `list|doctor|studio`，其餘每\n   一行都把旗標展開——跟票 02 HELP 那行同一個取捨（token 預算），接受現狀。\n2. README 結尾「unaffected」那句把單一 board 的九個指令名又抄了一遍，比\n   兄弟章節（private mode、studio）的收尾都囉唆——已收短（commit\n   `5091bc5`）。"}
 {"id":"01M26EHM46J8TBSHAXG871F9FA","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M2HKKQN5EVXBZQ74XWE70PVE","t":9,"a":"83a1","op":"set","k":"archived","v":true}

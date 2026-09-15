@@ -4,3 +4,4 @@
 {"id":"01M2HBAYKEMHFHXYQATJ9K4851","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M2HFZX23AW7DNZX3J3EDXCNX","t":5,"a":"83a1","op":"comment","body":"落地：6a46156。846 tests, 0 型別錯誤。"}
 {"id":"01M2HFZX3F83G7FRMYKJ7VEWXE","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M2HKKR2GTKPK0G5WK43ZH5XX","t":7,"a":"83a1","op":"set","k":"archived","v":true}

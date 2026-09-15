@@ -6,3 +6,4 @@
 {"id":"01M279WT1FWN4CAP6WR41N5D7J","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M27AB5SJ9WJ7B4MW4KVAW27K","t":7,"a":"83a1","op":"comment","body":"**落地。** 整合者驗證：42 files / 741 tests 綠（基線 42/735）、`tsc --noEmit`\n0 錯誤。Worker 沒有對這個 repo 自己的 `.issues/` 跑任何 nook CLI。\n\nRed evidence 用的是「先確認整體功能真的不存在」+「暫時弄壞已經寫好的邏輯、\n觀察為了正確理由變紅、再復原」的手法，跟票 01 同一套，判定可信。\n\n兩軸 review 抓到一條真的有份量：`cmdNew`（workspace 版）把單一 Board\n`cmdNew` 的 `CreateInput` 組裝邏輯（`--editor`/`--description`/`--label`）\n整段複製了一次——而同一支 diff 裡才剛把 `fromEditor`/`longText`/`--in`\n這些零件 export 出來重用，卻沒把組裝這一層也一起抽掉，跟這批票自己建立的\n「匯出共用函式、不重寫副本」慣例不一致。已抽成 `assembleCreateInput()`，\n兩邊共用（commit `37b5ae8`，跟實作同一個 commit）。"}
 {"id":"01M27AB5TW66PQ7C5KYPK272DP","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M2HKKQRGFT3EEVPV86B96064","t":9,"a":"83a1","op":"set","k":"archived","v":true}

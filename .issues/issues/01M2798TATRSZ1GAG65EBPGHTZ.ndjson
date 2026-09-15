@@ -6,3 +6,4 @@
 {"id":"01M27BZXVG1G5C50BDJ5DJK7B9","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M27C78S54WRS39EGQ2MMM6HG","t":7,"a":"83a1","op":"comment","body":"**落地。** 整合者驗證：42 files / 760 tests 綠（基線 42/756）、`tsc --noEmit`\n0 錯誤，且明確驗證了 run.ts 既有的 label 測試在抽出 `parseLabelTokens()`\n之後行為一字不變（同一批測試、沒有改任何斷言，抽取前後都全過）。\n\nWorker 的紅燈證據紮實：新的 wiring（`label` 子指令）有真的從零開始的紅\n（未知子指令），refactor 那半（單一 Board `cmdLabel` 抽出共用函式）正確\n地用「既有測試套件維持綠燈」當驗證標準，而不是硬要為一個純重構湊紅燈。\n\n兩軸 review 都乾淨。這次一次到位把 `RefNotFoundInWorkspace` 的測試寫齊，\n沒有重演票 05 事後才補的狀況。"}
 {"id":"01M27C78TD86JF3WFZJD24CDH2","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M2HKKQX021CSG3V94P8DA2W8","t":9,"a":"83a1","op":"set","k":"archived","v":true}

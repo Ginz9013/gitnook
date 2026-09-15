@@ -6,3 +6,4 @@
 {"id":"01M252AGWW2G9687DA9C65NF6F","t":6,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M258ECT37JRQQXYNPYG6YKD9","t":7,"a":"83a1","op":"comment","body":"**落地。** commit `fee651b`，並由 `2421faf` 跟上 share 後來改掉的輸出。整合者自己跑的驗證：681 tests / 39 files 綠、tsc 0 錯誤。\n\n這張票的 worker 把「哪些說法是它親自跑過的、哪些不是」分開交代了，包含在暫存 repo 裡實跑 `git clean -xdf`（確認 board 真的整塊消失、而 `info/exclude` 裡那一行還在）、linked worktree 的第二塊空 board、以及 gitignore 前後空白的那張表（git 2.50.1）。ADR-0011 正面處理了 ADR-0002 那句「連使用者的 `.gitignore` 都不需要修改」—— 0002 講的是衍生狀態，private mode ignore 的是權威資料本身，而那句話字面上仍然成立，因為 nook 從不寫 `.gitignore`。\n\n它順手發現、我已在 `2421faf` 收掉的一條：README 的公開面清單過期了 —— 少了 `IssueDeleted`（更早就漏的）與這一批的 `AlreadySharedBoard` / `NoGitDir`。現在補齊並指向 `test/index.test.ts` 作為下次漂掉時的警報。"}
 {"id":"01M258ECWBRTMDFFHEPJEYCEDD","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M2HKKQE9TXBKVJW2K15G3XTA","t":9,"a":"83a1","op":"set","k":"archived","v":true}

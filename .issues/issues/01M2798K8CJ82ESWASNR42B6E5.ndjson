@@ -6,3 +6,4 @@
 {"id":"01M27BJJ8QYH5J1HCAVSQ9E13M","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
 {"id":"01M27BZQ5TFQKNNRFTNX8Y719R","t":7,"a":"83a1","op":"comment","body":"**落地。** 整合者驗證：42 files / 756 tests 綠（基線 42/752）、`tsc --noEmit`\n0 錯誤。Worker 這次的紅燈證據很紮實：第一片是真的從零開始的紅（缺\ncomment 子指令）；第二片故意先不接 longText，讓「-」字面被存進去，逼出\n真紅燈再修正；第三片（短前綴）第一次就綠，於是暫時拔掉 routing 那行、\n換一個角度確認測試真的敏感於這張票新加的接線，不是碰巧靠其他票的機制\n過關。\n\n兩軸 review 抓到一條實質缺口：`comment` 少了 `set`/`mv` 兩個兄弟指令都有\n的「任何成員都不擁有這個 ref → RefNotFoundInWorkspace」測試——機制雖然\n共用（`locateInWorkspace` 已經測過），但覆蓋率不該因此比照別的指令少一截。\n已補上（commit `4b39879`，跟實作同一個 commit）。"}
 {"id":"01M27BZQ73JGH6445PGR1RPGHA","t":8,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M2HKKQVWSTCDA6ENN9PYVJ8R","t":9,"a":"83a1","op":"set","k":"archived","v":true}

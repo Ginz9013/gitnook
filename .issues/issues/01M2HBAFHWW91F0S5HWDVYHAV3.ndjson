@@ -4,3 +4,4 @@
 {"id":"01M2HBAYNN5ZF0ZVNJN6YK0DTS","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
 {"id":"01M2HHQGJEEMHT1P90TAY0Y085","t":5,"a":"83a1","op":"comment","body":"落地：35d71c5 + a60318e（review 修正 history 的 legacyRef 不一致）。872 tests, 0 型別錯誤。"}
 {"id":"01M2HHQGKNRMZEGCQH9C5KP0NS","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
+{"id":"01M2HKKR4WBT7FKG52TG7V6T59","t":7,"a":"83a1","op":"set","k":"archived","v":true}
