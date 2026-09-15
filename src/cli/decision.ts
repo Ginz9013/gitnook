@@ -49,7 +49,7 @@ export async function dispatchDecision(argv: readonly string[], io: Io): Promise
   try {
     return await dispatch(argv, io);
   } catch (thrown) {
-    if (DECISION_USER_ERRORS.some((type) => thrown instanceof type)) {
+    if (decisionUserErrors().some((type) => thrown instanceof type)) {
       errLine(io, (thrown as Error).message);
       return 1;
     }
@@ -57,17 +57,31 @@ export async function dispatchDecision(argv: readonly string[], io: Io): Promise
   }
 }
 
-const DECISION_USER_ERRORS = [
-  UsageError,
-  // gitattributes 的既有型別（`initDecisionRoot` 內部沿用）——訊息與語意
-  // 逐字同 Issue 側的 `initBoard`，見 `core/gitattributes.ts`。
-  ConflictingGitAttributes,
-  NestedBoard,
-  DecisionLogNotInitialized,
-  DecisionNotFound,
-  AmbiguousDecisionRef,
-  InvalidDisposition,
-] as const;
+/**
+ * 建構延後到呼叫當下，不在模組頂層——`decision.ts` 與 `run.ts` 互相
+ * import（`run.ts` 匯入 `dispatchDecision`，這裡匯入 `UsageError`），
+ * tsup 把兩者接成同一個 bundle 時，兩邊的頂層程式碼執行順序由打包器決定，
+ * 而不是原始檔案順序。實測 `bin/nook.js`（`run.ts` 是進入點）時，這個模組
+ * 的頂層碼會先跑，此時 `run.ts` 底下定義在檔案後段的 `UsageError` 類別
+ * 還沒被賦值——若在頂層把它塞進一個 `const` 陣列，陣列裡存到的是
+ * `undefined`，`thrown instanceof undefined` 直接拋 TypeError（vitest 測試
+ * 測不出來：測試檔以 `decision.ts` 而非 `run.ts` 當進入點，兩邊互相 import
+ * 時的求值順序剛好相反，恰好繞過了這個問題）。函式呼叫當下模組早已全部
+ * 載入完畢，`UsageError` 保證已經賦值，所以只要不在頂層建構這份清單就好。
+ */
+function decisionUserErrors() {
+  return [
+    UsageError,
+    // gitattributes 的既有型別（`initDecisionRoot` 內部沿用）——訊息與語意
+    // 逐字同 Issue 側的 `initBoard`，見 `core/gitattributes.ts`。
+    ConflictingGitAttributes,
+    NestedBoard,
+    DecisionLogNotInitialized,
+    DecisionNotFound,
+    AmbiguousDecisionRef,
+    InvalidDisposition,
+  ] as const;
+}
 
 async function dispatch(argv: readonly string[], io: Io): Promise<number> {
   const [sub, ...rest] = argv;
