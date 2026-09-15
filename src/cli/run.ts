@@ -40,6 +40,7 @@ import {
 import { renderJson } from '../render/json.js';
 import { renderSetOps, renderTable } from '../render/table.js';
 import { PortInUse, serve } from '../server/serve.js';
+import { dispatchDecision } from './decision.js';
 import { dispatchWorkspace } from './workspace.js';
 import type { SetKey } from '../core/ops.js';
 import type { Board, Change, CreateInput, Diagnostic, Filter } from '../core/types.js';
@@ -250,6 +251,8 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
       return cmdStudio(parseArgs(rest, STUDIO_FLAGS), io);
     case 'workspace':
       return dispatchWorkspace(rest, io);
+    case 'decision':
+      return dispatchDecision(rest, io);
   }
 
   throw new UsageError(unknownCommand(command));

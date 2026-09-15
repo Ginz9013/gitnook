@@ -16,6 +16,21 @@ export const MERGE_RULE = '.issues/issues/*.ndjson merge=union';
 const OP_LOG_SAMPLE = '.issues/issues/01JBX7A9Q3.ndjson';
 
 /**
+ * Decision 版的零衝突保證 —— 同 `MERGE_RULE`/`OP_LOG_SAMPLE`，一份給
+ * Decision Log 用。`.decisions/decisions/` 是它的 marker 目錄（同
+ * `ISSUES_DIR` 之於 Issue）。
+ *
+ * 這是 spec.md 提到的「泛化尋根/初始化」在這個檔案裡實際落地的形狀：不是
+ * 一個吃任意 marker 的公開泛型 API，而是 Issue 與 Decision 各自一組具名的
+ * 薄常數 + 呼叫同一份內部泛化邏輯（`findRoot`/`initMarkerRoot`）—— 呼叫端
+ * （`board.ts`/`decisionLog.ts`/CLI）永遠只看到具名的
+ * `findBoardRoot`/`findDecisionRoot`，不必知道底下共用了什麼。
+ */
+export const DECISION_MERGE_RULE = '.decisions/decisions/*.ndjson merge=union';
+export const DECISION_LOG_SAMPLE = '.decisions/decisions/01JBX7A9Q3.ndjson';
+export const DECISIONS_DIR = ['.decisions', 'decisions'] as const;
+
+/**
  * 使用者既有的 .gitattributes 會讓 op-log 拿到 union 以外的 merge 行為。
  * 此時 init 報錯停止 —— 不靜默改寫別人的 merge 設定。
  */
@@ -35,12 +50,18 @@ export type MergeGuarantee =
   | { readonly kind: 'absent' }
   | { readonly kind: 'conflicting'; readonly line: number; readonly rule: string };
 
-/** 支柱還在不在。init 與 doctor 共用同一份判斷。 */
-export function inspectMergeGuarantee(dir: string): MergeGuarantee {
+/**
+ * 支柱還在不在。init 與 doctor 共用同一份判斷。
+ *
+ * `sample` 預設是 Issue 的代表性 op-log 路徑（`OP_LOG_SAMPLE`）—— 既有呼叫端
+ * （`run.ts`/`health.ts`/`board.ts`）一個字元都不必改。Decision 側傳入
+ * `DECISION_LOG_SAMPLE` 問的是同一件事，只是換一條路徑形狀。
+ */
+export function inspectMergeGuarantee(dir: string, sample: string = OP_LOG_SAMPLE): MergeGuarantee {
   const file = join(dir, '.gitattributes');
   if (!existsSync(file)) return { kind: 'absent' };
 
-  const setting = effectiveMerge(readFileSync(file, 'utf8'));
+  const setting = effectiveMerge(readFileSync(file, 'utf8'), sample);
   if (setting === null) return { kind: 'absent' };
   if (setting.value === 'union') return { kind: 'union' };
   return { kind: 'conflicting', line: setting.line, rule: setting.rule };
@@ -72,12 +93,31 @@ export type BoardRoot =
  * 根可停時退回 filesystem root，而不是就地拒絕。
  */
 export function findBoardRoot(dir: string): BoardRoot {
+  return findMarkerRoot(dir, ISSUES_DIR);
+}
+
+/**
+ * 同 `findBoardRoot`，但 marker 換成 `.decisions/decisions`——給 Decision Log
+ * 用。兩者呼叫的是同一份尋根邏輯（`findMarkerRoot`），差別只在 marker 目錄，
+ * 因此停止條件（repo 根）與退回規則（找不到 repo 根就走到 filesystem root）
+ * 逐字相同，不會漂移成兩份規則。
+ */
+export function findDecisionRoot(dir: string): BoardRoot {
+  return findMarkerRoot(dir, DECISIONS_DIR);
+}
+
+/**
+ * 由 dir 向上找最近一個含 `marker` 這個相對路徑的目錄，行為同 git 尋找
+ * `.git`。`findBoardRoot`/`findDecisionRoot` 是它的兩個具名薄包裝 ——
+ * 呼叫端只看得到那兩個名字，不知道底下共用了同一份走法。
+ */
+function findMarkerRoot(dir: string, marker: readonly string[]): BoardRoot {
   let here = resolve(dir);
   for (;;) {
-    // 只問存在，不問是不是目錄：`.issues/issues` 變成一個檔案是「board 壞了」，
+    // 只問存在，不問是不是目錄：marker 變成一個檔案是「board 壞了」，
     // 不是「這裡沒有 board」—— 靜默略過它會讓呼叫端接到上層那一塊。
-    if (existsSync(join(here, ...ISSUES_DIR))) return { found: true, root: here };
-    // repo 根本身也要先看過 board 才停，所以這個檢查排在後面。
+    if (existsSync(join(here, ...marker))) return { found: true, root: here };
+    // repo 根本身也要先看過才停，所以這個檢查排在後面。
     // `.git` 可能是檔案而不是目錄（worktree、submodule），因此同樣只問存在。
     if (existsSync(join(here, '.git'))) return { found: false, ceiling: here };
     const parent = dirname(here);
@@ -142,17 +182,42 @@ export function initBoard(dir: string, opts?: { readonly sharing?: Sharing }): v
     return;
   }
 
+  initGuardedMarkerDir(here, ISSUES_DIR, MERGE_RULE, OP_LOG_SAMPLE);
+}
+
+/**
+ * Decision Log 版的 `initBoard`：**只有 shared 模式**——ticket 01 的 Decision
+ * 不支援 `--private`（沒有任何 AC 要求它，見 spec.md 的 Non-goals 精神：這次
+ * 不是把 Issue 的每個能力都複製一份）。Nested 檢查沿用同一個 `NestedBoard`
+ * 型別——訊息本來就是泛用的「已經在一塊 Nook board 裡」，不必為 Decision
+ * 另開一個型別。
+ */
+export function initDecisionRoot(dir: string): void {
+  const here = resolve(dir);
+  const enclosing = findDecisionRoot(here);
+  if (enclosing.found && enclosing.root !== here) throw new NestedBoard(here, enclosing.root);
+
+  initGuardedMarkerDir(here, DECISIONS_DIR, DECISION_MERGE_RULE, DECISION_LOG_SAMPLE);
+}
+
+/**
+ * `initBoard`/`initDecisionRoot` 的共用下半段：檢查衝突規則、建立 marker 目錄、
+ * 冪等寫入這個 marker 專屬的 merge=union 規則。**巢狀檢查刻意留在呼叫端** ——
+ * 那一步在 private 模式下走的是完全不同的路徑（`excludeBoard` 而非
+ * `.gitattributes`），硬塞進來會讓這個函式多一個它不需要知道的分支。
+ */
+function initGuardedMarkerDir(here: string, marker: readonly string[], rule: string, sample: string): void {
   const file = join(here, '.gitattributes');
-  const guarantee = inspectMergeGuarantee(here);
+  const guarantee = inspectMergeGuarantee(here, sample);
 
   if (guarantee.kind === 'conflicting') {
     throw new ConflictingGitAttributes(file, guarantee.line, guarantee.rule);
   }
 
-  mkdirSync(join(here, ...ISSUES_DIR), { recursive: true });
+  mkdirSync(join(here, ...marker), { recursive: true });
 
   if (!existsSync(file)) {
-    writeFileSync(file, `${MERGE_RULE}\n`, 'utf8');
+    writeFileSync(file, `${rule}\n`, 'utf8');
     return;
   }
   // 既有規則已經讓 op-log 拿到 union 時就不再寫入 —— 冪等。
@@ -162,7 +227,7 @@ export function initBoard(dir: string, opts?: { readonly sharing?: Sharing }): v
 
   // 既有檔案缺 trailing newline 時，直接 append 會把規則黏在使用者的最後一行上。
   const lead = existing === '' || existing.endsWith('\n') ? '' : '\n';
-  appendFileSync(file, `${lead}${MERGE_RULE}\n`, 'utf8');
+  appendFileSync(file, `${lead}${rule}\n`, 'utf8');
 }
 
 interface MergeSetting {
@@ -176,7 +241,7 @@ interface MergeSetting {
  * op-log 檔實際生效的 merge 屬性。git 的規則是**後面的行覆蓋前面的**，
  * 因此取最後一條命中的設定。沒有任何一行設定 merge 時回傳 null。
  */
-function effectiveMerge(content: string): MergeSetting | null {
+function effectiveMerge(content: string, sample: string): MergeSetting | null {
   const lines = content.split('\n');
   let found: MergeSetting | null = null;
 
@@ -187,7 +252,7 @@ function effectiveMerge(content: string): MergeSetting | null {
 
     const tokens = rule.split(/\s+/);
     const pattern = tokens[0]!;
-    if (!matchesOpLog(pattern)) continue;
+    if (!matchesOpLog(pattern, sample)) continue;
 
     for (const token of tokens.slice(1)) {
       const value = mergeValueOf(token);
@@ -206,11 +271,11 @@ function mergeValueOf(token: string): string | null {
   return null;
 }
 
-function matchesOpLog(pattern: string): boolean {
+function matchesOpLog(pattern: string, sample: string): boolean {
   const glob = pattern.startsWith('/') ? pattern.slice(1) : pattern;
   if (glob === '') return false;
   // 不含 / 的 pattern 比對任何層級的檔名；含 / 的則錨定在 .gitattributes 所在目錄。
-  const target = glob.includes('/') ? OP_LOG_SAMPLE : OP_LOG_SAMPLE.slice(OP_LOG_SAMPLE.lastIndexOf('/') + 1);
+  const target = glob.includes('/') ? sample : sample.slice(sample.lastIndexOf('/') + 1);
   return globToRegExp(glob).test(target);
 }
 
