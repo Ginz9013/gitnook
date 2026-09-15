@@ -2,3 +2,5 @@
 {"id":"01M2HN164BGKVF19N0Q6SYB5P0","t":2,"a":"83a1","op":"set","k":"description","v":"App.tsx 拆殼（IssueApp.tsx/DecisionApp.tsx），decisionReconcile.ts 完整 reducer，Decision 扁平清單（唯讀），server 讀取路由。詳見 .scratch/decision-studio/01-view-switcher-readonly-list.md"}
 {"id":"01M2HN164BXNBG1HEDMR5KW3SD","t":3,"a":"83a1","op":"label.add","v":"decision-studio"}
 {"id":"01M2HN1CG4MKNH5GXNGD7TPQJZ","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M2HPQ3KH70Z8RP00JHJRN7ZC","t":5,"a":"83a1","op":"comment","body":"落地：af96bb2（實作）+ e3a1477（review 修「這一票」語言違規）+ bf516d9（review 追加票 05）。913 tests, 0 型別錯誤。review 兩軸：一個 hard violation（CONTEXT.md 語言規則，已修）、一個大發現（poll.ts 假設錯誤，已開票 05 處理）。"}
+{"id":"01M2HPQ3MPZDK7NCCQ23R0BPGA","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
