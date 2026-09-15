@@ -11,14 +11,24 @@ import type { DecisionDrawerChange } from './decisionChanges';
  * Radix Dialog 為底（ADR-0008：**不裝 vaul**），focus trap、`aria-modal`、
  * scroll lock、Esc 關閉交給 Radix。
  *
- * **沒有 `onCloseFocus`。** `IssueDrawer.tsx` 那一格接的是 `board/focus.ts`
- * 的 `focusIssue`——Issue 的看板每張卡片有一個可以對回去的焦點目標
- * （`board/` 的財產，不在這一批的寫入所有權裡）。Decision 的扁平清單
- * （`decisions/DecisionList.tsx`）沒有對應的焦點工具，而那個檔案本身也不
- * 得碰（票 01/02 的範圍）。關閉後的焦點因此退回 Radix 對受控 Dialog 的
- * 預設行為——這是接受的簡化，不是遺漏；之後如果要補上「回到清單上那一列」，
- * 屬於 `decisions/` 那邊的後續。
+ * **`onCloseAutoFocus` 一律接手，理由逐字同 `IssueDrawer.tsx`。** 這個
+ * drawer 由 `selectedId` 受控開啟、沒有 `<Dialog.Trigger>`，Radix 的預設
+ * 「關閉後把焦點交給 trigger」在這裡等於交給 `null`，`document.activeElement`
+ * 會靜靜掉回 `<body>`——不傳這個 prop 不是「交給 Radix」，是接受一個對受控
+ * Dialog 而言壞掉的預設。
+ *
+ * **退回的目標比 `IssueDrawer.tsx` 弱一截：只到視圖容器，不到那一列。**
+ * `IssueDrawer.tsx` 接的是 `board/focus.ts` 的 `focusIssue`——Issue 的看板
+ * 每張卡片有 `data-issue` 這個可以查到的焦點目標。Decision 的扁平清單
+ * （`decisions/DecisionList.tsx`）還沒有對應的逐列焦點工具，而那個檔案不在
+ * 這一批的寫入所有權裡，所以這裡只做得到 `focusBoard()` 那一半：焦點退回
+ * `DecisionApp.tsx` 的 `[data-slot="decisions"]` 容器——至少留在這個視圖裡，
+ * 不是掉回文件開頭。之後要補「回到剛編輯的那一列」，屬於 `decisions/` 那邊
+ * 的後續。
  */
+function focusDecisionsView(): void {
+  document.querySelector<HTMLElement>('[data-slot="decisions"]')?.focus();
+}
 export interface DecisionDrawerProps {
   /**
    * 目前開著的那一筆，**已經是調和過的投影**（快照 + 樂觀覆蓋）；null 表示關著。
@@ -64,6 +74,12 @@ export function DecisionDrawer({ decision, onClose, onSubmit }: DecisionDrawerPr
           // 只是想讀，不該每次點開就被推進編輯狀態。
           event.preventDefault();
           panel.current?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          // 一律接手（見上面的模組註解）。`preventDefault` 擋掉的是 Radix 那句
+          // `triggerRef.current?.focus()`。
+          event.preventDefault();
+          focusDecisionsView();
         }}
         // 圓角與寬度比照 `IssueDrawer.tsx`：貼著右緣、上下滿版、桌面固定佔
         // 螢幕的 2/5，窄螢幕維持 3/4，關閉鈕跟著內距一起往內縮。

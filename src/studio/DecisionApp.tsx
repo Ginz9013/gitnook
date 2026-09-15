@@ -217,7 +217,14 @@ export function DecisionApp(): React.JSX.Element {
 
   return (
     <>
-      <main className="flex h-full flex-col" aria-label="Nook decisions">
+      {/*
+        `tabIndex={-1}` + `data-slot="decisions"`：drawer 關閉後的焦點退回這裡
+        （`DecisionDrawer.tsx` 的 `onCloseAutoFocus`）——同 `board/focus.ts` 的
+        `focusBoard()` 這道最後防線。Decision 的扁平清單沒有 `focusIssue()`
+        那種逐列焦點（`decisions/DecisionList.tsx` 不在這一批的寫入所有權裡），
+        所以只做得到「至少焦點還在這個視圖裡」，不是「回到剛編輯的那一列」。
+      */}
+      <main className="flex h-full flex-col" aria-label="Nook decisions" data-slot="decisions" tabIndex={-1}>
         <DecisionListHeader
           disposition={disposition}
           onChangeDisposition={setDisposition}
