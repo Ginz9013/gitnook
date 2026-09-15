@@ -47,10 +47,10 @@ enough to stay inside an agent's token budget; `nook studio` is a local board
 for humans. Neither is a cache of the other.
 
 **It refuses to become a project management tool.** No assignees (an Actor is
-who wrote an operation, not who owns the work), no priority/milestone/due
-date (use a label), no configurable statuses, no sub-tasks, no search UI, no
-MCP server. Some teams will want a ninth status — the answer is a label.
-Saying no to that request *is* the product.
+who wrote an operation, not who owns the work), no priority/milestone/due date
+(use a label), no configurable statuses, no sub-tasks, no search UI, no MCP
+server. Some teams will want a ninth status — the answer is a label. Saying no
+to that request *is* the product.
 
 ## The model
 
