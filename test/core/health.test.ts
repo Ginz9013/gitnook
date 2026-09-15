@@ -47,7 +47,7 @@ describe('merge=union 那一行', () => {
   it('那一行缺失時回報 MissingMergeDriver', () => {
     gitInit();
     initBoard(dir);
-    // 唯一的單點失效：有人把那一行刪掉了（docs/adr/0001）。
+    // 唯一的單點失效：有人把那一行刪掉了（decision legacyRef 0001，`nook decision show 0001`）。
     writeFileSync(join(dir, '.gitattributes'), '*.png binary\n', 'utf8');
 
     const found = diagnose(dir);

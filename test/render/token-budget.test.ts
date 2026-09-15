@@ -9,7 +9,7 @@ import type { Comment, Issue, Status } from '../../src/core/types.js';
  *
  * 情境（spec.md「token 情境」）：40 張 Issue 的專案 → `list` → `show` 一張 → `mv`
  * → `comment`，量測「skill 文件 + 全部 CLI 輸出」的總 byte 數，上限見 LIMIT。
- * 用 byte 數而非 tokenizer 的理由見 docs/adr/0005。
+ * 用 byte 數而非 tokenizer 的理由見 decision legacyRef 0005（`nook decision show 0005`）。
  *
  * 接縫是 renderTable() 這個純函數 —— 不 spawn nook 子行程。每一段都必須與
  * src/cli/run.ts 實際走的那一條對齊，否則閘門守的是一份沒人會看到的輸出：
@@ -30,7 +30,7 @@ import type { Comment, Issue, Status } from '../../src/core/types.js';
  */
 const LIMIT = 4608;
 
-/** 教 agent 用預設格式而非 `--json` 的說明文件草稿，見 docs/adr/0005。 */
+/** 教 agent 用預設格式而非 `--json` 的說明文件草稿，見 decision legacyRef 0005（`nook decision show 0005`）。 */
 const SKILL_DOC = `# nook
 
 Git-native issue tracker. Issues are plain text files in the repo.

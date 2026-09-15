@@ -23,7 +23,7 @@ describe('initBoard 在空目錄', () => {
 
     expect(statSync(join(dir, '.issues', 'issues')).isDirectory()).toBe(true);
     expect(existsSync(join(dir, '.gitattributes'))).toBe(true);
-    // 這一行的字面內容取自 docs/adr/0001 與 spec.md，非執行結果。
+    // 這一行的字面內容取自 decision legacyRef 0001（`nook decision show 0001`）與 spec.md，非執行結果。
     expect(attrs().split('\n')).toContain('.issues/issues/*.ndjson merge=union');
     expect(attrs().endsWith('\n')).toBe(true);
   });
