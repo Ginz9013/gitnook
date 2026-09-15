@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deriveActor } from '../core/actor.js';
 import type { Decision, DecisionLog, Disposition } from '../core/decisionTypes.js';
+import { InvalidDisposition } from '../core/decisionTypes.js';
 import { shortIdLength } from '../core/ids.js';
 import type { SetKey } from '../core/ops.js';
 import { fieldWrites } from '../core/reduce.js';
@@ -638,6 +639,68 @@ function createIssue(board: Board, body: string): StudioResponse {
 }
 
 /**
+ * `POST /api/decisions` 收得的欄位。**`supersededBy` 與 `legacyRef` 刻意不收**
+ * ——同 `CREATE_FIELDS` 之於 `description`／`labels`：表單只填標題，端點不該
+ * 提供沒有呼叫端的能力；要補這兩格就是接著一次 `POST /d/<ref>`（票 03）。
+ */
+const DECISION_CREATE_FIELDS: ReadonlySet<string> = new Set(['title', 'body', 'disposition']);
+
+/**
+ * 一次新增。新增是這一批（票 02）唯一新增的 Decision 端點 —— 同 `createIssue`
+ * 的理由：建立的時候還沒有 ref 可以放進 URL，`POST /d/<ref>` 因此不可能承接它。
+ */
+function createDecision(decisionLog: DecisionLog, body: string): StudioResponse {
+  // 同 createIssue：解析失敗收斂成一個接不住 isRecord 的值，兩條路在下一行匯合。
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    parsed = undefined;
+  }
+  if (!isRecord(parsed)) return badRequest('body must be a JSON object');
+
+  // 不認得的欄位一律拒絕，而不是忽略 —— 同 createIssue 的 CREATE_FIELDS。
+  for (const key of Object.keys(parsed)) {
+    if (!DECISION_CREATE_FIELDS.has(key)) {
+      return badRequest(`unrecognized field: ${key} (only title, body and disposition are accepted)`);
+    }
+  }
+
+  // 標題是唯一的必填欄位，而且空白不算 —— 同 createIssue 的理由：append-only
+  // 之下一筆沒有標題的 Decision 刪不掉，只能再寫一次 op 蓋過去。
+  const title = parsed['title'];
+  if (typeof title !== 'string' || title.trim() === '') {
+    return badRequest('title must be a non-empty string');
+  }
+
+  const bodyField = parsed['body'];
+  if (bodyField !== undefined && typeof bodyField !== 'string') {
+    return badRequest('body must be a string');
+  }
+
+  // disposition 原樣交給 core：前綴解析與合法性只有一份實作，就是
+  // resolveDisposition 那一份。這裡只確認它是個字串。
+  const disposition = parsed['disposition'];
+  if (disposition !== undefined && typeof disposition !== 'string') {
+    return badRequest('disposition must be a string');
+  }
+
+  try {
+    const decision = decisionLog.create({
+      title,
+      ...(bodyField === undefined ? {} : { body: bodyField }),
+      ...(disposition === undefined ? {} : { disposition }),
+    });
+    return created(toDecisionView(decision, decisionDisplayLength(decisionLog)));
+  } catch (err) {
+    // 呼叫端送了一個不是 Disposition 的值 —— 這是請求的問題，不是伺服器錯誤。
+    // 同 createIssue 對 InvalidStatus 的對應：狀態碼的決定權集中在這個檔案裡。
+    if (err instanceof InvalidDisposition) return badRequest(err.message);
+    throw err;
+  }
+}
+
+/**
  * 一個請求，一份回應。**這是一個全函數（total function）：任何輸入都回得出
  * 一份 StudioResponse，一個例外都不往上拋。**
  *
@@ -683,11 +746,20 @@ function route(board: Board, decisionLog: DecisionLog, req: StudioRequest, opts:
   //
   // `/api/issues` 用**完全相等**比對，不是 startsWith：白名單只有短而精確才
   // 守得住上面那條性質，前綴比對會讓 `/api/issues/foo` 一併變成可寫。
-  const writable = path.startsWith(ISSUE_PREFIX) || path === API_ISSUES_PATH;
+  //
+  // `/api/decisions` 加進來是票 02 唯一真的擴大這份白名單的地方 ——
+  // **它跟 `/api/issues` 不同：GET 仍然是合法方法**（`decisionSnapshot`，
+  // 票 01 已落地），所以下面沒有一行「GET 這條路徑 → 405」——那條規則只屬於
+  // `/api/issues` 這種只收 POST 的路徑。它因此也是唯一一條 Allow 要同時列出
+  // `GET, POST` 的路徑（RFC 9110：Allow 講的是這個資源支援什麼），不是照搬
+  // `/api/issues` 那份「只有 POST」。
+  const writable =
+    path.startsWith(ISSUE_PREFIX) || path === API_ISSUES_PATH || path === API_DECISIONS_PATH;
+  const readWrite = path === API_DECISIONS_PATH;
   if (req.method !== 'GET' && !(req.method === 'POST' && writable)) {
-    // 兩條路徑答案不同：可寫的那些只收 POST（`/i/<ref>` 伺服器渲染的詳情頁已經
-    // 移除，讀取一律走 `/api/board`），其餘只收 GET。
-    return methodNotAllowed(path, writable ? 'POST' : 'GET');
+    // 三種答案：純寫入路徑（`/i/<ref>`、`/api/issues`）只收 POST；讀寫都合法的
+    // `/api/decisions` 兩者都收；其餘只收 GET。
+    return methodNotAllowed(path, writable ? (readWrite ? 'GET, POST' : 'POST') : 'GET');
   }
 
   // `/api/issues` 是一條**只收 POST** 的路徑，GET 它因此是 405 而不是 404 ——
@@ -697,6 +769,7 @@ function route(board: Board, decisionLog: DecisionLog, req: StudioRequest, opts:
 
   if (req.method === 'POST') {
     if (path === API_ISSUES_PATH) return createIssue(board, req.body ?? '');
+    if (path === API_DECISIONS_PATH) return createDecision(decisionLog, req.body ?? '');
     return applyChange(board, path.slice(ISSUE_PREFIX.length), req.body ?? '');
   }
 

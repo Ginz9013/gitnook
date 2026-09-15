@@ -318,6 +318,30 @@ export async function createIssue(title: string, status?: Status): Promise<Issue
 }
 
 /**
+ * 一次新增 —— `POST /api/decisions`。同 `createIssue` 的理由：建立的那一刻
+ * 還沒有 ref 可以放進 URL。
+ *
+ * **`body`／`disposition` 省略時就不送那個鍵**，不是自己填一個預設值 ——
+ * 同 `createIssue` 對 `status` 的既有規則：預設值是 `decisionLog.create()`
+ * 的決定（core 那一份），這裡填一個等於把它抄成第二份，兩份預設值哪天分岔了，
+ * 畫面與 `nook decision new` 會把同一個「不指定」開到不同的 disposition。
+ *
+ * **只送 `title`／`body`／`disposition`。** 端點對不認得的欄位回 400 而不是
+ * 忽略（`handler.ts` 的 `DECISION_CREATE_FIELDS`），同 `createIssue` 的規則。
+ */
+export async function createDecision(
+  title: string,
+  body?: string,
+  disposition?: Disposition,
+): Promise<DecisionView> {
+  return await postJson(DECISIONS_URL, {
+    title,
+    ...(body === undefined ? {} : { body }),
+    ...(disposition === undefined ? {} : { disposition }),
+  });
+}
+
+/**
  * 一次 JSON 寫入。**兩個寫入端點共用這一份，這是刻意的。**
  *
  * 拆出來的理由與 `postChange` 當初被拖曳與 drawer 共用是同一個：兩處各寫一次

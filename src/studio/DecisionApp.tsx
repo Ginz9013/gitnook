@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { fetchDecisionHash, fetchDecisions } from '@/api';
+import { createDecision, fetchDecisionHash, fetchDecisions } from '@/api';
 import type { DecisionView } from '@/api';
 import {
   clientDecisionReduce,
@@ -30,10 +30,10 @@ type Client = ClientDecisionState<DecisionView>;
  * state 的權威副本、輪詢迴圈、連線中斷橫幅），但**沒有拖曳相關的任何東西**：
  * Decision 沒有看板（spec.md Non-goals）。
  *
- * **這一批沒有寫入**（票 02／03 的範圍）：`send`／`onCreate` 這類接線這裡還
- * 不存在。`selectedId` 先宣告、接上 `DecisionList` 的 `onSelect`，但沒有任何
- * drawer 會讀它 —— 那是票 03 的範圍（spec.md 的票面：「drawer 開關狀態先宣告
- * 但不使用」）。
+ * **新增（`onCreate`）是票 02 落地的第一個寫入**：`send`（drawer 的
+ * EDIT/ACK/FAIL 那一整條）還不存在，那是票 03 的範圍。`selectedId` 先宣告、
+ * 接上 `DecisionList` 的 `onSelect`，但沒有任何 drawer 會讀它 —— 那也是票 03
+ * 的範圍（spec.md 的票面：「drawer 開關狀態先宣告但不使用」）。
  *
  * **輪詢迴圈是這裡自己寫的一份小接線，不是呼叫 `poll.ts` 的 `startPolling`**——
  * 那個函式本身寫死了 Issue 的 `fetchHash`/`fetchBoard` 與 `ClientAction<IssueView>`
@@ -51,6 +51,10 @@ export function DecisionApp(): React.JSX.Element {
   const [state, setState] = useState<Client | null>(null);
   const [error, setError] = useState<ConnectionFault | null>(null);
   const [fault, setFault] = useState<ConnectionFault | null>(null);
+  // 「你剛才那次新增沒有送出去」——同 `IssueApp.tsx` 的 `failed`：描述的是已經
+  // 發生過的一件事，不像 `fault` 那樣由輪詢自己收回，靠人按掉或下一次成功的
+  // 寫入蓋過去。
+  const [failed, setFailed] = useState<string | null>(null);
   const [hash, setHash] = useState<string | null>(null);
   const [disposition, setDisposition] = useState<string | undefined>(undefined);
   // 宣告但這一批不使用：沒有任何 drawer 會讀它（票 03 的範圍）。
@@ -67,6 +71,31 @@ export function DecisionApp(): React.JSX.Element {
     setState(next);
     return next;
   }, []);
+
+  /**
+   * 一次新增。**沒有樂觀的那一半** —— 新 Decision 的 ULID 由 server 產生，
+   * client 手上沒有 id 可以先畫（`decisionReconcile.ts` 的 `CREATED`，票 01
+   * 已完整實作，這裡只呼叫）。所以順序是先 `POST`，回應到了才把那筆接進快照。
+   *
+   * 失敗走既有的失敗橫幅（`DecisionStatusBanner` 的 `failed` 那一半，同
+   * `IssueApp.tsx` 的樣式），另外回一個 `false` 給表單 —— 那句剛打好的標題是
+   * 使用者手上唯一的一份，沒建成就不該被清掉。
+   */
+  const onCreate = useCallback(
+    (title: string): Promise<boolean> =>
+      createDecision(title).then(
+        (decision) => {
+          apply({ type: 'CREATED', decision });
+          setFailed(null);
+          return true;
+        },
+        (err: unknown) => {
+          setFailed(err instanceof Error ? err.message : String(err));
+          return false;
+        },
+      ),
+    [apply],
+  );
 
   // 開場那一次全量快照。輪詢在它之後才開始 —— 見下面的 `hash`。
   useEffect(() => {
@@ -147,13 +176,14 @@ export function DecisionApp(): React.JSX.Element {
         disposition={disposition}
         onChangeDisposition={setDisposition}
         visibleCount={filtered.length}
+        onCreate={onCreate}
       />
       {projected.length === 0 ? (
         <EmptyDecisions />
       ) : (
         <DecisionList decisions={filtered} onSelect={setSelectedId} />
       )}
-      <DecisionStatusBanner fault={fault} />
+      <DecisionStatusBanner fault={fault} failed={failed} onDismiss={() => setFailed(null)} />
     </main>
   );
 }
@@ -191,25 +221,35 @@ function DecisionLoadFailure({ fault }: { readonly fault: ConnectionFault }): Re
   );
 }
 
-/** 連線中斷橫幅 —— 同 `IssueApp.tsx` 的 `StatusBanner`，這一批沒有寫入所以沒有 `failed` 那一半。 */
+/**
+ * 連線中斷橫幅 + 寫入失敗橫幅 —— 同 `IssueApp.tsx` 的 `StatusBanner`。
+ * 「中斷」蓋過「單次失敗」（同一套理由：伺服器不通時每一筆寫入都會失敗，
+ * 把最後那一筆的訊息貼在中斷橫幅旁邊只是噪音），兩者收回方式不同：
+ * `fault` 由輪詢自己收回，`failed` 描述已經發生過的一件事，由人按掉，或下一次
+ * 成功的新增蓋過去。
+ */
 function DecisionStatusBanner({
   fault,
+  failed,
+  onDismiss,
 }: {
   readonly fault: ConnectionFault | null;
+  readonly failed: string | null;
+  readonly onDismiss: () => void;
 }): React.JSX.Element | null {
-  if (fault === null) return null;
+  if (fault === null && failed === null) return null;
   return (
     <div
       role="status"
       aria-live="polite"
       className="bg-destructive text-destructive-foreground fixed bottom-4 left-1/2 z-50 flex max-w-[min(36rem,90vw)] -translate-x-1/2 items-start gap-3 rounded-md px-3 py-2 text-sm shadow-lg"
     >
-      {fault.kind === 'failed' ? (
+      {fault?.kind === 'failed' ? (
         <span>
           Disconnected — the server did not respond. Is the terminal running{' '}
           <code>nook studio</code> still open?
         </span>
-      ) : fault.kind === 'server-error' ? (
+      ) : fault?.kind === 'server-error' ? (
         <span>
           The server returned an error — it is still alive, so this is not a network problem.{' '}
           {fault.detail === null ? (
@@ -221,11 +261,18 @@ function DecisionStatusBanner({
             <>It said: "{fault.detail}"</>
           )}
         </span>
-      ) : (
+      ) : fault?.kind === 'malformed' ? (
         <span>
           The server answered, but not with nook's data — whatever is running at this address is not{' '}
           <code>nook studio</code>.
         </span>
+      ) : (
+        <>
+          <span>A write did not go through: {failed}</span>
+          <button type="button" className="shrink-0 cursor-pointer underline" onClick={onDismiss}>
+            Got it
+          </button>
+        </>
       )}
     </div>
   );

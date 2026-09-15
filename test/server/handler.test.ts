@@ -9,7 +9,7 @@ import type { Board, CreateInput, IdSource, Issue } from '../../src/index.js';
 import { openDecisionLog } from '../../src/core/decisionLog.js';
 import type { DecisionLog } from '../../src/core/decisionTypes.js';
 import { handleRequest } from '../../src/server/handler.js';
-import type { DecisionBoardSnapshot, IssueView } from '../../src/server/handler.js';
+import type { DecisionBoardSnapshot, DecisionView, IssueView } from '../../src/server/handler.js';
 
 // ADR-0004：無 storage 接縫、無 in-memory fake。每個測試用例一個 mkdtemp 的真實 board。
 let dir: string;
@@ -1563,13 +1563,126 @@ describe('GET /api/decisions', () => {
     expect(Object.hasOwn(view!, 'legacyRef')).toBe(false);
   });
 
-  it('POST /api/decisions 是 405，Allow 說 GET —— 這一批沒有寫入端點', () => {
-    // 405 白名單在路由**之前**判斷，這則請求連不到 decisionLog，
-    // 所以這裡不必先 `initDecisionLog()`。
-    const res = post('/api/decisions', { title: 'should never land' });
+  // 票 01 這裡曾經斷言 POST /api/decisions 是 405（那一批沒有寫入端點）。
+  // 票 02 把這條路徑加進白名單，新增行為的測試搬到下面的
+  // `describe('POST /api/decisions')`。
+});
 
-    expect(res.status).toBe(405);
-    expect(res.headers['allow']).toBe('GET');
+/**
+ * 新增是這一批（票 02）唯一新增的 Decision 寫入端點 —— 同 `POST /api/issues`
+ * 的理由：建立的時候還沒有 ref 可以放進 URL，`POST /d/<ref>` 因此不可能承接它
+ * （那是票 03 的範圍）。
+ */
+describe('POST /api/decisions', () => {
+  it('建立一筆 Decision：201 + DecisionView，而且下一次 /api/decisions 就有它', () => {
+    initDecisionLog();
+    const res = post('/api/decisions', { title: 'Adopt trunk-based development' });
+
+    // 201 而不是 200：這次請求造出了一個之前不存在的資源（RFC 9110）。
+    expect(res.status).toBe(201);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+
+    const view = JSON.parse(res.body) as DecisionView;
+    expect(view.title).toBe('Adopt trunk-based development');
+    // server 產生 ULID —— client 沒有 id 可以先畫，同 Issue 的新增規則。
+    expect(view.id).toMatch(/^[0-9A-Z]{26}$/);
+    // disposition 沒送 → core 的預設值 `proposed`（`decisionLog.create()` 的決定，
+    // 不是這個端點自己填的）。
+    expect(view.disposition).toBe('proposed');
+    expect(view.body).toBe('');
+
+    // 回應說建立成功了不算數，下一次全量讀取看得到它才算。
+    const decisions = JSON.parse(get('/api/decisions').body).decisions as DecisionView[];
+    expect(decisions.map((d) => d.id)).toContain(view.id);
+    expect(decisionLog().get(view.id).title).toBe('Adopt trunk-based development');
+  });
+
+  it('沒有 title、title 不是字串、或 trim 後是空的 → 400，且不造出任何 Decision', () => {
+    initDecisionLog();
+    const rejected: unknown[] = [{}, { title: '' }, { title: '   ' }, { title: '\n\t' }, { title: 1 }, { title: null }, { title: ['x'] }];
+
+    for (const body of rejected) {
+      const res = post('/api/decisions', body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    // 一筆都不該存在 —— 半成品的 Decision 檔比一個錯誤訊息貴得多。
+    expect(decisionLog().refs()).toHaveLength(0);
+  });
+
+  it('body／disposition 一起送 → 201，且那筆真的帶著它們', () => {
+    initDecisionLog();
+    const res = post('/api/decisions', {
+      title: 'Adopt trunk-based development',
+      body: 'Because long-lived branches rot.',
+      disposition: 'accepted',
+    });
+
+    expect(res.status).toBe(201);
+    const view = JSON.parse(res.body) as DecisionView;
+    expect(view.body).toBe('Because long-lived branches rot.');
+    expect(view.disposition).toBe('accepted');
+    expect(decisionLog().get(view.id).disposition).toBe('accepted');
+  });
+
+  it('disposition 不合法 → 400，不是 500，且不造出任何 Decision', () => {
+    initDecisionLog();
+    // 不存在的值、對應到多個 Disposition 的前綴（accepted/superseded 都沒有
+    // 撞號的前綴，這裡改用一個對不到任何值的前綴）、空字串、非字串。
+    for (const disposition of ['nope', '', 5, null, ['accepted']]) {
+      const res = post('/api/decisions', { title: 'Adopt trunk-based development', disposition });
+      expect(res.status, JSON.stringify(disposition)).toBe(400);
+      expect(res.body, JSON.stringify(disposition)).not.toContain('at Object');
+    }
+
+    expect(decisionLog().refs()).toHaveLength(0);
+  });
+
+  /**
+   * 沿用寫入面既有的「不認得的欄位一律拒絕」（同 `POST /api/issues` 的
+   * `CREATE_FIELDS`）：`supersededBy`／`legacyRef` 刻意不收 —— 表單只填標題，
+   * 端點不該提供沒有呼叫端的能力。
+   */
+  it('title / body / disposition 以外的鍵 → 400，且不造出任何 Decision', () => {
+    initDecisionLog();
+    const rejected: unknown[] = [
+      { title: 'x', supersededBy: '01JBXA' },
+      { title: 'x', legacyRef: 'ADR-0001' },
+      { title: 'x', id: fullId('01JDEC1') },
+      // 打錯的欄位名：靜靜地少一格，比一次 400 難查得多。
+      { title: 'x', dispositon: 'accepted' },
+    ];
+
+    for (const body of rejected) {
+      const res = post('/api/decisions', body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    expect(decisionLog().refs()).toHaveLength(0);
+  });
+
+  it('body 不是 JSON 物件 → 400，不是 500', () => {
+    initDecisionLog();
+    for (const body of ['', '{', 'not json', 'null', '42', '"x"', '["x"]']) {
+      const res = post('/api/decisions', body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    expect(decisionLog().refs()).toHaveLength(0);
+  });
+
+  /**
+   * `/api/decisions` 跟 `/api/issues` 不同 —— **兩個方法都合法**（GET 讀快照、
+   * POST 新增），所以既不是 issues 那種「GET 也是 405」的純寫入路徑，也不是
+   * 一般唯讀端點那種「只有 GET」。Allow 因此要同時列出兩者（RFC 9110：
+   * Allow 講的是這個資源支援什麼），而不是照搬 `/api/issues` 那份「只有 POST」。
+   */
+  it('PUT / DELETE / PATCH 是 405，Allow 同時列出 GET 與 POST', () => {
+    for (const method of ['PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']) {
+      const res = handleRequest(board(), decisionLog(), { method, url: '/api/decisions' });
+      expect(res.status, method).toBe(405);
+      expect(res.headers['allow'], method).toBe('GET, POST');
+    }
   });
 });
 
