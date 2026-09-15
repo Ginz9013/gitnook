@@ -22,7 +22,8 @@ import type {
   DecisionFilter,
 } from '../core/decisionTypes.js';
 import { ConflictingGitAttributes, NestedBoard } from '../core/gitattributes.js';
-import { renderDecisionDetail, renderDecisionTable } from '../render/table.js';
+import { decisionFieldWrites } from '../core/decisionReduce.js';
+import { renderDecisionDetail, renderDecisionSetOps, renderDecisionTable } from '../render/table.js';
 import { errLine, fromEditor, line, longText, UsageError } from './run.js';
 import type { Io } from './run.js';
 
@@ -82,10 +83,12 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
       return cmdShow(parseDecisionArgs(rest, NO_FLAGS, SHOW_FLAGS), io);
     case 'set':
       return cmdSet(parseDecisionArgs(rest, NO_FLAGS, SET_FLAGS), io);
+    case 'history':
+      return cmdHistory(parseDecisionArgs(rest, NO_FLAGS, NO_FLAGS), io);
   }
 
   throw new UsageError(
-    `unknown decision subcommand: ${sub ?? ''} (available: init, new, list, show, set)`,
+    `unknown decision subcommand: ${sub ?? ''} (available: init, new, list, show, set, history)`,
   );
 }
 
@@ -306,6 +309,39 @@ function cmdSet(args: DecisionArgs, io: Io): number {
   const updated = log.apply(ref, decisionChangeFor(field, text));
   // 回印更新後那一列——呼叫端不必再跑一次 show 才知道結果，同 `nook set`。
   line(io, renderDecisionTable([updated], shortIdLength(log.refs())));
+  return 0;
+}
+
+/**
+ * `nook decision history <ref> [<title|body|disposition|supersededBy>]`：某個
+ * 欄位（或不給欄位時全部欄位）曾經被寫過的所有值，帶 actor 與 lamport `t`——
+ * 同票 09 對 Issue `history` 的先例（`cli/issue.ts` 的 `cmdHistory`）：**唯讀，
+ * 不做 restore**，看得到就手動 `nook decision set` 貼回去。
+ *
+ * 可查詢的欄位名單沿用 `set` 已經驗證過的 `DECISION_SETTABLE`——同 Issue 的
+ * `SETTABLE`「可寫的也是可查的」既有規則，不另外維護一份名單。`legacyRef`
+ * 因此不在這裡查得到：它不是 `set` 可寫的欄位（spec.md Non-goals：只在遷移
+ * 當下手動標記一次），對稱地也不是 `history` 可查的欄位。
+ *
+ * 摺疊與篩選都在 core 的 `decisionFieldWrites()`（票 01），排序沿用
+ * `DecisionLog.opLog()` 內部呼叫的 `orderOps`——這裡與 `render/table.ts` 都
+ * 不再各寫一份比較器（spec.md 明講這正是 commit 463343d 那個 bug 的成因）。
+ * **本指令唯讀，不 append 任何 Op。**
+ */
+function cmdHistory(args: DecisionArgs, io: Io): number {
+  const [ref, field] = args.positional;
+  const usage = 'usage: nook decision history <ref> [<title|body|disposition|supersededBy>]';
+  if (ref === undefined) throw new UsageError(usage);
+  requireRef(ref);
+  // 打錯欄位名而靜默回一份空清單，等於告訴呼叫端「那個欄位從沒被寫過」——
+  // 同 Issue 的既有慣例：不靜默猜測。
+  if (field !== undefined && !isDecisionSettable(field)) {
+    throw new UsageError(`not a queryable field: ${field} (available: ${DECISION_SETTABLE.join(', ')})`);
+  }
+
+  const log = openDecisionLog({ dir: io.cwd });
+  const ops = decisionFieldWrites(log.opLog(ref), field);
+  line(io, renderDecisionSetOps(ops));
   return 0;
 }
 

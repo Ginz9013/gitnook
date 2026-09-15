@@ -6,12 +6,14 @@ import {
   renderWorkspaceList,
   renderDecisionTable,
   renderDecisionDetail,
+  renderDecisionSetOps,
 } from '../../src/render/table.js';
 import { renderJson } from '../../src/render/json.js';
 import { displayWidth } from '../../src/render/width.js';
 import { resolvePrefix, SHORT_ID_MIN } from '../../src/core/ids.js';
 import type { Issue } from '../../src/core/types.js';
 import type { Decision } from '../../src/core/decisionTypes.js';
+import type { DecisionSetOp } from '../../src/core/decisionOps.js';
 import type { WorkspaceGroup } from '../../src/render/table.js';
 
 const golden = (name: string): string =>
@@ -432,6 +434,49 @@ describe('renderDecisionDetail', () => {
     const d = decision({ id: '01JBXAAAAAAAAAAAAAAAAAAAAA', title: 'X' });
 
     expect(renderDecisionDetail(d, 13).split('  ')[0]).toBe('01JBXAAAAAAAA');
+  });
+});
+
+/**
+ * 票 04：Decision 的 Op-log 中的 set op —— 誰、在哪個 lamport `t`、把哪個欄位
+ * 寫成什麼。同 Issue 既有的 `renderSetOps`（不重用它、不重寫排序，見
+ * spec.md「排序沿用 oplog.ts 的 orderOps，不在 CLI 或渲染層另寫一份比較器」）：
+ * 傳進來的順序就是呼叫端已經排好的全序，這裡只負責版面。
+ */
+describe('renderDecisionSetOps', () => {
+  const setOp = (t: number, a: string, k: DecisionSetOp['k'], v: string): DecisionSetOp => ({
+    id: `01${t}${a}`,
+    t,
+    a,
+    op: 'set',
+    k,
+    v,
+  });
+
+  it('空清單印出簡短訊息，而不是空表頭', () => {
+    expect(renderDecisionSetOps([])).toBe('no set ops');
+  });
+
+  it('列出 t／actor／欄位／值四欄，欄寬對齊', () => {
+    const ops = [
+      setOp(1, 'alice', 'title', 'Use ULIDs'),
+      setOp(2, 'bob', 'disposition', 'accepted'),
+    ];
+
+    expect(renderDecisionSetOps(ops)).toBe(
+      ['1  alice  title        Use ULIDs', '2  bob    disposition  accepted'].join('\n'),
+    );
+  });
+
+  it('值含換行時整份改成表頭一行、值另起一段', () => {
+    const ops = [
+      setOp(1, 'alice', 'body', 'line one\nline two'),
+      setOp(2, 'bob', 'title', 'X'),
+    ];
+
+    expect(renderDecisionSetOps(ops)).toBe(
+      ['1  alice  body', 'line one\nline two', '', '2  bob    title', 'X'].join('\n'),
+    );
   });
 });
 

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { dispatchDecision } from '../../src/cli/decision.js';
 import { openDecisionLog } from '../../src/index.js';
+import { deriveActor } from '../../src/core/actor.js';
 import type { Io } from '../../src/cli/run.js';
 
 // ADR-0004：真實檔案系統，每個測試用例獨立 mkdtemp 的 cwd。
@@ -402,6 +403,100 @@ describe('decision set', () => {
 
     expect(code).toBe(1);
     expect(io.err).toContain(shared);
+  });
+});
+
+/**
+ * 票 04：`nook decision history`——唯讀，看得到就手動 `nook decision set`
+ * 貼回去，不做 restore（同票 09 對 Issue `history` 的先例，見 spec.md）。
+ */
+describe('decision history', () => {
+  it('不帶欄位時列出全部欄位的寫入，create 折成 title 的第一筆', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'Use ULIDs'], newIo);
+    const ref = newIo.out.trim();
+    await dispatchDecision(['set', ref, 'body', 'because sortable'], capture());
+    await dispatchDecision(['set', ref, 'disposition', 'accepted'], capture());
+    const actor = deriveActor(dir);
+
+    const io = capture();
+    const code = await dispatchDecision(['history', ref], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toBe(
+      `1  ${actor}  title        Use ULIDs\n` +
+        `2  ${actor}  body         because sortable\n` +
+        `3  ${actor}  disposition  accepted\n`,
+    );
+    expect(io.err).toBe('');
+  });
+
+  it('帶欄位時只列該欄位的寫入', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'X'], newIo);
+    const ref = newIo.out.trim();
+    await dispatchDecision(['set', ref, 'disposition', 'accepted'], capture());
+    await dispatchDecision(['set', ref, 'disposition', 'rejected'], capture());
+    const actor = deriveActor(dir);
+
+    const io = capture();
+    const code = await dispatchDecision(['history', ref, 'disposition'], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toBe(`2  ${actor}  disposition  accepted\n` + `3  ${actor}  disposition  rejected\n`);
+  });
+
+  it('一次都沒被寫過的欄位印出簡短訊息，而不是空表頭', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'X'], newIo);
+    const ref = newIo.out.trim();
+
+    const io = capture();
+    const code = await dispatchDecision(['history', ref, 'body'], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toBe('no set ops\n');
+  });
+
+  it('打錯欄位名是使用者錯誤，exit 1，不靜默回空清單', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'X'], newIo);
+    const ref = newIo.out.trim();
+
+    const io = capture();
+    const code = await dispatchDecision(['history', ref, 'bogusfield'], io);
+
+    expect(code).toBe(1);
+    expect(io.err).toContain('bogusfield');
+    expect(io.out).toBe('');
+  });
+
+  it('唯讀：跑完之後 op-log 一個 byte 都沒變', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'X', '--body', 'y'], newIo);
+    const ref = newIo.out.trim();
+    const log = join(dir, '.decisions', 'decisions', `${ref}.ndjson`);
+    const before = readFileSync(log, 'utf8');
+
+    expect(await dispatchDecision(['history', ref], capture())).toBe(0);
+    expect(await dispatchDecision(['history', ref, 'body'], capture())).toBe(0);
+
+    expect(readFileSync(log, 'utf8')).toBe(before);
+  });
+
+  it('不存在的 ref → DecisionNotFound，exit 1', async () => {
+    await dispatchDecision(['init'], capture());
+
+    const io = capture();
+    const code = await dispatchDecision(['history', '01DOESNOTEXIST00000000000'], io);
+
+    expect(code).toBe(1);
+    expect(io.err).toContain('01DOESNOTEXIST00000000000');
   });
 });
 

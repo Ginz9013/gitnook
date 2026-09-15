@@ -3,6 +3,7 @@ import { displayWidth } from './width.js';
 import type { SetOp } from '../core/ops.js';
 import type { Comment, Issue } from '../core/types.js';
 import type { Decision } from '../core/decisionTypes.js';
+import type { DecisionSetOp } from '../core/decisionOps.js';
 
 /** 欄位分隔。ADR-0005 的量測範例即以兩個空白分隔。 */
 const GAP = '  ';
@@ -218,6 +219,32 @@ export function renderSetOps(ops: readonly SetOp[]): string {
   if (ops.length === 0) return EMPTY_OPS;
 
   const values = ops.map((op) => String(op.v));
+  const head = ops.map((op) => [String(op.t), op.a, op.k]);
+
+  if (values.some((v) => v.includes('\n'))) {
+    return grid(head)
+      .map((row, i) => `${row}\n${values[i]!}`)
+      .join('\n\n');
+  }
+  return grid(head.map((row, i) => [...row, values[i]!])).join('\n');
+}
+
+/**
+ * 一張 Decision 的 Op-log 中的 set op：誰、在哪個 lamport `t`、把哪個欄位寫成
+ * 什麼 —— 票 04，`nook decision history` 的呈現。同 `renderSetOps` 的版面
+ * 規則（不截斷、多行值整份改版面），但**不重用**它：那個函式的簽章釘死在
+ * Issue 的 `SetOp`，這裡另起一份換上 `DecisionSetOp`，共用的只有底下的
+ * `grid`/`EMPTY_OPS`。
+ *
+ * 不重排：傳進來的順序就是 core 的 `decisionFieldWrites()` 已經摺好的全序
+ * （`DecisionLog.opLog()` 內部呼叫 `oplog.ts` 的 `orderOps`）——排序沿用
+ * 那一份，這裡與 `renderSetOps` 都不再各寫一份比較器（spec.md 明講這正是
+ * commit 463343d 那個 bug 的成因）。
+ */
+export function renderDecisionSetOps(ops: readonly DecisionSetOp[]): string {
+  if (ops.length === 0) return EMPTY_OPS;
+
+  const values = ops.map((op) => op.v);
   const head = ops.map((op) => [String(op.t), op.a, op.k]);
 
   if (values.some((v) => v.includes('\n'))) {
