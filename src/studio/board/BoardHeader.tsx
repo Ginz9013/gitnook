@@ -1,7 +1,6 @@
 import { ListFilter, TriangleAlert, X } from 'lucide-react';
 
 import type { BoardInfo, Status } from '@/api';
-import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -15,10 +14,16 @@ import {
 import { NewIssueForm, useNewIssueEntry } from './NewIssueForm';
 import { boardAlerts } from './health';
 import type { BoardAlert } from './health';
-import { shortenPath } from './path';
 
 /**
- * 看板最上面那一條 —— 這塊 board 是哪一塊，以及在它上面做得到的四件事。
+ * 看板的第二層 header —— 屬於 Issue 這個模組的功能都在這裡：現在畫得出來
+ * 幾張、開一張新的入口、依 Label 篩選、顯示/隱藏已封存、篩選中的說明，以及
+ * 資料健康的警示。
+ *
+ * **logo、「Git Nook」、board 路徑/分支/actor、主題切換都不在這裡** ——
+ * 那些是跨模組固定的東西，搬到 `components/MainHeader.tsx`（`App.tsx` 的殼
+ * 常駐渲染，不管現在切到 Issues 還是 Decisions）。這裡剩下的才是「切到
+ * Decisions 就該跟著換掉」的那一半。
  *
  * **從 `Board.tsx` 抽出來，是因為接下來還有人要往上加東西**：B5（`.gitattributes`
  * 少了 `merge=union` 的警示）與 B6（依 Label 篩選）都落在這裡。而 `Board.tsx`
@@ -27,10 +32,8 @@ import { shortenPath } from './path';
  *
  * **這裡沒有自動化測試**（spec.md 的測試策略：React 組件不寫測試、不引入
  * jsdom／@testing-library／playwright）。這個檔案裡可判定的規則都被推出去了 ——
- * 「路徑太長時怎麼縮」在 `board/path.ts`、「一條 `Diagnostic` 該不該講、講什麼、
- * 下一步打哪個指令」在 `board/health.ts`，兩份都有測試
- * （`test/studio/header.test.ts`、`test/studio/health.test.ts`）。
- * 剩下的是版面與接線，用看的就對得完。
+ * 「一條 `Diagnostic` 該不該講、講什麼、下一步打哪個指令」在 `board/health.ts`，
+ * 有測試（`test/studio/health.test.ts`）。剩下的是版面與接線，用看的就對得完。
  *
  * **不放連線狀態。** 它是 `App.tsx` 的 `StatusBanner`：出事才講話的底部橫幅。
  * 常駐在 header 上的話，那顆號誌 99% 的時間都是綠的，於是沒有人會看它 ——
@@ -39,7 +42,8 @@ import { shortenPath } from './path';
 export interface BoardHeaderProps {
   /**
    * `/api/board-info` 的產物；**還沒抓到就是 `null`，不要卡住整個看板**。
-   * 路徑與分支是「這是哪一塊 board」的說明，不是看板能不能用的前提。
+   * 路徑/分支/actor 已經搬去 `MainHeader.tsx` 顯示，這裡只剩用它算資料健康
+   * 的警示（`diagnostics`）。
    */
   readonly info: BoardInfo | null;
   /** 現在畫得出來的張數 —— 已經套過「顯示已封存」**與** Label 篩選的那一份。 */
@@ -86,15 +90,6 @@ export interface BoardHeaderProps {
   readonly onCreate: (title: string, status: Status | undefined) => Promise<boolean>;
 }
 
-/**
- * 路徑縮到幾個字。
- *
- * 沒有可以引用的權威值，這是一個版面判斷：mono 小字 48 個字約 300px，而
- * header 上這一行的左邊只有 logo 與文字 logo。取大一點，因為縮掉的每一段都是
- * 使用者本來看得到的資訊 —— 縮短的目的是不要擠掉右邊那四個動作，不是好看。
- */
-const MAX_PATH = 48;
-
 export function BoardHeader({
   info,
   visibleCount,
@@ -127,71 +122,12 @@ export function BoardHeader({
     <header className="flex shrink-0 flex-col gap-2">
       <div className="flex items-center gap-3">
         {/*
-          logo 佔位 —— 一個方塊裡放字標 `gN`（gitnook），日後換成真的圖。
-          `aria-hidden` 連同裡面那兩個字母：它旁邊就寫著「Git Nook」，讀出來
-          只會是同一件事講兩次，而 `gN` 唸起來還更糟。
-
-          方塊是 `size-10.5`（42px = 原本 `size-7` 的 1.5 倍）。**它現在比旁邊
-          那兩行字（36px）高，於是這一列的高度由它決定** —— `BoardSkeleton`
-          裡的方塊必須是同一個尺寸，否則資料到達時整條看板會往下跳 6px。
+          左邊這個標籤同 `DecisionListHeader.tsx` 的 `<h1>Decisions</h1>` ——
+          logo／「Git Nook」搬去 `MainHeader.tsx` 之後，這裡需要自己說出「現在
+          是 Issues」，不能再借用上一層的識別。
         */}
-        <div
-          aria-hidden
-          className="bg-primary text-primary-foreground flex size-10.5 shrink-0 items-center justify-center rounded-md text-sm leading-none font-semibold tracking-tight"
-        >
-          gN
-        </div>
+        <h1 className="text-sm font-semibold tracking-tight">Issues</h1>
 
-        <div className="flex min-w-0 flex-col justify-center">
-          <span className="text-sm leading-tight font-semibold tracking-tight">Git Nook</span>
-
-          {/*
-            board 路徑 · 分支 · actor。`info` 還沒到就整條不畫 —— 佔位的骨架比
-            空白更吵，而它遲到的那幾十毫秒沒有人在等。
-          */}
-          {info !== null && (
-            // `overflow-wrap: anywhere`：視窗窄到這一行擺不下時，它折到第二行，
-            // **而不是壓在右邊那組動作底下**（`min-w-0` 讓這一塊縮得比內容小，
-            // 縮小之後不折行的文字會整條溢出去）。路徑是一個沒有空白的長字串，
-            // 所以只有 `anywhere` 折得動它 —— 而折行不會丟掉任何一段，
-            // 從尾端裁掉才會（那正是 `shortenPath` 存在的理由）。
-            <p className="text-muted-foreground font-mono text-[11px] leading-tight [overflow-wrap:anywhere]">
-              {/*
-                看得到的是縮過的，唸出來與滑過去的是完整的那一條 —— 縮短是版面的
-                事，不該讓螢幕閱讀器與滑鼠使用者也拿不到真正的路徑。
-              */}
-              <span aria-label={`board path: ${info.root}`} title={info.root}>
-                {shortenPath(info.root, MAX_PATH)}
-              </span>
-              {/*
-                分支說不出來（不是 git repo、detached HEAD、還沒有第一次提交）時
-                **整格不畫**，而不是寫一個破折號：那三種情況都是正常的工作狀態，
-                畫面上多一格「分支：—」只會讓人以為出了事。
-              */}
-              {info.branch !== null && (
-                <>
-                  <Separator />
-                  <span aria-label={`branch: ${info.branch}`}>{info.branch}</span>
-                </>
-              )}
-              <Separator />
-              {/*
-                Actor 一定要有可及的說明，而且 `title` 不夠 —— 鍵盤與螢幕閱讀器
-                使用者碰不到 hover。它**不是負責人**：Nook 沒有負責人的概念
-                （CONTEXT.md），這個名字的意思是「你在這裡寫的每一個 op 記在誰
-                身上」（ADR-0007）。少了這句話，畫面上一個孤零零的人名只會被讀成
-                「這塊板子是他的」。
-              */}
-              <span
-                aria-label={`changes you make here are recorded under ${info.actor}; this is not an owner — Nook has no concept of ownership`}
-              >
-                {info.actor}
-              </span>
-            </p>
-          )}
-        </div>
-
-        {/* 左邊那一塊有多長由路徑決定，所以右邊那組靠 `ml-auto` 推過去。 */}
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <span className="text-muted-foreground text-xs">{visibleCount} issues</span>
 
@@ -262,12 +198,6 @@ export function BoardHeader({
               {showArchived ? 'Hide archived' : `Show archived (${archivedCount})`}
             </Button>
           )}
-
-          {/*
-            主題切換從右上角那個 `fixed` 的殼搬進來（`main.tsx`）。那是批 A 知情的
-            兩步：批 A 要能切主題，而 header 是這張票的事。
-          */}
-          <ThemeToggle />
         </div>
       </div>
 
@@ -376,14 +306,5 @@ function AlertBar({ alert }: { readonly alert: BoardAlert }): React.JSX.Element 
         </span>
       </div>
     </div>
-  );
-}
-
-/** 那一行 mono 小字裡的分隔點。`aria-hidden`：唸出來是噪音。 */
-function Separator(): React.JSX.Element {
-  return (
-    <span aria-hidden className="px-1.5 opacity-60">
-      ·
-    </span>
   );
 }

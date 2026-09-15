@@ -11,6 +11,7 @@ export interface PrefStorage {
 const THEME_KEY = 'nook.studio.theme';
 const COLLAPSED_KEY = 'nook.studio.collapsed';
 const ACTIVE_VIEW_KEY = 'nook.studio.activeView';
+const SIDEBAR_OPEN_KEY = 'nook.studio.sidebarOpen';
 
 const THEMES: readonly string[] = ['light', 'dark', 'system'];
 
@@ -48,6 +49,22 @@ export function readActiveView(s: PrefStorage): ActiveView {
 
 export function writeActiveView(s: PrefStorage, v: ActiveView): void {
   s.setItem(ACTIVE_VIEW_KEY, v);
+}
+
+/**
+ * 讀側邊欄開合偏好。**讀不懂就是展開**（同其餘偏好「壞掉的值不該讓畫面
+ * 消失」的既有規則），因為收合是省空間用的，預設值應該是資訊量較多的那一種。
+ *
+ * shadcn 的 Sidebar 原本用 cookie 存這一格（為了 SSR 時第一幀就對），但這裡
+ * 是純前端的 SPA，沒有 SSR 這個前提——沿用這個檔案既有的 `localStorage` 模式，
+ * 不必為了一個不存在的情境多一種持久化機制。
+ */
+export function readSidebarOpen(s: PrefStorage): boolean {
+  return s.getItem(SIDEBAR_OPEN_KEY) !== 'false';
+}
+
+export function writeSidebarOpen(s: PrefStorage, open: boolean): void {
+  s.setItem(SIDEBAR_OPEN_KEY, String(open));
 }
 
 /**
