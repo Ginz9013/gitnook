@@ -8,7 +8,11 @@ While the major version is `0`, a minor bump may contain changes that would be
 breaking after `1.0.0`. Any such change is listed under **Changed** or
 **Removed** with what it means for you.
 
-## [Unreleased]
+## [0.5.0] - 2026-09-15
+
+The theme of this release is **Decisions become a first-class peer of
+Issues** — a second, parallel op-log for Architecture Decision Records, in
+both the CLI and studio.
 
 ### Changed
 
@@ -38,18 +42,35 @@ breaking after `1.0.0`. Any such change is listed under **Changed** or
 
 ### Added
 
-- **`nook decision <init|new|show|list>`** — the first slice of a second,
-  parallel op-log for Architecture Decision Records, alongside Issues. Same
+- **`nook decision <init|new|list|show|set|history>`** — a second, parallel
+  op-log for Architecture Decision Records, alongside Issues. Same
   append-only NDJSON-per-record shape and `merge=union` guarantee, its own
   `.decisions/` directory; deliberately smaller than Issue (no labels,
   comments, archiving, or private mode). `list` prints the same compact-table
   style as `nook issue list`, filterable with `--disposition`, and shows
   every Decision by default — there is no archived/done/cancelled-equivalent
-  hidden by default. `nook doctor` now also checks `.decisions/`'s
-  `merge=union` line whenever that directory exists (silent otherwise). A
-  Decision has a `disposition` (`proposed`/`accepted`/`superseded`/
-  `rejected`), not a workflow `status` —
-  the two are different axes of meaning and are not interchangeable.
+  hidden by default. `set` writes `title`/`body`/`disposition`/
+  `supersededBy` (plain-text, unvalidated against an existing ref); `history`
+  is read-only, listing every write to a field (including `legacyRef`, set
+  once during ADR migration and otherwise not writable through `set`) with
+  its actor and lamport clock — there is no restore, matching Issue's own
+  `history`. `nook doctor` now also checks `.decisions/`'s `merge=union` line
+  whenever that directory exists (silent otherwise). A Decision has a
+  `disposition` (`proposed`/`accepted`/`superseded`/`rejected`), not a
+  workflow `status` — the two are different axes of meaning and are not
+  interchangeable.
+- **`nook studio` now has a top-level Issues/Decisions switch.** A
+  collapsible sidebar on the left (replacing the single Issues-only header)
+  swaps between Issue's existing kanban board and a new flat Decisions list —
+  Decisions have no Status/Lane, so there is no kanban view for them. The
+  chosen view persists across reloads (`localStorage`, same pattern as the
+  theme toggle). Decisions get their own drawer (view/edit
+  `title`/`body`/`disposition`/`supersededBy`, a read-only `legacyRef` badge
+  when set) and the same change-history panel Issue already had, now
+  generalized to serve both. Only one view's composition root is mounted at
+  a time, so the view you're not looking at doesn't keep polling the server
+  in the background. A fixed top header (logo, board path, branch, actor,
+  theme toggle) now sits above the sidebar and is shared by both views.
 
 ## [0.4.1] - 2026-09-15
 
