@@ -1,0 +1,4 @@
+{"id":"01M2HPP1HW2NEMZX6DBKQ40GTR","t":1,"a":"83a1","op":"create","title":"泛化 poll.ts 的 startPolling，讓兩個視圖共用同一份輪詢迴圈"}
+{"id":"01M2HPP1J6PH8T84W2G52RNW1H","t":2,"a":"83a1","op":"set","k":"description","v":"review 於票 01 落地後發現 spec.md 對 poll.ts 的假設是錯的，DecisionApp.tsx 現在自己接了一份輪詢迴圈，跟 startPolling 幾乎一樣的控制流程重複了兩份。詳見 .scratch/decision-studio/05-generalize-poll.md"}
+{"id":"01M2HPP1J6HWF1XD2108MPWE39","t":3,"a":"83a1","op":"label.add","v":"decision-studio"}
+{"id":"01M2HPP7DEK70T9BCDW8EGA2NE","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}

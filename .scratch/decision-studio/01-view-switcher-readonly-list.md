@@ -45,11 +45,16 @@ localStorage（重新整理維持上次選的）。切到 Decisions：一份扁�
       `filterByDisposition(decisions, disposition?)`）
 - [ ] `src/studio/IssueApp.tsx`（新）：現有 `App.tsx` 的內容**原樣搬過去，
       邏輯一行不改**（同 CLI 那批 `dispatchIssue` 的搬遷手法）
-- [ ] `src/studio/DecisionApp.tsx`（新）：鏡射 `IssueApp.tsx` 的節奏——
+- [x]（完成後更正：`poll.ts` 的 `startPolling` 實測**不是**泛型函式——
+      內部寫死 import Issue 的 `fetchHash`/`fetchBoard` 並 dispatch
+      `POLL` action，見 spec.md 的 Domain decisions 更正說明）
+      `src/studio/DecisionApp.tsx`（新）：鏡射 `IssueApp.tsx` 的節奏——
       一份 `ClientDecisionState` ref、輪詢 `/decision-hash`／
-      `/api/decisions`（重用 `poll.ts` 既有的泛型 `startPolling`，
-      不改那個檔案）、連線中斷橫幅（重用既有 `ConnectionFault`/
-      `classifyFailure`）——這票沒有寫入，drawer 開關狀態先宣告但不使用
+      `/api/decisions`（`poll.ts` 不得修改，改成自己接一份小的輪詢
+      迴圈，重用 `poll.ts` 裡真正泛型的連線狀態機與 `classifyFailure`；
+      迴圈本身的重複已追加票 05 處理）、連線中斷橫幅（重用既有
+      `ConnectionFault`/`classifyFailure`）——這一批沒有寫入，drawer
+      開關狀態先宣告但不使用
 - [ ] `src/studio/App.tsx`：拆成薄殼，讀/寫 `prefs.ts` 的視圖偏好
       （新增 `readActiveView`/`writeActiveView`，同既有 `readTheme` 的
       模式：讀不懂的值退回預設 `'issues'`），畫頂層切換 UI，依偏好

@@ -70,8 +70,19 @@ ADR-0002 的全量掃描代價不貴，但沒理由替不會被看見的畫面�
 `comments`，且拖曳三個動作（GRAB/RELEASE/DROP）對沒有看板的 Decision
 完全無意義——這是兩個真實 adapter 但差異是真的，比照 core 那邊
 `decisionReduce.ts` 之於 `reduce.ts` 的既有先例：平行、不共用，不硬拗
-一個「兩者都要塞得下」的泛型介面。`poll.ts` 的 `startPolling` 已經是
-泛型函式（吃 `dispatch`/`hash` fetch），這裡直接重用，不開分身。
+一個「兩者都要塞得下」的泛型介面。
+
+> **票 01 落地後更正**：原本這裡寫「`poll.ts` 的 `startPolling` 已經是
+> 泛型函式，直接重用」——**這句話是錯的**，寫 spec 時沒有真的去讀那個
+> 函式。實測 `startPolling` 內部直接寫死 import `fetchHash`/`fetchBoard`
+> 並 dispatch 一個 Decision 沒有的 `POLL` action，對 Decision 完全不能
+> 直接重用。既然 `poll.ts` 被劃進票 01 的「不得碰」清單，`DecisionApp.tsx`
+> 只能自己接一份小的輪詢迴圈，重用 `poll.ts` 裡**真正泛型**的連線狀態機
+> （`CONNECTED`/`connectionReduce`/`connectionFault`/`sameFault`/
+> `classifyFailure`），但迴圈本身（`setInterval`/`busy` 旗標/`AbortController`
+> 的控制流程）目前是兩份幾乎一樣的實作。這正是這個 repo 自己在警告的
+> 那種重複（commit 463343d），已經追加票 05 處理：把 `startPolling`
+> 泛化成吃 `fetch`/`dispatch` 參數，讓兩個視圖共用同一份被測試過的迴圈。
 
 **`HistoryPanel.tsx` 泛化，Decision 重用整個組件。** 跟上面那條相反的
 判斷——`historyRows()` 只處理 `field`/`value`/`actor`/`t`，跟欄位名稱
@@ -238,9 +249,11 @@ Measured 2026-09-15（`main`，已包含 decision-module 整批 + 歸檔
 | 02 | `studio/decisions/NewDecisionForm.tsx`(新) `server/handler.ts`（+POST /api/decisions）`studio/api.ts`（+createDecision）`studio/DecisionApp.tsx`／`decisions/DecisionListHeader.tsx`（接線）+ 測試 | 01 |
 | 03 | `studio/decisionDrawer/{DecisionDrawer,DecisionDetail,DispositionPicker,decisionChanges}.{tsx,ts}`(新) `server/handler.ts`（+POST /d/\<ref\>）`studio/api.ts`（+postDecisionChange）`studio/DecisionApp.tsx`（接線）+ 測試 | 01（與 02 對 `DecisionApp.tsx`／`handler.ts`／`api.ts` 序列） |
 | 04 | `studio/drawer/HistoryPanel.tsx`（泛化，Issue 用法不變）`studio/drawer/history.ts`（泛化）`server/handler.ts`（+GET /api/decision-history/\<ref\>）`studio/api.ts`（+fetchDecisionHistory）`studio/decisionDrawer/DecisionDetail.tsx`（接線）+ 測試 | 01, 03（DecisionDetail.tsx 由 03 建立） |
+| 05 | `studio/poll.ts`（泛化 `startPolling`）`studio/reconcile.ts`（若呼叫端形狀需要調整）`studio/IssueApp.tsx`（改叫泛化後的 `startPolling`，Issue 行為不變）`studio/DecisionApp.tsx`（改叫同一份，刪掉自己那份輪詢迴圈）+ 測試——**票 01 落地後 review 追加**，見 `05-generalize-poll.md` | 04 |
 
-批次：**B1=[01]、B2=[02]、B3=[03]、B4=[04]**——`handler.ts`／`api.ts`／
-`DecisionApp.tsx` 幾乎每張票都碰，全序鏈是誠實反映而非刻意製造。
+批次：**B1=[01]、B2=[02]、B3=[03]、B4=[04]、B5=[05]**——
+`handler.ts`／`api.ts`／`DecisionApp.tsx` 幾乎每張票都碰，全序鏈是
+誠實反映而非刻意製造。
 
 ## Risks and deferred questions
 
