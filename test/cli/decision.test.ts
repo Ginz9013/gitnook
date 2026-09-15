@@ -475,6 +475,26 @@ describe('decision history', () => {
     expect(io.out).toBe('');
   });
 
+  it('legacyRef 不是 set 可寫的欄位，但寫過之後 history 兩種查法都看得到（不一致是 bug）', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'X'], newIo);
+    const ref = newIo.out.trim();
+    // legacyRef 只在遷移當下由 core 直接寫入（票 07 的做法），CLI 的 set 不曝露它。
+    openDecisionLog({ dir }).apply(ref, { legacyRef: '0009' });
+    const actor = deriveActor(dir);
+
+    const allIo = capture();
+    const allCode = await dispatchDecision(['history', ref], allIo);
+    const scoped = capture();
+    const scopedCode = await dispatchDecision(['history', ref, 'legacyRef'], scoped);
+
+    expect(allCode).toBe(0);
+    expect(allIo.out).toContain(`${actor}  legacyRef  0009`);
+    expect(scopedCode).toBe(0);
+    expect(scoped.out).toBe(`2  ${actor}  legacyRef  0009\n`);
+  });
+
   it('唯讀：跑完之後 op-log 一個 byte 都沒變', async () => {
     await dispatchDecision(['init'], capture());
     const newIo = capture();

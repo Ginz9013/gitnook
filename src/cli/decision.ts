@@ -257,6 +257,22 @@ type DecisionField = (typeof DECISION_SETTABLE)[number];
 const isDecisionSettable = (value: string): value is DecisionField =>
   (DECISION_SETTABLE as readonly string[]).includes(value);
 
+/**
+ * `history` 的可查欄位比 `set` 的可寫欄位多一個 `legacyRef`——兩份名單
+ * **不對稱是刻意的**，不是 `DECISION_SETTABLE` 沒同步更新。`legacyRef` 不是
+ * `set` 可寫的欄位（spec.md Non-goals：只在遷移當下手動標記一次），但它一旦
+ * 被寫過，`nook decision history <ref>`（不帶欄位）本來就會把它列進「全部
+ * 欄位」──`decisionFieldWrites(ops, undefined)` 不看欄位名單，全部 set op
+ * 照樣折出來。若這裡只放行 `DECISION_SETTABLE`，`history <ref> legacyRef`
+ * 會拋 UsageError，卻在不給欄位時又看得到同一筆紀錄，這種只在單欄位查詢時
+ * 消失的不一致才是真正的 bug。
+ */
+const DECISION_HISTORY_FIELDS = [...DECISION_SETTABLE, 'legacyRef'] as const;
+type DecisionHistoryField = (typeof DECISION_HISTORY_FIELDS)[number];
+
+const isDecisionHistoryField = (value: string): value is DecisionHistoryField =>
+  (DECISION_HISTORY_FIELDS as readonly string[]).includes(value);
+
 /** 欄位名 + 新值 → `DecisionChange`——同 `run.ts` 的 `asChange`，一個 switch
  * 換掉那裡的 `BOOLEAN_FIELDS` 分支（Decision 沒有布林欄位可寫）。 */
 function decisionChangeFor(field: DecisionField, value: string): DecisionChange {
@@ -313,15 +329,17 @@ function cmdSet(args: DecisionArgs, io: Io): number {
 }
 
 /**
- * `nook decision history <ref> [<title|body|disposition|supersededBy>]`：某個
- * 欄位（或不給欄位時全部欄位）曾經被寫過的所有值，帶 actor 與 lamport `t`——
- * 同票 09 對 Issue `history` 的先例（`cli/issue.ts` 的 `cmdHistory`）：**唯讀，
- * 不做 restore**，看得到就手動 `nook decision set` 貼回去。
+ * `nook decision history <ref> [<title|body|disposition|supersededBy|legacyRef>]`：
+ * 某個欄位（或不給欄位時全部欄位）曾經被寫過的所有值，帶 actor 與
+ * lamport `t`——同票 09 對 Issue `history` 的先例（`cli/issue.ts` 的
+ * `cmdHistory`）：**唯讀，不做 restore**，看得到就手動 `nook decision set`
+ * 貼回去。
  *
- * 可查詢的欄位名單沿用 `set` 已經驗證過的 `DECISION_SETTABLE`——同 Issue 的
- * `SETTABLE`「可寫的也是可查的」既有規則，不另外維護一份名單。`legacyRef`
- * 因此不在這裡查得到：它不是 `set` 可寫的欄位（spec.md Non-goals：只在遷移
- * 當下手動標記一次），對稱地也不是 `history` 可查的欄位。
+ * 可查詢的欄位名單是 `DECISION_HISTORY_FIELDS`，比 `set` 的
+ * `DECISION_SETTABLE` 多一個 `legacyRef`——見該常數上的註解：不給欄位時
+ * `decisionFieldWrites()` 本來就不篩欄位，`legacyRef` 一旦被寫過就會出現，
+ * 所以單欄位查詢也該放行，否則同一筆紀錄會「不給欄位看得到、指名欄位卻
+ * 查不到」。
  *
  * 摺疊與篩選都在 core 的 `decisionFieldWrites()`（票 01），排序沿用
  * `DecisionLog.opLog()` 內部呼叫的 `orderOps`——這裡與 `render/table.ts` 都
@@ -330,13 +348,13 @@ function cmdSet(args: DecisionArgs, io: Io): number {
  */
 function cmdHistory(args: DecisionArgs, io: Io): number {
   const [ref, field] = args.positional;
-  const usage = 'usage: nook decision history <ref> [<title|body|disposition|supersededBy>]';
+  const usage = 'usage: nook decision history <ref> [<title|body|disposition|supersededBy|legacyRef>]';
   if (ref === undefined) throw new UsageError(usage);
   requireRef(ref);
   // 打錯欄位名而靜默回一份空清單，等於告訴呼叫端「那個欄位從沒被寫過」——
   // 同 Issue 的既有慣例：不靜默猜測。
-  if (field !== undefined && !isDecisionSettable(field)) {
-    throw new UsageError(`not a queryable field: ${field} (available: ${DECISION_SETTABLE.join(', ')})`);
+  if (field !== undefined && !isDecisionHistoryField(field)) {
+    throw new UsageError(`not a queryable field: ${field} (available: ${DECISION_HISTORY_FIELDS.join(', ')})`);
   }
 
   const log = openDecisionLog({ dir: io.cwd });
