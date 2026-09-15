@@ -5,7 +5,7 @@ import { BoardSkeleton } from '@/board/BoardSkeleton';
 import { focusIssue } from '@/board/focus';
 import { IssueDrawer } from '@/drawer/IssueDrawer';
 import type { DrawerChange } from '@/drawer/changes';
-import { createIssue, fetchBoard, fetchBoardInfo, postChange } from '@/api';
+import { createIssue, fetchBoard, fetchBoardInfo, fetchHash, postChange } from '@/api';
 import type { BoardInfo, IssueView, Status } from '@/api';
 import { clientReduce, initialClient, project } from '@/reconcile';
 import type { ClientAction, ClientState } from '@/reconcile';
@@ -167,7 +167,18 @@ export function IssueApp(): React.JSX.Element {
   // 比對）。之後 hash 不再變 —— 迴圈自己記著最新的那個，不回報上來。
   useEffect(() => {
     if (hash === null) return;
-    return startPolling({ hash, dispatch: apply, onConnectionChange: setFault });
+    return startPolling({
+      hash,
+      fetchHash,
+      fetchSnapshot: fetchBoard,
+      // 快照變成一個 action —— reducer 判斷該不該動畫面，這裡只是搬運（票 02）。
+      // 回傳型別得標成 `ClientAction<IssueView>`：物件字面值裡的 `type: 'POLL'`
+      // 不加註解會被推成 `string`，`A` 就跟著 `dispatch`（也就是 `apply`）期待
+      // 的聯集型別對不上。
+      toAction: (snapshot): ClientAction<IssueView> => ({ type: 'POLL', issues: snapshot.issues }),
+      dispatch: apply,
+      onConnectionChange: setFault,
+    });
   }, [hash, apply]);
 
   /**

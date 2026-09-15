@@ -1,10 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   CONNECTED,
+  POLL_INTERVAL_MS,
   classifyFailure,
   connectionFault,
   connectionReduce,
   sameFault,
+  startPolling,
 } from '../../src/studio/poll.js';
 import type { ConnectionFault, PollOutcome } from '../../src/studio/poll.js';
 import { HttpError, MalformedResponseError, isBoardSnapshot } from '../../src/studio/api.js';
@@ -215,5 +217,57 @@ describe('isBoardSnapshot — 只檢頂層是刻意的', () => {
   // 的下場是整塊 board 被判成 malformed，畫面說「那個 port 上跑的不是 nook」。
   it('issues 裡面裝了什麼不看 —— 頂層對了就放行', () => {
     expect(isBoardSnapshot({ issues: [{ nope: 1 }], hash: 'a3f' })).toBe(true);
+  });
+});
+
+// —— 票 05：`startPolling` 泛化，兩個視圖共用同一份輪詢迴圈 ——
+//
+// 假的 fetch/dispatch，不 spawn 真實 server（同這一批的 seam 說明）。用假的
+// 計時器把 `setInterval` 往前推一格，而不是真的等 2 秒 —— 迴圈本身
+// （`setInterval`/`AbortController`/`busy` 旗標）不是這裡要釘的判斷，那些不變；
+// 這裡要釘的是「注入不同的 fetch/toAction 組合，迴圈都能正確接線」。
+describe('startPolling — 泛化後的輪詢迴圈接線', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('Issue 形狀的組合：hash 變了才抓快照，快照經 toAction 轉成 dispatch 的 action', async () => {
+    const dispatched: unknown[] = [];
+    const stop = startPolling({
+      hash: 'a',
+      fetchHash: async () => 'b',
+      fetchSnapshot: async () => ({ issues: [{ id: '1' }], hash: 'b' }),
+      toAction: (snapshot: { issues: readonly { id: string }[] }) => ({
+        type: 'POLL' as const,
+        issues: snapshot.issues,
+      }),
+      dispatch: (action: unknown) => dispatched.push(action),
+      onConnectionChange: () => {},
+    });
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    stop();
+    expect(dispatched).toEqual([{ type: 'POLL', issues: [{ id: '1' }] }]);
+  });
+
+  it('Decision 形狀的組合：換一組 fetch/toAction，同一份迴圈照樣正確運作', async () => {
+    const dispatched: unknown[] = [];
+    const stop = startPolling({
+      hash: 'x',
+      fetchHash: async () => 'y',
+      fetchSnapshot: async () => ({ decisions: [{ id: 'd1' }], hash: 'y' }),
+      toAction: (snapshot: { decisions: readonly { id: string }[] }) => ({
+        type: 'SNAPSHOT' as const,
+        decisions: snapshot.decisions,
+      }),
+      dispatch: (action: unknown) => dispatched.push(action),
+      onConnectionChange: () => {},
+    });
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    stop();
+    expect(dispatched).toEqual([{ type: 'SNAPSHOT', decisions: [{ id: 'd1' }] }]);
   });
 });

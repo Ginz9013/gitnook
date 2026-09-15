@@ -15,15 +15,8 @@ import { DecisionListHeader } from '@/decisions/DecisionListHeader';
 import { DecisionListSkeleton } from '@/decisions/DecisionListSkeleton';
 import { EmptyDecisions } from '@/decisions/EmptyDecisions';
 import { filterByDisposition } from '@/decisions/filter';
-import {
-  CONNECTED,
-  POLL_INTERVAL_MS,
-  classifyFailure,
-  connectionFault,
-  connectionReduce,
-  sameFault,
-} from '@/poll';
-import type { ConnectionFault, ConnectionState } from '@/poll';
+import { classifyFailure, startPolling } from '@/poll';
+import type { ConnectionFault } from '@/poll';
 
 type Client = ClientDecisionState<DecisionView>;
 
@@ -38,14 +31,14 @@ type Client = ClientDecisionState<DecisionView>;
  * `decisionReconcile.ts` 的 EDIT/ACK/FAIL action。`selectedId` 早在票 02 就
  * 接上 `DecisionList` 的 `onSelect`，這一批補上真的會讀它的 `DecisionDrawer`。
  *
- * **輪詢迴圈是這裡自己寫的一份小接線，不是呼叫 `poll.ts` 的 `startPolling`**——
- * 那個函式本身寫死了 Issue 的 `fetchHash`/`fetchBoard` 與 `ClientAction<IssueView>`
- * 的 `POLL` 動作，對 Decision 的 `fetchDecisionHash`/`fetchDecisions`（`SNAPSHOT`
- * 動作）沒有一個字對得上，而 `poll.ts` 本身是不得修改的檔案（write scope）。
- * 這裡重用的是 `poll.ts` 裡**真正泛型**的那幾件：連線狀態機
- * （`CONNECTED`/`connectionReduce`/`connectionFault`/`sameFault`）與失敗分類
- * （`classifyFailure`），三者都不知道 Issue 是什麼，同一套規則因此在兩個視圖
- * 上是同一份實作、同一份測試涵蓋（`test/studio/poll.test.ts`）。
+ * **輪詢迴圈呼叫 `poll.ts` 泛化後的 `startPolling`（這一批，票 05）**——那個
+ * 函式原本寫死 Issue 的 `fetchHash`/`fetchBoard` 與 `ClientAction<IssueView>`
+ * 的 `POLL` 動作，泛化之後改吃 `fetchHash`/`fetchSnapshot`/`toAction` 三個
+ * 由呼叫端決定的函式，這裡傳的是 `fetchDecisionHash`/`fetchDecisions` 與一個
+ * 把快照轉成 `SNAPSHOT` 動作的 `toAction`。間隔、`busy` 旗標語意、abort 規則、
+ * 連線狀態機（`CONNECTED`/`connectionReduce`/`connectionFault`/`sameFault`）
+ * 與失敗分類（`classifyFailure`）因此跟 `IssueApp.tsx` 是同一份實作、同一份
+ * 測試涵蓋（`test/studio/poll.test.ts`），不再是兩份各自維護、遲早分岔的接線。
  *
  * **這個檔案沒有自動化測試**（spec.md：React 組件不寫測試，接線本身沒有
  * 判斷 —— 有判斷的部分全部住在上面列的那些純函式裡）。
@@ -161,42 +154,20 @@ export function DecisionApp(): React.JSX.Element {
   // 輪詢。dep 是 hash —— 第一份快照到達之前它是 null，迴圈因此不會啟動。
   useEffect(() => {
     if (hash === null) return;
-
-    const abort = new AbortController();
-    let latest = hash;
-    let connection: ConnectionState = CONNECTED;
-    let busy = false;
-
-    const record = (outcome: 'ok' | ConnectionFault): void => {
-      const before = connectionFault(connection);
-      connection = connectionReduce(connection, outcome);
-      const now = connectionFault(connection);
-      if (!sameFault(now, before)) setFault(now);
-    };
-
-    const tick = async (): Promise<void> => {
-      if (busy) return;
-      busy = true;
-      try {
-        const next = await fetchDecisionHash(abort.signal);
-        if (next !== latest) {
-          const snapshot = await fetchDecisions(abort.signal);
-          latest = next;
-          apply({ type: 'SNAPSHOT', decisions: snapshot.decisions });
-        }
-        record('ok');
-      } catch (err) {
-        if (!abort.signal.aborted) record(classifyFailure(err));
-      } finally {
-        busy = false;
-      }
-    };
-
-    const timer = setInterval(() => void tick(), POLL_INTERVAL_MS);
-    return () => {
-      clearInterval(timer);
-      abort.abort();
-    };
+    return startPolling({
+      hash,
+      fetchHash: fetchDecisionHash,
+      fetchSnapshot: fetchDecisions,
+      // 快照變成一個 action —— reducer 判斷該不該動畫面，這裡只是搬運。
+      // 回傳型別得標成 `ClientDecisionAction<DecisionView>`：同 `IssueApp.tsx`
+      // 的 `toAction`，不標的話 `type: 'SNAPSHOT'` 會被推成 `string`。
+      toAction: (snapshot): ClientDecisionAction<DecisionView> => ({
+        type: 'SNAPSHOT',
+        decisions: snapshot.decisions,
+      }),
+      dispatch: apply,
+      onConnectionChange: setFault,
+    });
   }, [hash, apply]);
 
   const projected = useMemo(() => (state === null ? [] : projectDecisions(state)), [state]);
