@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initBoard } from '../../src/core/gitattributes.js';
+import { initBoard, initDecisionRoot, DECISION_MERGE_RULE } from '../../src/core/gitattributes.js';
 import { diagnose, repair } from '../../src/core/health.js';
 import { inspectSharing } from '../../src/core/sharing.js';
 import { openBoard } from '../../src/core/board.js';
@@ -47,7 +47,7 @@ describe('merge=union 那一行', () => {
   it('那一行缺失時回報 MissingMergeDriver', () => {
     gitInit();
     initBoard(dir);
-    // 唯一的單點失效：有人把那一行刪掉了（docs/adr/0001）。
+    // 唯一的單點失效：有人把那一行刪掉了（decision legacyRef 0001，`nook decision show 0001`）。
     writeFileSync(join(dir, '.gitattributes'), '*.png binary\n', 'utf8');
 
     const found = diagnose(dir);
@@ -422,4 +422,70 @@ describe('fs 說 private、git 卻說沒 ignore', () => {
   // 沒有測試：造得出來的情境裡 git 都指得出來，而硬造一個不真實的情境去釘一條
   // 防禦性分支，釘住的會是那個假情境而不是行為。它的失敗方向是保守的 ——
   // 少說一句「是哪一條」，後果與問法照樣講。
+});
+
+/**
+ * ticket 06：`diagnose()` 泛化成掃描一份已知實體 pattern 清單，Decision 是第二項
+ * （票 01 的 `.decisions/decisions/*.ndjson merge=union`）。與 Issue 不同的地方
+ * 是 Decision 沒有 private 模式（票 01 只支援 shared），所以它的閘門不是問
+ * sharing，而是問 marker 目錄在不在 —— `.decisions/` 不存在時這個診斷在這個
+ * repo 裡「不存在」，不是被壓掉的真問題（同 private-mode 的既有哲學）。
+ *
+ * 每個案例都先 initBoard 讓 Issue 側維持健康，才看得出回報的那一條確實是
+ * Decision 專屬的，而不是 Issue 既有邏輯的副作用。
+ */
+describe('Decision 的零衝突保證', () => {
+  it('.decisions/ 存在但缺少 merge=union 那一行時回報 MissingMergeDriver', () => {
+    gitInit();
+    initBoard(dir);
+    initDecisionRoot(dir);
+    // 只留 Issue 那一行，把 Decision 剛寫入的那一行拿掉——模擬那一行被誤刪。
+    writeFileSync(join(dir, '.gitattributes'), '.issues/issues/*.ndjson merge=union\n', 'utf8');
+
+    const found = diagnose(dir);
+
+    expect(found).toHaveLength(1);
+    expect(found[0]!.kind).toBe('MissingMergeDriver');
+    expect(found[0]!.file).toBe('.gitattributes');
+    expect(found[0]!.message).toContain(DECISION_MERGE_RULE);
+    expect(found[0]!.message).toContain('nook decision init');
+  });
+
+  it('.decisions/ 的 .gitattributes 含衝突規則時，指出是哪一行把保證蓋掉', () => {
+    gitInit();
+    initBoard(dir);
+    initDecisionRoot(dir);
+    // 針對 Decision 的 pattern 疊一條 -merge，Issue 那一行不受影響（pattern
+    // 不同）——這樣才能確認回報的正是 Decision 那一條，不是 Issue 的。
+    writeFileSync(
+      join(dir, '.gitattributes'),
+      '.issues/issues/*.ndjson merge=union\n' +
+        '.decisions/decisions/*.ndjson merge=union\n' +
+        '.decisions/decisions/*.ndjson -merge\n',
+      'utf8',
+    );
+
+    const found = diagnose(dir);
+
+    expect(found).toHaveLength(1);
+    expect(found[0]!.kind).toBe('MissingMergeDriver');
+    expect(found[0]!.line).toBe(3);
+    expect(found[0]!.message).toContain('.decisions/decisions/*.ndjson -merge');
+  });
+
+  it('.decisions/ 目錄不存在時完全沉默，不回報任何 Decision 相關 Diagnostic', () => {
+    gitInit();
+    initBoard(dir);
+    expect(existsSync(join(dir, '.decisions'))).toBe(false);
+
+    expect(diagnose(dir)).toEqual([]);
+  });
+
+  it('.decisions/ 存在且 merge=union 齊全時保持沉默，同 Issue 側既有行為', () => {
+    gitInit();
+    initBoard(dir);
+    initDecisionRoot(dir);
+
+    expect(diagnose(dir)).toEqual([]);
+  });
 });

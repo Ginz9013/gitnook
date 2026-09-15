@@ -1,1 +1,2 @@
 .issues/issues/*.ndjson merge=union
+.decisions/decisions/*.ndjson merge=union

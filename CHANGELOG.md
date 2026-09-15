@@ -8,6 +8,49 @@ While the major version is `0`, a minor bump may contain changes that would be
 breaking after `1.0.0`. Any such change is listed under **Changed** or
 **Removed** with what it means for you.
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking: every Issue command now lives under `nook issue <verb>`.**
+  `nook init`, `new`, `list`, `show`, `history`, `set`, `rm`, `mv`, `comment`,
+  `label` and `share` are no longer top-level commands — run `nook issue init`,
+  `nook issue new`, and so on instead. `doctor`, `studio` and `workspace` are
+  unaffected; they stay at the top level. This makes room for `nook decision
+  <verb>` (a second, parallel op-log for Architecture Decision Records) to sit
+  alongside Issues as an equally first-class citizen, instead of Issue
+  monopolizing the flat namespace by historical accident.
+
+  **Why now, and why no alias:** the project is pre-1.0 (`0.x`), and this
+  repo's own policy (top of this file) is explicit that a `0.x` minor bump may
+  ship a change that would be breaking after `1.0.0`. Adding `nook decision`
+  without first freeing up the namespace would have meant permanently
+  asymmetric treatment — Issue flat, Decision nested — for two things the
+  domain model treats as peers. There is no compatibility shim: a flat call to
+  one of the eleven moved verbs (e.g. `nook new`) now fails immediately with a
+  message naming the new form (`nook issue new`) rather than falling through to
+  a generic "unknown command" guess.
+
+  **How to migrate:** prefix every one of the eleven commands above with
+  `issue` — in scripts, aliases, CI, and any agent skill file or `CLAUDE.md`
+  snippet that invokes `nook` directly. `nook --help` is, as always, the live
+  syntax reference if a flag or argument shape is in doubt.
+
+### Added
+
+- **`nook decision <init|new|show|list>`** — the first slice of a second,
+  parallel op-log for Architecture Decision Records, alongside Issues. Same
+  append-only NDJSON-per-record shape and `merge=union` guarantee, its own
+  `.decisions/` directory; deliberately smaller than Issue (no labels,
+  comments, archiving, or private mode). `list` prints the same compact-table
+  style as `nook issue list`, filterable with `--disposition`, and shows
+  every Decision by default — there is no archived/done/cancelled-equivalent
+  hidden by default. `nook doctor` now also checks `.decisions/`'s
+  `merge=union` line whenever that directory exists (silent otherwise). A
+  Decision has a `disposition` (`proposed`/`accepted`/`superseded`/
+  `rejected`), not a workflow `status` —
+  the two are different axes of meaning and are not interchangeable.
+
 ## [0.4.1] - 2026-09-15
 
 A small patch release: three visual bugs in studio, no behavior change.

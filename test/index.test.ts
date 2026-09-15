@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Board, Op } from '../src/index.js';
+import type { Board, DecisionLog, DecisionOp, Op } from '../src/index.js';
 
 describe('src/index.ts 的公開匯出', () => {
   it('只有 Board 的入口、初始化／診斷／服務、以及使用者接得到的錯誤型別', async () => {
@@ -9,6 +9,9 @@ describe('src/index.ts 的公開匯出', () => {
       [
         // 深模組本體的入口 —— spec.md 說的那個接縫。
         'openBoard',
+        // Decision 版的入口 —— 一上公開面就是相容承諾，同 openBoard
+        // （decision-module 票 01）。
+        'openDecisionLog',
         // 跨 Board 的唯讀彙整入口 —— 一上公開面就是相容承諾，同 openBoard。
         'openWorkspace',
         // 沒有它就沒有 board 可以開。
@@ -40,6 +43,14 @@ describe('src/index.ts 的公開匯出', () => {
         'AlreadySharedBoard',
         'NoGitDir',
         'PortInUse',
+        // Decision 的固定值域，同 STATUSES 的理由（decision-module 票 01）。
+        'DISPOSITIONS',
+        // Decision 側的錯誤型別 —— 同上面 Issue 那一組，openDecisionLog 是
+        // 公開的，它會丟的東西呼叫端必須 instanceof 得到。
+        'DecisionLogNotInitialized',
+        'DecisionNotFound',
+        'AmbiguousDecisionRef',
+        'InvalidDisposition',
       ].sort(),
     );
   });
@@ -55,6 +66,13 @@ describe('src/index.ts 的公開匯出', () => {
 describe('Op-log 的回傳型別', () => {
   it('opLog 的回傳值命名得出來', () => {
     const nameable: (board: Board) => readonly Op[] = (board) => board.opLog('01JBX7A9Q3');
+
+    expect(typeof nameable).toBe('function');
+  });
+
+  /** Decision 版同上，理由相同（decision-module 票 01）。 */
+  it('DecisionLog.opLog 的回傳值也命名得出來', () => {
+    const nameable: (log: DecisionLog) => readonly DecisionOp[] = (log) => log.opLog('01JBX7A9Q3');
 
     expect(typeof nameable).toBe('function');
   });

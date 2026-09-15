@@ -15,9 +15,17 @@ _Avoid_: task, ticket, card, story, 票
 > 因為它永遠帶著編號。單獨用「票」或「這張票」來指一個 Issue 仍然是禁止的 ——
 > 程式碼註解裡指涉自己這一批工作時，說「這一批」。
 
+**Decision**:
+一個記錄下來的架構／專案決策。Nook 的第二個一等公民實體，與 Issue 平行存在、互不隸屬——Decision 不會變成 Issue，Issue 也不會變成 Decision。
+_Avoid_: ADR（那是這個實體目前唯一的來源與使用情境，不是它的名字——資料一旦進了 Decision Log，講的就是 Decision，不是 ADR）, ticket, task, 票（同 **Issue** 詞條的既有禁令）
+
 **Board**:
-一個 repo 內全部 Issue 的集合。
+一個 repo 內全部 Issue 的集合。**只裝 Issue**——決策記錄的集合是另一個詞，見下方 **Decision Log**，兩者不是上下位關係，也不共用儲存或介面。
 _Avoid_: project, workspace（`workspace` 是彙整多個 Board 的觀察角度，見下方 **Workspace** 條目——單一 Board 不是 workspace，兩者不可混用）, backlog（`backlog` 是一個 Status 值，不是集合的名稱）
+
+**Decision Log**:
+一個 repo 內全部 Decision 的集合——角色同 Board 之於 Issue，但刻意不重用「Board」這個詞：Board 在本文件已定義死為「全部 Issue 的集合」，同一個詞在同一份文件裡指兩種不同的東西會讓讀者猜錯。儲存與介面（`openDecisionLog()`/`DecisionLog`）也與 Board 各自獨立，不共用同一份泛型型別。
+_Avoid_: Board（見上）, archive, registry, ADR log
 
 **Workspace**:
 從一個根目錄往下遞迴掃描找到的一組 Board，供跨 Board 檢視（列表、篩選、健康檢查）之用。純粹是觀察的角度——不建立任何新的儲存或狀態，不合併任何 Op-log，每個成員 Board 完全維持自己的獨立性（各自的 Op-log、Actor、Sharing）。探測只問某個子目錄底下有沒有 `.issues/issues/`，找到就不再往它底下更深處找。
@@ -60,8 +68,12 @@ _Avoid_: id, key, slug
 ### 工作流
 
 **Status**:
-Issue 在工作流上的位置。八個固定值之一，不可自訂。
+Issue 在工作流上的位置。八個固定值之一，不可自訂。**不是** Disposition（見下方 **Disposition** 條目）——兩者的值域與語意軸完全不同，不能互換或混用。
 _Avoid_: state, stage, column
+
+**Disposition**:
+一個 Decision 的定案狀態。四個固定值之一（`proposed`/`accepted`/`superseded`/`rejected`），不可自訂。與 Status 是完全不同的語意軸：Status 問的是「工作流走到哪」，Disposition 問的是「定案了沒」——沒有 Lane、沒有人的車道／agent 的車道那種分界，也不是工作流。
+_Avoid_: Status（見上，兩者的值域不可互換）, state, phase
 
 **Lane（車道）**:
 Status 序列被切成兩段：`backlog` 與 `todo` 是**人的車道**，`queued` 之後是 **agent 的車道**。這是**工作流上**的分界，回答「現在塞住的是哪一邊」—— **看板不畫它**（ADR-0010）。它是講事情時用的詞，不是介面上的一條線。

@@ -1,6 +1,6 @@
 import type { Op } from './ops.js';
 
-/** 八個固定 Status。不可自訂 —— 見 docs/adr/0003。 */
+/** 八個固定 Status。不可自訂 —— 見 decision legacyRef 0003（`nook decision show 0003`）。 */
 export const STATUSES = [
   'backlog',
   'todo',
@@ -40,9 +40,9 @@ export interface Issue {
   readonly status: Status;
   readonly description: string;
   readonly labels: readonly string[];
-  /** 可見性，與 done/cancelled 所表達的工作結果正交 —— 見 docs/adr/0003。 */
+  /** 可見性，與 done/cancelled 所表達的工作結果正交 —— 見 decision legacyRef 0003（`nook decision show 0003`）。 */
   readonly archived: boolean;
-  /** 已被刪除。與 archived 同一種東西（LWW boolean），差別全在讀取端 —— 見 docs/adr/0009。 */
+  /** 已被刪除。與 archived 同一種東西（LWW boolean），差別全在讀取端 —— 見 decision legacyRef 0009（`nook decision show 0009`）。 */
   readonly deleted: boolean;
   readonly comments: readonly Comment[];
 }
@@ -209,7 +209,7 @@ export class NotAWorkspaceMember extends Error {
   }
 }
 
-/** 對一張已刪的 Issue 寫入。復原（`{ deleted: false }`）不在此列 —— docs/adr/0009。 */
+/** 對一張已刪的 Issue 寫入。復原（`{ deleted: false }`）不在此列 —— decision legacyRef 0009（`nook decision show 0009`）。 */
 export class IssueDeleted extends Error {
   constructor(readonly ref: string) {
     super(`issue already deleted: ${ref}`);

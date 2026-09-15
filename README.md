@@ -8,12 +8,12 @@ issue on two branches merge without a conflict**.
 
 ```bash
 npm i -D gitnook
-npx nook init                                     # .issues/ + the .gitattributes line
-npx nook new "Fix login redirect loop on Safari"
-npx nook list
+npx nook issue init                                     # .issues/ + the .gitattributes line
+npx nook issue new "Fix login redirect loop on Safari"
+npx nook issue list
 ```
 
-Adopting this in a repository that is not yours to change? `npx nook init
+Adopting this in a repository that is not yours to change? `npx nook issue init
 --private` gives you the same board with **zero committed bytes** — nothing in
 anyone's diff, review or clone, so nobody has to be told about it yet. It
 guarantees strictly less, and [private mode](#private-mode) spells out exactly
@@ -58,7 +58,7 @@ convention to break and no round-trip to lose information.
 **It installs like a normal dev dependency.** One `npm i -D gitnook`, ~706 KB
 unpacked, zero runtime dependencies, no native binary per platform, no daemon,
 no account, no *derived* local state to gitignore. (There is one thing you can
-deliberately keep out of git — the board itself, with `nook init --private`
+deliberately keep out of git — the board itself, with `nook issue init --private`
 below — and even that writes to `$GIT_DIR/info/exclude`, never to your
 `.gitignore`.)
 
@@ -96,14 +96,14 @@ Yjs, whose custom merge drivers cannot be enabled by a committed file alone.
 
 - **Actor identity** is derived from `git config user.email`; nothing is stored.
 - **Labels** are an add-wins OR-Set, so a concurrent `+bug` and `-bug` keep the label.
-- **Deleting never unlinks a file.** `nook rm` appends a `deleted` tombstone and
+- **Deleting never unlinks a file.** `nook issue rm` appends a `deleted` tombstone and
   stops there: the issue leaves every listing, and its `.ndjson` stays on disk,
-  byte for byte, recoverable with `nook set <ref> deleted false`. Reclaiming the
+  byte for byte, recoverable with `nook issue set <ref> deleted false`. Reclaiming the
   bytes is a separate, unimplemented operation. modify/delete is the one conflict
   `union` cannot cover, so gitNook never creates one (ADR-0009).
 - **Zero local state.** No cache, no index, no `config.json` — nothing *derived*
   that a `.gitignore` entry would have to cover. The one exception is a thing you
-  ask for: `nook init --private` keeps the **authoritative data itself** out of
+  ask for: `nook issue init --private` keeps the **authoritative data itself** out of
   git (next section). That is a different claim from this one, and the rule that
   nook never writes your `.gitignore` survives it.
 
@@ -114,7 +114,7 @@ issues takes 3 ms, 2,000 takes 53 ms, 10,000 takes 266 ms. Node's own startup is
 ## private mode
 
 ```bash
-npx nook init --private      # a board with zero committed bytes
+npx nook issue init --private      # a board with zero committed bytes
 ```
 
 This creates `.issues/issues/` and writes one line — `/.issues/` — into
@@ -123,7 +123,7 @@ This creates `.issues/issues/` and writes one line — `/.issues/` — into
 committed bytes**, so nothing appears in anyone's diff, review or clone.
 
 **What that buys is a social footprint of zero, not technical compatibility.**
-Adopting gitNook was never technically hard — `nook init` adds one directory and
+Adopting gitNook was never technically hard — `nook issue init` adds one directory and
 one line. The problem is that those bytes are *committed*: if you are the only
 person on the team who wants to try this, there is no way to start without first
 having the "what is this thing in our repo" conversation. private mode postpones
@@ -144,14 +144,15 @@ mode that guarantees strictly *less* — and specifically, the first two reasons
   `list` / `show` stop warning about the `.gitattributes` line.
 
 Everything else works unchanged: `new`, `list`, `show`, `history`, `set`, `mv`,
-`comment`, `label`, `studio`.
+`comment`, `label`, `studio` — all under `nook issue <verb>` (see
+[Commands](#commands) below).
 
 ### The four costs
 
 1. **`git clean -xdf` deletes the whole board, and there is no backup.**
    Measured: `git clean -xdn` reports `Would remove .issues/`. git is normally
    this tool's backup, and private mode is the decision to go without it — which
-   is why `init --private` prints this cost every single time it runs, including
+   is why `issue init --private` prints this cost every single time it runs, including
    the runs where it did nothing else.
 2. **Issues no longer follow a branch.** One board, visible from every branch in
    this working tree; a branch cannot carry its own issues, and a merge or rebase
@@ -159,17 +160,17 @@ Everything else works unchanged: `new`, `list`, `show`, `history`, `set`, `mv`,
 3. **git worktrees cannot see each other's board.** The ignore rule *is* shared
    — it lives in the common git dir, so every linked worktree inherits it — but
    untracked files are not. Measured: in a freshly added linked worktree `nook
-   list` says there is no board, and `nook init --private` there prints only
+   issue list` says there is no board, and `nook issue init --private` there prints only
    `Created  .issues/issues/` (the rule is already in place), leaving that
    worktree with its own **empty** board. If you run parallel agents in
    worktrees, this is a landmine.
 4. **A new machine, or a fresh clone, has nothing.** There is no sync mechanism:
    the board exists in exactly one working tree, on one disk.
 
-### Upgrading: `nook share`
+### Upgrading: `nook issue share`
 
 ```
-$ nook share
+$ nook issue share
 Shared  .issues/  已從 $GIT_DIR/info/exclude 移除（這塊 board 從現在起會進 git）
 Created  .gitattributes  .issues/issues/*.ndjson merge=union
 Next  nook 不替你跑任何會寫入的 git 指令，請自己執行：
@@ -194,7 +195,7 @@ printing a `git add` that git would refuse.
 
 There is no `nook unshare`. Going the other way requires `git rm -r --cached`,
 which deletes the board from your teammates' clones — destructive, so you run it
-yourself. `init --private` on an already-shared board refuses and prints that
+yourself. `issue init --private` on an already-shared board refuses and prints that
 command for you; it does not run it. The reasoning for all of this, including why
 the rule goes in `$GIT_DIR/info/exclude` rather than a committed `.gitignore`, is
 in ADR-0011.
@@ -285,19 +286,26 @@ never a silent guess. Statuses take prefixes too (`que` → `queued`).
 
 ## Commands
 
+**Breaking change (pre-1.0):** every Issue command now lives under
+`nook issue <verb>` — there is no compatibility alias for the flat form this
+README used to document (see [CHANGELOG](CHANGELOG.md)).
+
 ```
-init [--private]                       create .issues/ and the .gitattributes line;
+issue init [--private]                 create .issues/ and the .gitattributes line;
                                        --private leaves zero committed bytes instead
-new <title> [--description <text|->] [--label <l>] [--editor]
-list [--all] [--status <s>] [--label <l>] [--json]
-show <ref> [--json]
-history <ref> [<field>]                every write to an LWW field, read-only
-set <ref> <title|description|status|archived|deleted> <value|->  [--editor]
-mv <ref> <status>
-rm <ref> [--yes]                       delete: writes a tombstone, never unlinks
-comment <ref> <body|->
-label <ref> +bug -ui
-share                                  upgrade a private board back to a shared one
+issue new <title> [--description <text|->] [--label <l>] [--editor]
+issue list [--all] [--status <s>] [--label <l>] [--json]
+issue show <ref> [--json]
+issue history <ref> [<field>]          every write to an LWW field, read-only
+issue set <ref> <title|description|status|archived|deleted> <value|->  [--editor]
+issue mv <ref> <status>
+issue rm <ref> [--yes]                 delete: writes a tombstone, never unlinks
+issue comment <ref> <body|->
+issue label <ref> +bug -ui
+issue share                            upgrade a private board back to a shared one
+decision init                          create .decisions/ and the .gitattributes line
+decision new --title <t> [--body <b>] [--disposition <d>]
+decision show <ref> [--json]
 doctor [--fix]                         data health check; --fix repairs glued lines
 studio [--port <n>]                    board on localhost; create, drag, edit, comment
 workspace list|doctor|studio           cross-repo, read-only — see workspace below
@@ -308,6 +316,12 @@ workspace comment <ref> <body|->       <ref> full ULID only — see workspace be
 workspace label <ref> +bug -ui         <ref> full ULID only — see workspace below
 workspace rm <ref> [--yes]             <ref> full ULID only — see workspace below
 ```
+
+`nook decision` is a second, parallel op-log for Architecture Decision Records
+— same append-only NDJSON shape and `merge=union` guarantee, its own
+`.decisions/` directory, deliberately smaller (no labels, comments, archiving,
+or private mode). A Decision has a `disposition`
+(`proposed`/`accepted`/`superseded`/`rejected`), not a workflow `status`.
 
 `-` as a value reads the value from stdin.
 
@@ -322,20 +336,24 @@ from what the CLI does:
 
 Git-native issue tracker. Issues are plain text files in the repo.
 
-nook list [--all]          one line per issue: <ref> <status> <title> [labels]
-nook show <ref>            title line, description, comments
-nook history <ref>         every write to a field, with actor and lamport t
-nook new "<title>"         create an issue
-nook mv <ref> <status>     backlog todo queued in_progress review blocked done cancelled
-nook comment <ref> "<body>"
-nook label <ref> +bug -ui
-nook set <ref> archived true
+nook issue list [--all]          one line per issue: <ref> <status> <title> [labels]
+nook issue show <ref>            title line, description, comments
+nook issue history <ref>         every write to a field, with actor and lamport t
+nook issue new "<title>"         create an issue
+nook issue mv <ref> <status>     backlog todo queued in_progress review blocked done cancelled
+nook issue comment <ref> "<body>"
+nook issue label <ref> +bug -ui
+nook issue set <ref> archived true
 
 <ref> is any unambiguous ID prefix. Status takes prefixes too (que -> queued).
 queued means requirements are settled: act without asking.
 list hides archived, done and cancelled unless --all.
 --json exists for scripts; the default table is cheaper to read.
 ```
+
+**Note for maintainers:** this block is meant to stay byte-for-byte identical
+to `SKILL_DOC` in `test/render/token-budget.test.ts` (checked by
+`test/integration/packed-smoke.test.ts`).
 
 The default output is a compact table **for humans and agents alike**. The
 reflex is to hand an agent JSON; measuring says the opposite:
@@ -409,7 +427,7 @@ npx nook studio
 
 The **human** interface, on `127.0.0.1`. The CLI is the agent's: composable,
 parseable, cheap in tokens. Dragging six issues into `todo` and ordering them is
-six `nook mv`s there and six seconds here (ADR-0007).
+six `nook issue mv`s there and six seconds here (ADR-0007).
 
 Eight columns you drag issues between, and a drawer per issue for editing the
 title, the description, labels, status and comments. **The eight columns are the
@@ -420,7 +438,7 @@ and your team grow it into.
 You can **create** an issue without going back to the terminal — a button in the
 header and a `+` on each of the eight columns, both asking for a title and
 nothing else. From the drawer you can **archive** and un-archive an issue, or
-**delete** it behind a confirmation; deleting writes the same tombstone `nook rm`
+**delete** it behind a confirmation; deleting writes the same tombstone `nook issue rm`
 writes, so the card leaves the board and the file stays on disk (ADR-0009). A
 **theme** switch offers light, dark and follow-the-system, remembered in
 `localStorage` — how you look at the board is a property of this machine, not of
@@ -455,7 +473,7 @@ npx nook workspace list
 A monorepo's packages, or a folder where a few unrelated repos just happen to
 sit side by side — either way, `nook workspace` gives you one read-only view
 across however many boards it finds under the current directory, instead of
-`cd`-ing into each one and running `nook list` by hand. It is a **view**, not a
+`cd`-ing into each one and running `nook issue list` by hand. It is a **view**, not a
 new kind of storage: nothing is created, merged, or cached, and every member
 board keeps its own op-log, actor identity and sharing state exactly as if you
 had opened it alone.
@@ -505,7 +523,7 @@ nook workspace rm <ref> [--yes]
 
 `new` has no existing ref to route by, so it takes `--in <path>` instead —
 **required, with no fallback to the current directory**, even when you are
-already standing inside a member; if you are, plain `nook new` is more
+already standing inside a member; if you are, plain `nook issue new` is more
 direct anyway. A `--in` path outside the workspace's scan (a real board,
 just not one this scan found) is rejected rather than silently adopted.
 
@@ -527,7 +545,7 @@ both its confirmation prompt and its final line name the member's path,
 because the rescue step (`nook workspace set <ref> deleted false`) needs
 that path to `cd` into before it means anything — and there is no workspace
 `history` to check first, so the message also says to `cd` in and run plain
-`nook history <ref>`.
+`nook issue history <ref>`.
 
 Semantics — filtering, `--editor`, label add/remove, the `--yes` TTY/non-TTY
 rule — match the single-board commands exactly; none of it is reimplemented
@@ -564,7 +582,7 @@ script, no `git config` for anyone on the team.
 
 - **`description` is last-writer-wins.** Concurrent edits of the same
   description keep one version. The loser is not lost — every write is still in
-  the op-log, and `nook history <ref>` (or `Board.opLog()`) prints it back with
+  the op-log, and `nook issue history <ref>` (or `Board.opLog()`) prints it back with
   its actor and lamport clock — but the fold shows one value, and re-instating
   the other one is a copy-paste by hand.
 - **No cross-branch atomicity.** Two agents in two worktrees can pick up the

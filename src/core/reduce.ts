@@ -41,7 +41,7 @@ export function fieldWrites(ops: readonly Op[], field?: SetKey): readonly SetOp[
   return writes;
 }
 
-/** 全序 → fold。順序無關性的來源 —— docs/adr/0001。 */
+/** 全序 → fold。順序無關性的來源 —— decision legacyRef 0001（`nook decision show 0001`）。 */
 export function reduce(id: string, ops: readonly Op[]): Issue {
   const ordered = orderOps(ops);
 
@@ -56,7 +56,7 @@ export function reduce(id: string, ops: readonly Op[]): Issue {
   const comments: Comment[] = [];
 
   for (const o of ordered) {
-    // 未知的 Op 型別必須忽略而非崩潰 —— docs/adr/0001 硬規則 2。
+    // 未知的 Op 型別必須忽略而非崩潰 —— decision legacyRef 0001（`nook decision show 0001`）硬規則 2。
     if (o.op === 'create') {
       title = o.title;
     } else if (o.op === 'set') {

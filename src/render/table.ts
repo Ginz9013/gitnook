@@ -2,6 +2,8 @@ import { shortIdLength } from '../core/ids.js';
 import { displayWidth } from './width.js';
 import type { SetOp } from '../core/ops.js';
 import type { Comment, Issue } from '../core/types.js';
+import type { Decision } from '../core/decisionTypes.js';
+import type { DecisionSetOp } from '../core/decisionOps.js';
 
 /** 欄位分隔。ADR-0005 的量測範例即以兩個空白分隔。 */
 const GAP = '  ';
@@ -15,6 +17,8 @@ const ELLIPSIS = '…';
 const EMPTY = 'no issues';
 /** 同上，但問的是一張 Issue 的 Op-log。 */
 const EMPTY_OPS = 'no set ops';
+/** 同 EMPTY，但問的是空的 Decision Log —— 剛 init、還沒 new 過任何一篇。 */
+const EMPTY_DECISIONS = 'no decisions';
 
 /**
  * 短 ID 的長度由呼叫端算好後傳進來 —— 長度是「整批的性質」，單張 Issue
@@ -127,6 +131,52 @@ export function renderTable(input: readonly Issue[] | Issue, shortIdLen?: number
     : renderDetail(input as Issue, shortIdLen);
 }
 
+const shortDecisionId = (decision: Decision, len: number): string => decision.id.slice(0, len);
+
+/**
+ * `nook decision list` 的緊湊表格：ref/title/disposition —— 票 02
+ * spec.md 的 Outcome。短 ID／無歧義前綴顯示規則沿用 `shortIdLength`（呼叫端
+ * 算好整個 Decision Log 的長度後傳進來，理由同 `renderList` 上的既有註解，
+ * 這裡不重寫比較器）。title 截斷沿用同一份 `truncate`/`TITLE_MAX`，理由同
+ * Issue 的清單：這是「緊湊表格」的既有版面慣例，只有一份實作。
+ */
+export function renderDecisionTable(decisions: readonly Decision[], shortIdLen?: number): string {
+  if (decisions.length === 0) return EMPTY_DECISIONS;
+
+  const len = shortIdLen ?? shortIdLength(decisions.map((d) => d.id));
+
+  const cells = decisions.map((decision) => [
+    shortDecisionId(decision, len),
+    truncate(decision.title, TITLE_MAX),
+    decision.disposition,
+  ]);
+
+  return grid(cells).join('\n');
+}
+
+/**
+ * 單張 Decision 的 detail 版面 —— 比照 Issue 既有 `renderDetail` 的節奏：
+ * header 一行（shortId／disposition／title）＋空行＋`body`（不截斷，理由同
+ * Issue 的 description：這是唯一拿得回完整內容的地方）＋`supersededBy`
+ * （有值才印）。**不是**逐欄 key:value 傾印 —— 那是票 08 review 判定要換掉
+ * 的舊版面（見票 08 spec.md 的「從哪來」）。
+ *
+ * `shortIdLen` 省略時比照 `renderDetail`：對這一張自己算，永遠得到
+ * `SHORT_ID_MIN`——單張 Decision 跟自己不會撞號，算不出「這批」要幾碼。
+ */
+export function renderDecisionDetail(decision: Decision, shortIdLen?: number): string {
+  const len = shortIdLen ?? shortIdLength([decision.id]);
+  const header = [shortDecisionId(decision, len), decision.disposition, decision.title]
+    .join(GAP)
+    .trimEnd();
+
+  const supersededBy =
+    decision.supersededBy === undefined ? '' : `supersededBy: ${decision.supersededBy}`;
+
+  // 空的區塊整個略去 —— 同 renderDetail 的既有規則：空白行既無資訊也佔 token。
+  return [header, decision.body, supersededBy].filter((block) => block !== '').join('\n\n');
+}
+
 /**
  * 一個成員 Board 分組後要印的份量：來源路徑（相對於 workspace 根目錄）、
  * 篩選後的 issue 清單、以及**這個成員自己**的短 ID 顯示長度 —— 每個成員
@@ -169,6 +219,32 @@ export function renderSetOps(ops: readonly SetOp[]): string {
   if (ops.length === 0) return EMPTY_OPS;
 
   const values = ops.map((op) => String(op.v));
+  const head = ops.map((op) => [String(op.t), op.a, op.k]);
+
+  if (values.some((v) => v.includes('\n'))) {
+    return grid(head)
+      .map((row, i) => `${row}\n${values[i]!}`)
+      .join('\n\n');
+  }
+  return grid(head.map((row, i) => [...row, values[i]!])).join('\n');
+}
+
+/**
+ * 一張 Decision 的 Op-log 中的 set op：誰、在哪個 lamport `t`、把哪個欄位寫成
+ * 什麼 —— 票 04，`nook decision history` 的呈現。同 `renderSetOps` 的版面
+ * 規則（不截斷、多行值整份改版面），但**不重用**它：那個函式的簽章釘死在
+ * Issue 的 `SetOp`，這裡另起一份換上 `DecisionSetOp`，共用的只有底下的
+ * `grid`/`EMPTY_OPS`。
+ *
+ * 不重排：傳進來的順序就是 core 的 `decisionFieldWrites()` 已經摺好的全序
+ * （`DecisionLog.opLog()` 內部呼叫 `oplog.ts` 的 `orderOps`）——排序沿用
+ * 那一份，這裡與 `renderSetOps` 都不再各寫一份比較器（spec.md 明講這正是
+ * commit 463343d 那個 bug 的成因）。
+ */
+export function renderDecisionSetOps(ops: readonly DecisionSetOp[]): string {
+  if (ops.length === 0) return EMPTY_OPS;
+
+  const values = ops.map((op) => op.v);
   const head = ops.map((op) => [String(op.t), op.a, op.k]);
 
   if (values.some((v) => v.includes('\n'))) {

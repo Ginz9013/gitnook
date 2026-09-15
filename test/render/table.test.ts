@@ -1,11 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { renderTable, renderWorkspaceList } from '../../src/render/table.js';
+import {
+  renderTable,
+  renderWorkspaceList,
+  renderDecisionTable,
+  renderDecisionDetail,
+  renderDecisionSetOps,
+} from '../../src/render/table.js';
 import { renderJson } from '../../src/render/json.js';
 import { displayWidth } from '../../src/render/width.js';
 import { resolvePrefix, SHORT_ID_MIN } from '../../src/core/ids.js';
 import type { Issue } from '../../src/core/types.js';
+import type { Decision } from '../../src/core/decisionTypes.js';
+import type { DecisionSetOp } from '../../src/core/decisionOps.js';
 import type { WorkspaceGroup } from '../../src/render/table.js';
 
 const golden = (name: string): string =>
@@ -312,6 +320,166 @@ describe('renderTable — CJK 的顯示欄寬', () => {
  * `renderWorkspaceList` 依來源路徑分組印出，組合既有 `renderTable`，不重新
  * 發明表格版面（票 02 spec.md「Design contract」）。
  */
+/**
+ * 票 02：Decision 的清單緊湊表格（ref/title/disposition），沿用 Issue 既有的
+ * 短 ID 無歧義前綴顯示規則（shortIdLength 由呼叫端算好傳入），不重寫比較器。
+ */
+describe('renderDecisionTable', () => {
+  const decision = (over: Partial<Decision> & Pick<Decision, 'id' | 'title'>): Decision => ({
+    body: '',
+    disposition: 'proposed',
+    ...over,
+  });
+
+  it('空清單輸出簡短訊息，而不是一個空的表頭', () => {
+    expect(renderDecisionTable([])).toBe('no decisions');
+  });
+
+  it('印出 ref/title/disposition 三欄，欄寬對齊', () => {
+    const decisions = [
+      decision({ id: '01AAAAAAAAAAAAAAAAAAAAAAAA', title: 'Use ULIDs', disposition: 'accepted' }),
+      decision({ id: '01BBBBBBBBBBBBBBBBBBBBBBBB', title: 'Adopt oplog', disposition: 'proposed' }),
+    ];
+
+    expect(renderDecisionTable(decisions)).toBe(
+      ['01AAAA  Use ULIDs    accepted', '01BBBB  Adopt oplog  proposed'].join('\n'),
+    );
+  });
+
+  it('沒給長度時依這批 Decision 算出彼此無歧義所需的短 ID 長度', () => {
+    const ids = ['01JBX7AAAAAAAAAAAAAAAAAAAA', '01JBX7BBBBBBBBBBBBBBBBBBBB'];
+    const decisions = ids.map((id, i) => decision({ id, title: `D${i}` }));
+
+    const shortIds = renderDecisionTable(decisions)
+      .split('\n')
+      .map((line) => line.split('  ')[0]);
+    expect(shortIds).toEqual(['01JBX7A', '01JBX7B']);
+  });
+
+  it('依呼叫端給定的短 ID 長度顯示，而不是只對手上這幾筆算', () => {
+    const decisions = [decision({ id: '01JBXAAAAAAAAAAAAAAAAAAAAA', title: 'a' })];
+
+    expect(renderDecisionTable(decisions, 13).split('  ')[0]).toBe('01JBXAAAAAAAA');
+  });
+
+  it('title 超過顯示欄上限時截斷為省略號，不破壞欄位對齊', () => {
+    const decisions = [
+      decision({ id: '01AAAAAAAAAAAAAAAAAAAAAAAA', title: 'x'.repeat(60), disposition: 'accepted' }),
+      decision({ id: '01BBBBBBBBBBBBBBBBBBBBBBBB', title: 'short', disposition: 'proposed' }),
+    ];
+
+    const titleCell = renderDecisionTable(decisions).split('\n')[0]!.split('  ')[1]!;
+    expect(titleCell.endsWith('…')).toBe(true);
+    expect(displayWidth(titleCell)).toBeLessThanOrEqual(48);
+  });
+});
+
+/**
+ * 票 08：單張 Decision 的 detail 版面，比照 Issue 既有 renderDetail 的節奏 ——
+ * header 一行（shortId／disposition／title），空的區塊整個略去，不是逐欄
+ * key:value 傾印（見票 08 spec.md）。
+ */
+describe('renderDecisionDetail', () => {
+  const decision = (over: Partial<Decision> & Pick<Decision, 'id' | 'title'>): Decision => ({
+    body: '',
+    disposition: 'proposed',
+    ...over,
+  });
+
+  it('header 一行是 shortId／disposition／title，body 另起一段', () => {
+    const d = decision({
+      id: '01AAAAAAAAAAAAAAAAAAAAAAAA',
+      title: 'Use ULIDs',
+      disposition: 'accepted',
+      body: 'because sortable',
+    });
+
+    expect(renderDecisionDetail(d)).toBe(
+      ['01AAAA  accepted  Use ULIDs', 'because sortable'].join('\n\n'),
+    );
+  });
+
+  it('body 為空時整個略去該區塊', () => {
+    const d = decision({ id: '01AAAAAAAAAAAAAAAAAAAAAAAA', title: 'X', disposition: 'proposed' });
+
+    expect(renderDecisionDetail(d)).toBe('01AAAA  proposed  X');
+  });
+
+  it('supersededBy 只在有值時印出', () => {
+    const d = decision({
+      id: '01AAAAAAAAAAAAAAAAAAAAAAAA',
+      title: 'X',
+      supersededBy: '01BBBBBBBBBBBBBBBBBBBBBBBB',
+    });
+
+    expect(renderDecisionDetail(d)).toBe(
+      ['01AAAA  proposed  X', 'supersededBy: 01BBBBBBBBBBBBBBBBBBBBBBBB'].join('\n\n'),
+    );
+  });
+
+  it('body 不截斷 —— 讀者為了看完整內容才點進來', () => {
+    const long = 'x'.repeat(200);
+    const d = decision({ id: '01AAAAAAAAAAAAAAAAAAAAAAAA', title: 'X', body: long });
+
+    expect(renderDecisionDetail(d)).toContain(long);
+  });
+
+  it('沒給長度時對單張 Decision 算出 SHORT_ID_MIN 碼', () => {
+    const d = decision({ id: '01JBXAAAAAAAAAAAAAAAAAAAAA', title: 'X' });
+
+    expect(renderDecisionDetail(d).split('  ')[0]).toBe('01JBXA');
+  });
+
+  it('依呼叫端給定的短 ID 長度顯示，而不是只對單張自己算', () => {
+    const d = decision({ id: '01JBXAAAAAAAAAAAAAAAAAAAAA', title: 'X' });
+
+    expect(renderDecisionDetail(d, 13).split('  ')[0]).toBe('01JBXAAAAAAAA');
+  });
+});
+
+/**
+ * 票 04：Decision 的 Op-log 中的 set op —— 誰、在哪個 lamport `t`、把哪個欄位
+ * 寫成什麼。同 Issue 既有的 `renderSetOps`（不重用它、不重寫排序，見
+ * spec.md「排序沿用 oplog.ts 的 orderOps，不在 CLI 或渲染層另寫一份比較器」）：
+ * 傳進來的順序就是呼叫端已經排好的全序，這裡只負責版面。
+ */
+describe('renderDecisionSetOps', () => {
+  const setOp = (t: number, a: string, k: DecisionSetOp['k'], v: string): DecisionSetOp => ({
+    id: `01${t}${a}`,
+    t,
+    a,
+    op: 'set',
+    k,
+    v,
+  });
+
+  it('空清單印出簡短訊息，而不是空表頭', () => {
+    expect(renderDecisionSetOps([])).toBe('no set ops');
+  });
+
+  it('列出 t／actor／欄位／值四欄，欄寬對齊', () => {
+    const ops = [
+      setOp(1, 'alice', 'title', 'Use ULIDs'),
+      setOp(2, 'bob', 'disposition', 'accepted'),
+    ];
+
+    expect(renderDecisionSetOps(ops)).toBe(
+      ['1  alice  title        Use ULIDs', '2  bob    disposition  accepted'].join('\n'),
+    );
+  });
+
+  it('值含換行時整份改成表頭一行、值另起一段', () => {
+    const ops = [
+      setOp(1, 'alice', 'body', 'line one\nline two'),
+      setOp(2, 'bob', 'title', 'X'),
+    ];
+
+    expect(renderDecisionSetOps(ops)).toBe(
+      ['1  alice  body', 'line one\nline two', '', '2  bob    title', 'X'].join('\n'),
+    );
+  });
+});
+
 describe('renderWorkspaceList', () => {
   const group = (path: string, issues: readonly Issue[]): WorkspaceGroup => ({
     path,

@@ -165,7 +165,7 @@ describe('apply — status', () => {
 });
 
 describe('status 的驗證與前綴解析', () => {
-  // 八個固定值取自 docs/adr/0003，不可自訂。
+  // 八個固定值取自 decision legacyRef 0003（`nook decision show 0003`），不可自訂。
   // 每次呼叫都是一張新的 Issue（真實 ULID），避免種子化序列在同一目錄下撞 op id。
   const setStatus = (value: string): string => {
     const board = openBoard({ dir, actor: 'test' });

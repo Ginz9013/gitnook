@@ -9,7 +9,7 @@ import type { Comment, Issue, Status } from '../../src/core/types.js';
  *
  * 情境（spec.md「token 情境」）：40 張 Issue 的專案 → `list` → `show` 一張 → `mv`
  * → `comment`，量測「skill 文件 + 全部 CLI 輸出」的總 byte 數，上限見 LIMIT。
- * 用 byte 數而非 tokenizer 的理由見 docs/adr/0005。
+ * 用 byte 數而非 tokenizer 的理由見 decision legacyRef 0005（`nook decision show 0005`）。
  *
  * 接縫是 renderTable() 這個純函數 —— 不 spawn nook 子行程。每一段都必須與
  * src/cli/run.ts 實際走的那一條對齊，否則閘門守的是一份沒人會看到的輸出：
@@ -30,19 +30,19 @@ import type { Comment, Issue, Status } from '../../src/core/types.js';
  */
 const LIMIT = 4608;
 
-/** 教 agent 用預設格式而非 `--json` 的說明文件草稿，見 docs/adr/0005。 */
+/** 教 agent 用預設格式而非 `--json` 的說明文件草稿，見 decision legacyRef 0005（`nook decision show 0005`）。 */
 const SKILL_DOC = `# nook
 
 Git-native issue tracker. Issues are plain text files in the repo.
 
-nook list [--all]          one line per issue: <ref> <status> <title> [labels]
-nook show <ref>            title line, description, comments
-nook history <ref>         every write to a field, with actor and lamport t
-nook new "<title>"         create an issue
-nook mv <ref> <status>     backlog todo queued in_progress review blocked done cancelled
-nook comment <ref> "<body>"
-nook label <ref> +bug -ui
-nook set <ref> archived true
+nook issue list [--all]          one line per issue: <ref> <status> <title> [labels]
+nook issue show <ref>            title line, description, comments
+nook issue history <ref>         every write to a field, with actor and lamport t
+nook issue new "<title>"         create an issue
+nook issue mv <ref> <status>     backlog todo queued in_progress review blocked done cancelled
+nook issue comment <ref> "<body>"
+nook issue label <ref> +bug -ui
+nook issue set <ref> archived true
 
 <ref> is any unambiguous ID prefix. Status takes prefixes too (que -> queued).
 queued means requirements are settled: act without asking.

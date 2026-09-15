@@ -1,0 +1,6 @@
+{"id":"01M2HBAFHWCS5PSR924SMZKPE0","t":1,"a":"83a1","op":"create","title":"nook decision history（唯讀修改紀錄）"}
+{"id":"01M2HBAFJ4NF8WRGSDA0Q1YWD1","t":2,"a":"83a1","op":"set","k":"description","v":"同票 09 的先例：唯讀，不做 restore。詳見 .scratch/decision-module/04-decision-history.md"}
+{"id":"01M2HBAFJ4T9J2BSF464MS388K","t":3,"a":"83a1","op":"label.add","v":"decision-module"}
+{"id":"01M2HBAYNN5ZF0ZVNJN6YK0DTS","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M2HHQGJEEMHT1P90TAY0Y085","t":5,"a":"83a1","op":"comment","body":"落地：35d71c5 + a60318e（review 修正 history 的 legacyRef 不一致）。872 tests, 0 型別錯誤。"}
+{"id":"01M2HHQGKNRMZEGCQH9C5KP0NS","t":6,"a":"83a1","op":"set","k":"status","v":"done"}

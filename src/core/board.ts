@@ -189,7 +189,7 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
         fresh.push({ id: ids.ulid(), t: t++, a: actorId(), op: 'comment', body: change.comment });
       }
 
-      // 一次寫入，且每個 Op 各自以 \n 結尾 —— docs/adr/0001 硬規則 1。
+      // 一次寫入，且每個 Op 各自以 \n 結尾 —— decision legacyRef 0001（`nook decision show 0001`）硬規則 1。
       if (fresh.length > 0) appendFileSync(file, fresh.map(serialize).join(''), 'utf8');
 
       return reduce(id, [...existing, ...fresh]);

@@ -132,7 +132,7 @@ describe('打包產物', () => {
         'process.stdout.write(`${typeof openBoard} ${STATUSES.join(\' \')}`);\n',
     );
 
-    // 八個固定 Status，順序取自 spec.md 的領域模型（docs/adr/0003）。
+    // 八個固定 Status，順序取自 spec.md 的領域模型（decision legacyRef 0003，`nook decision show 0003`）。
     expect(stdout).toBe(
       'function backlog todo queued in_progress review blocked done cancelled',
     );
@@ -158,9 +158,9 @@ describe('打包產物', () => {
           encoding: 'utf8',
         });
 
-      nook('init');
-      nook('new', 'Fix login redirect loop on Safari 17');
-      const listed = nook('list');
+      nook('issue', 'init');
+      nook('issue', 'new', 'Fix login redirect loop on Safari 17');
+      const listed = nook('issue', 'list');
 
       expect(existsSync(join(work, '.issues', 'issues'))).toBe(true);
       // 唯一的單點失效（ADR-0001）：init 必須寫下這一行。
@@ -173,6 +173,67 @@ describe('打包產物', () => {
       rmSync(work, { recursive: true, force: true });
     }
   }, 60_000);
+
+  it('乾淨的暫存目錄裡 decision init → new → show 全程走安裝後的 bin', () => {
+    const work = mkdtempSync(join(tmpdir(), 'nook-decision-work-'));
+    try {
+      const git = (...args: string[]): void => {
+        execFileSync('git', args, { cwd: work, stdio: 'pipe' });
+      };
+      git('init', '-q');
+      git('config', 'user.email', 'smoke@example.test');
+      git('config', 'user.name', 'nook smoke');
+      git('config', 'commit.gpgsign', 'false');
+
+      const nook = (...args: string[]): string =>
+        execFileSync(join(consumer.dir, 'node_modules', '.bin', 'nook'), args, {
+          cwd: work,
+          encoding: 'utf8',
+        });
+
+      nook('decision', 'init');
+      nook('decision', 'new', '--title', 'Use ULIDs');
+      const listed = nook('decision', 'list');
+
+      expect(existsSync(join(work, '.decisions', 'decisions'))).toBe(true);
+      expect(readFileSync(join(work, '.gitattributes'), 'utf8')).toContain(
+        '.decisions/decisions/*.ndjson merge=union',
+      );
+      expect(listed).toMatch(/^[0-9A-Z]{6}  Use ULIDs  proposed\n$/);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  /**
+   * 迴歸測試：`decision.ts` 與 `run.ts` 互相 import，tsup 把兩者接成同一個
+   * bundle 後，頂層程式碼的求值順序由打包器決定而非原始檔案順序——以
+   * `run.ts` 為進入點（這裡走的就是這條路）時曾經讓一份建構在模組頂層的
+   * 錯誤型別清單存到 `undefined`，`thrown instanceof undefined` 直接讓
+   * **任何** decision 錯誤路徑都印出一句 `TypeError` 並以 exit 2 收場，而非
+   * 乾淨的訊息與 exit 1。`vitest` 測不出來——測試檔以 `decision.ts` 當進入
+   * 點，兩邊互相 import 的求值順序剛好相反，只有真的走 `bin/nook.js` 這條
+   * 路才會踩到。錯誤路徑於 src/ 端已有覆蓋，但打包後從沒被錯誤路徑測過
+   * ——這正是 `nook decision <verb>` 在其他票落地時的空隙。
+   */
+  it('decision 指令的錯誤路徑在打包後仍是乾淨的訊息與 exit 1，不是打包順序造成的 TypeError', () => {
+    const work = mkdtempSync(join(tmpdir(), 'nook-decision-error-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: work, stdio: 'pipe' });
+
+      const nookBin = join(consumer.dir, 'node_modules', '.bin', 'nook');
+      const result = spawnSync(nookBin, ['decision', 'show', '01ARZ3NDEKTSV4RRFFQ69G5FAV'], {
+        cwd: work,
+        encoding: 'utf8',
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).not.toContain('TypeError');
+      expect(result.stderr).toContain('not a Nook decision log');
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it('安裝後帶來零個 runtime dependency，且 bundle 只 import node: 內建', () => {
     const manifest = JSON.parse(readFileSync(join(packed.root, 'package.json'), 'utf8')) as Record<
@@ -249,7 +310,7 @@ describe('打包產物', () => {
     );
     const skillDoc = /const SKILL_DOC = `([^`]*)`/.exec(budgetTest)?.[1];
     expect(skillDoc, 'token-budget.test.ts 裡找不到 SKILL_DOC').toBeTypeOf('string');
-    expect(skillDoc).toContain('nook list [--all]');
+    expect(skillDoc).toContain('nook issue list [--all]');
 
     const readme = readFileSync(join(packed.root, 'README.md'), 'utf8');
 
