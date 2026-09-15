@@ -8,6 +8,32 @@ While the major version is `0`, a minor bump may contain changes that would be
 breaking after `1.0.0`. Any such change is listed under **Changed** or
 **Removed** with what it means for you.
 
+## [0.4.1] - 2026-09-15
+
+A small patch release: three visual bugs in studio, no behavior change.
+
+### Fixed
+
+- **Rendered markdown in studio (issue descriptions and comments) now has
+  real typography styling.** `prose-sm` never did anything — the drawer never
+  installed `@tailwindcss/typography`, and Tailwind v4's preflight resets
+  headings, lists and blockquotes to plain, unstyled text, leaving only
+  bold/italic visibly different. The plugin's colors are bound to the
+  existing design tokens instead of `prose-invert`, so light/dark keep
+  following the same palette automatically. The parser itself
+  (`renderMarkdown`) was already correct; only the CSS was missing.
+- **Studio's scrollbars are styled consistently across browsers.** macOS's
+  native overlay scrollbar looked fine by default, but Windows' Chrome/Edge
+  fell back to the default thick, square scrollbar because nothing
+  overrode it. Both the Firefox `scrollbar-*` properties and the
+  `::-webkit-scrollbar` pseudo-elements are now set, bound to the same
+  `--border`/`--muted-foreground` tokens as everything else.
+- **Label badges are visually distinct from the card again.** `--secondary`
+  — the badge's only real consumer, in the board card and the drawer's label
+  editor — sat within 0.03–0.035 lightness of `--card` in both themes, so a
+  label nearly blended into the card it was on. The gap is now wide enough
+  to read as a separate chip in both light and dark.
+
 ## [0.4.0] - 2026-09-14
 
 The theme of this release is **workspace**: one view — and now one set of

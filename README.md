@@ -206,7 +206,7 @@ structural rows below them — and exits non-zero if any is over budget.
 
 | Metric | Budget | Measured |
 |---|---|---|
-| Package size, unpacked | < 3 MB | **722,869 B** (23% of the gate) |
+| Package size, unpacked | < 3 MB | **745,599 B** (24% of the gate) |
 | Cold start, `nook --version` from the packed tarball | < 500 ms | **≈25 ms** |
 | Concurrent merge of one issue on two branches | zero conflicts | **0** |
 | Agent tokens, 40-issue scenario | < 4.5 KB | **4,102 B** |
@@ -226,7 +226,7 @@ Two more rows exist because those four cannot see what they need to see:
 
 | Row | Budget | Measured |
 |---|---|---|
-| studio assets, `dist/studio/` | < 768 KB | **441,610 B** |
+| studio assets, `dist/studio/` | < 768 KB | **462,218 B** |
 | React markers in `dist/cli/run.js` | 0 | **0** |
 
 studio is three quarters of the package, so it could grow by half and package
