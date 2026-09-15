@@ -158,9 +158,9 @@ describe('打包產物', () => {
           encoding: 'utf8',
         });
 
-      nook('init');
-      nook('new', 'Fix login redirect loop on Safari 17');
-      const listed = nook('list');
+      nook('issue', 'init');
+      nook('issue', 'new', 'Fix login redirect loop on Safari 17');
+      const listed = nook('issue', 'list');
 
       expect(existsSync(join(work, '.issues', 'issues'))).toBe(true);
       // 唯一的單點失效（ADR-0001）：init 必須寫下這一行。
@@ -249,7 +249,7 @@ describe('打包產物', () => {
     );
     const skillDoc = /const SKILL_DOC = `([^`]*)`/.exec(budgetTest)?.[1];
     expect(skillDoc, 'token-budget.test.ts 裡找不到 SKILL_DOC').toBeTypeOf('string');
-    expect(skillDoc).toContain('nook list [--all]');
+    expect(skillDoc).toContain('nook issue list [--all]');
 
     const readme = readFileSync(join(packed.root, 'README.md'), 'utf8');
 

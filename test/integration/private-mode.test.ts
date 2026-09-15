@@ -685,7 +685,7 @@ describe('兩條拒絕在 CLI 上都是 exit 1', () => {
     const repo = makeSharedBoard();
     const io = capture(repo);
 
-    expect(await run(['init', '--private'], io)).toBe(1);
+    expect(await run(['issue', 'init', '--private'], io)).toBe(1);
 
     expect(io.err).toContain('git rm -r --cached');
     // 沒有型別名前綴 —— 那是 exit 2（內部錯誤）那條路才加的。
@@ -699,7 +699,7 @@ describe('兩條拒絕在 CLI 上都是 exit 1', () => {
     dirs.push(loose);
     const io = capture(loose);
 
-    expect(await run(['init', '--private'], io)).toBe(1);
+    expect(await run(['issue', 'init', '--private'], io)).toBe(1);
 
     expect(io.err).toContain('nook init');
     expect(io.err.startsWith('NoGitDir:')).toBe(false);
@@ -830,7 +830,7 @@ describe('share 之後 git 仍然 ignore 那些檔案時', () => {
     openBoard({ dir: repo, actor: 'aaaa' }).create({ title: 'Fix login redirect' });
     const io = capture(repo);
 
-    expect(await run(['share'], io)).toBe(1);
+    expect(await run(['issue', 'share'], io)).toBe(1);
 
     // nook 那一行真的被拿掉了（它做完了自己那一半），但 git 還是說 ignore ——
     // 擋路的是 .gitignore 第 2 行，而那是使用者自己的檔案，nook 不改它。
