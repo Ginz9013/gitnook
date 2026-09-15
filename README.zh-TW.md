@@ -7,12 +7,12 @@
 
 ```bash
 npm i -D gitnook
-npx nook init                                     # .issues/ 與 .gitattributes 那一行
-npx nook new "修掉 Safari 上的登入轉址迴圈"
-npx nook list
+npx nook issue init                                     # .issues/ 與 .gitattributes 那一行
+npx nook issue new "修掉 Safari 上的登入轉址迴圈"
+npx nook issue list
 ```
 
-想在一個不是你說了算的 repo 裡導入？`npx nook init --private` 給你同一塊 board，
+想在一個不是你說了算的 repo 裡導入？`npx nook issue init --private` 給你同一塊 board，
 但**零 committed bytes** —— 不會出現在任何人的 diff、review 或 clone 裡，所以現在
 還不必跟任何人解釋它。它保證的東西明確比較少，[private mode](#private-mode)
 會把放棄了什麼逐條寫清楚。
@@ -51,7 +51,7 @@ Op-log**，一行一個不可變更的 Op，而讀取時摺疊的是那些 Op �
 **它像一個普通的 dev dependency 一樣安裝。** 一次 `npm i -D gitnook`，解壓後
 約 706 KB，零執行期相依，沒有各平台一份的原生 binary，沒有常駐程式，沒有帳號，
 也沒有**衍生的**本機狀態需要寫進 `.gitignore`。（有一樣東西你可以刻意留在 git
-之外 —— board 本身，用下面的 `nook init --private` —— 而即使是它，寫的也是
+之外 —— board 本身，用下面的 `nook issue init --private` —— 而即使是它，寫的也是
 `$GIT_DIR/info/exclude`，永遠不是你的 `.gitignore`。）
 
 **兩個介面讀的是同一批檔案。** CLI 可組合、而且精簡到能待在 agent 的 token 預算裡
@@ -85,14 +85,14 @@ commit 的檔案就啟用。
 
 - **Actor 識別**由 `git config user.email` 推導而來；什麼都不儲存。
 - **Label** 是一個 add-wins 的 OR-Set，所以並行的 `+bug` 與 `-bug` 會保留那個 Label。
-- **刪除永遠不 unlink 檔案。** `nook rm` 追加一筆 `deleted` 墓碑就停手：這張 Issue
+- **刪除永遠不 unlink 檔案。** `nook issue rm` 追加一筆 `deleted` 墓碑就停手：這張 Issue
   離開每一份列表，而它的 `.ndjson` 一個 byte 不動地留在磁碟上，用
-  `nook set <ref> deleted false` 就撈得回來。真的把位元組收回來是另一個、尚未實作的
+  `nook issue set <ref> deleted false` 就撈得回來。真的把位元組收回來是另一個、尚未實作的
   操作。modify/delete 是 `union` 唯一蓋不住的衝突，所以 gitNook 從不製造它
   （ADR-0009）。
 - **零本機狀態。** 沒有快取、沒有索引、沒有 `config.json` —— 沒有任何**衍生**出來、
   需要一條 `.gitignore` 去蓋的東西。唯一的例外是你自己要求的那一件：
-  `nook init --private` 把**權威資料本身**留在 git 之外（見下一節）。那是另一個
+  `nook issue init --private` 把**權威資料本身**留在 git 之外（見下一節）。那是另一個
   主張，而「nook 從不寫你的 `.gitignore`」這條規則在它之後仍然成立。
 
 沒有快取，是因為沒有東西需要快取：完整掃描並摺疊 100 張 Issue 要 3 ms、2,000 張
@@ -101,7 +101,7 @@ commit 的檔案就啟用。
 ## private mode
 
 ```bash
-npx nook init --private      # 一塊零 committed bytes 的 board
+npx nook issue init --private      # 一塊零 committed bytes 的 board
 ```
 
 它建出 `.issues/issues/`，並把一行 `/.issues/` 寫進 `$GIT_DIR/info/exclude`。
@@ -110,7 +110,7 @@ npx nook init --private      # 一塊零 committed bytes 的 board
 任何人的 diff、review 或 clone 裡。
 
 **它買到的是社交足跡為零，不是技術相容性。** 導入 gitNook 從來不難 ——
-`nook init` 只多一個目錄加一行。問題在於那些 byte 是**被 commit 的**：如果團隊裡
+`nook issue init` 只多一個目錄加一行。問題在於那些 byte 是**被 commit 的**：如果團隊裡
 只有你一個人想試，你沒有辦法在還沒經歷「我們 repo 裡這是什麼東西」那場對話之前
 開始。private mode 把那場對話延後，而那就是它存在的全部理由。
 
@@ -126,7 +126,7 @@ npx nook init --private      # 一塊零 committed bytes 的 board
   `list` / `show` 不再警告 `.gitattributes` 那一行。
 
 其餘一切照常運作：`new`、`list`、`show`、`history`、`set`、`mv`、`comment`、
-`label`、`studio`。
+`label`、`studio` —— 全部走 `nook issue <verb>`（見下面的[指令](#指令)）。
 
 ### 四條代價
 
@@ -138,17 +138,17 @@ npx nook init --private      # 一塊零 committed bytes 的 board
    一條分支沒辦法帶著自己的 Issue，而 merge 或 rebase 一張都不會搬。
 3. **git worktree 之間看不到彼此的 board。** ignore 規則**是**共用的 —— 它住在
    common git dir，所以每個 linked worktree 都繼承它 —— 但 untracked 的檔案不是。
-   實測：在一個剛加出來的 linked worktree 裡，`nook list` 會說這裡沒有 board，而
-   `nook init --private` 在那裡只印出 `Created  .issues/issues/`（規則已經在了），
+   實測：在一個剛加出來的 linked worktree 裡，`nook issue list` 會說這裡沒有 board，而
+   `nook issue init --private` 在那裡只印出 `Created  .issues/issues/`（規則已經在了），
    於是那個 worktree 有了自己的一塊**空** board。如果你在 worktree 裡跑並行
    agent，這是地雷。
 4. **換一台機器、或重新 clone，什麼都沒有。** 沒有任何同步機制：這塊 board 只存在
    於一個工作目錄、一顆磁碟上。
 
-### 升級回共享：`nook share`
+### 升級回共享：`nook issue share`
 
 ```
-$ nook share
+$ nook issue share
 Shared  .issues/  已從 $GIT_DIR/info/exclude 移除（這塊 board 從現在起會進 git）
 Created  .gitattributes  .issues/issues/*.ndjson merge=union
 Next  nook 不替你跑任何會寫入的 git 指令，請自己執行：
@@ -251,19 +251,26 @@ Comment 是任何人都可以做的選擇，不是工具強制的規則。
 
 ## 指令
 
+**Breaking change（pre-1.0）：** 每一個 Issue 指令現在都活在 `nook issue <verb>`
+底下 —— 這份 README 之前記的那個扁平形式沒有相容別名（見
+[CHANGELOG](CHANGELOG.md)）。
+
 ```
-init [--private]                       建立 .issues/ 與 .gitattributes 那一行；
+issue init [--private]                 建立 .issues/ 與 .gitattributes 那一行；
                                        --private 改成不留任何 committed bytes
-new <title> [--description <text|->] [--label <l>] [--editor]
-list [--all] [--status <s>] [--label <l>] [--json]
-show <ref> [--json]
-history <ref> [<field>]                某個 LWW 欄位被寫過的每一個值，唯讀
-set <ref> <title|description|status|archived|deleted> <value|->  [--editor]
-mv <ref> <status>
-rm <ref> [--yes]                       刪除：寫一筆墓碑，永不 unlink
-comment <ref> <body|->
-label <ref> +bug -ui
-share                                  把一塊 private board 升級回共享
+issue new <title> [--description <text|->] [--label <l>] [--editor]
+issue list [--all] [--status <s>] [--label <l>] [--json]
+issue show <ref> [--json]
+issue history <ref> [<field>]          某個 LWW 欄位被寫過的每一個值，唯讀
+issue set <ref> <title|description|status|archived|deleted> <value|->  [--editor]
+issue mv <ref> <status>
+issue rm <ref> [--yes]                 刪除：寫一筆墓碑，永不 unlink
+issue comment <ref> <body|->
+issue label <ref> +bug -ui
+issue share                            把一塊 private board 升級回共享
+decision init                          建立 .decisions/ 與 .gitattributes 那一行
+decision new --title <t> [--body <b>] [--disposition <d>]
+decision show <ref> [--json]
 doctor [--fix]                         資料健康檢查；--fix 修復黏合行
 studio [--port <n>]                    localhost 上的看板；可新增、拖拉、編輯、留言
 workspace list|doctor|studio           跨 repo，唯讀 —— 見下面的 workspace
@@ -274,6 +281,12 @@ workspace comment <ref> <body|->       <ref> 只接受完整 ULID —— 見下�
 workspace label <ref> +bug -ui         <ref> 只接受完整 ULID —— 見下面的 workspace
 workspace rm <ref> [--yes]             <ref> 只接受完整 ULID —— 見下面的 workspace
 ```
+
+`nook decision` 是第二個、並行的 op-log，用來存放 ADR（架構決策紀錄）——
+同一套 append-only NDJSON 形狀與 `merge=union` 保證，自己的 `.decisions/`
+目錄，刻意做得比 Issue 小（沒有 label、comment、封存或 private mode）。
+Decision 有的是 `disposition`（`proposed`/`accepted`/`superseded`/`rejected`），
+不是工作流的 `status`。
 
 值的位置寫 `-` 表示從 stdin 讀。
 
@@ -287,14 +300,14 @@ workspace rm <ref> [--yes]             <ref> 只接受完整 ULID —— 見下�
 
 Git-native issue tracker. Issues are plain text files in the repo.
 
-nook list [--all]          one line per issue: <ref> <status> <title> [labels]
-nook show <ref>            title line, description, comments
-nook history <ref>         every write to a field, with actor and lamport t
-nook new "<title>"         create an issue
-nook mv <ref> <status>     backlog todo queued in_progress review blocked done cancelled
-nook comment <ref> "<body>"
-nook label <ref> +bug -ui
-nook set <ref> archived true
+nook issue list [--all]          one line per issue: <ref> <status> <title> [labels]
+nook issue show <ref>            title line, description, comments
+nook issue history <ref>         every write to a field, with actor and lamport t
+nook issue new "<title>"         create an issue
+nook issue mv <ref> <status>     backlog todo queued in_progress review blocked done cancelled
+nook issue comment <ref> "<body>"
+nook issue label <ref> +bug -ui
+nook issue set <ref> archived true
 
 <ref> is any unambiguous ID prefix. Status takes prefixes too (que -> queued).
 queued means requirements are settled: act without asking.
@@ -371,7 +384,7 @@ npx nook studio
 ```
 
 **人**的介面，跑在 `127.0.0.1` 上。CLI 是 agent 的：可組合、可解析、token 便宜。
-把六張 Issue 拖進 `todo` 並排好順序，在那邊是六次 `nook mv`，在這邊是六秒
+把六張 Issue 拖進 `todo` 並排好順序，在那邊是六次 `nook issue mv`，在這邊是六秒
 （ADR-0007）。
 
 八個欄位可以把 Issue 拖來拖去，每張 Issue 有一個抽屜可以編輯標題、描述、Label、
@@ -381,7 +394,7 @@ Status 與留言。**八個欄位就是八個 Status，不多不少** —— 沒
 
 你可以**新增**一張 Issue 而不必回到終端機 —— header 上一個按鈕、八個欄位各一個
 `+`，兩者都只問標題、別的都不問。從抽屜裡可以**歸檔**與取消歸檔，或在一次確認之後
-**刪除**；刪除寫的是 `nook rm` 寫的那同一筆墓碑，所以卡片離開看板而檔案留在磁碟上
+**刪除**；刪除寫的是 `nook issue rm` 寫的那同一筆墓碑，所以卡片離開看板而檔案留在磁碟上
 （ADR-0009）。**主題**切換提供亮色、暗色與跟隨系統，記在 `localStorage` 裡 ——
 你怎麼看這塊 board 是這台機器的性質，不是 Op-log 的性質。寫入走 `POST /i/<ref>`、
 新增走 `POST /api/issues`，進到 CLI 寫的那同一份只增不改的 Op-log，所以 CLI 與
@@ -410,7 +423,7 @@ npx nook workspace list
 
 一個 monorepo 底下的各個套件，或是一個資料夾裡剛好並排放著幾個不相干的
 repo —— 不管是哪一種，`nook workspace` 都能給你一份跨越目前目錄底下所有
-偵測到的 board 的唯讀彙整視角，不必自己一個一個 `cd` 進去跑 `nook list`。
+偵測到的 board 的唯讀彙整視角，不必自己一個一個 `cd` 進去跑 `nook issue list`。
 它是一個**檢視角度**，不是新的一種儲存：不建立、不合併、不快取任何東西，
 每個成員 board 完全維持自己的 op-log、actor 身分與 sharing 狀態，就跟你
 單獨開它一樣。
@@ -455,7 +468,7 @@ nook workspace rm <ref> [--yes]
 
 `new` 沒有既有的 ref 可以拿來路由，所以它改用 `--in <path>` ——
 **必填，不會退回目前目錄**，就算你人已經站在某個成員裡面也一樣；如果是
-這樣，直接用單純的 `nook new` 更直接。`--in` 給的路徑如果落在 workspace
+這樣，直接用單純的 `nook issue new` 更直接。`--in` 給的路徑如果落在 workspace
 掃描範圍之外（就算那裡真的有一塊 board），會被拒絕，不會被悄悄當成
 目標。
 
@@ -473,7 +486,7 @@ ULID**；短前綴一律直接拒絕，不會用猜的 —— 因為一個在某
 例外：它的確認句與最後印出的那一行都會標出成員的路徑，因為救援步驟
 （`nook workspace set <ref> deleted false`）要先知道要 `cd` 進哪裡才有
 意義 —— 而且沒有 workspace 版的 `history` 可以先查，所以那則訊息也會
-提示你 `cd` 進去、跑單純的 `nook history <ref>`。
+提示你 `cd` 進去、跑單純的 `nook issue history <ref>`。
 
 語意 —— 篩選、`--editor`、label 的加減、`--yes` 的 TTY/非 TTY 規則 ——
 跟單一 board 的指令完全一致，這裡沒有重新實作任何一條。每一個單一 board
@@ -504,7 +517,7 @@ Node >= 22。全部就這樣。沒有原生模組、沒有 SQLite、沒有 posti
 ## 已知限制
 
 - **`description` 是 last-writer-wins。** 並行編輯同一份描述只會留下一個版本。
-  輸的那一份沒有遺失 —— 每一次寫入都還在 Op-log 裡，`nook history <ref>`（或
+  輸的那一份沒有遺失 —— 每一次寫入都還在 Op-log 裡，`nook issue history <ref>`（或
   `Board.opLog()`）會連同它的 Actor 與 lamport clock 印回來 —— 但摺疊出來只有一個
   值，而要把另一個救回來是手動複製貼上。
 - **沒有跨分支的原子性。** 兩個 agent 在兩個 worktree 裡可以拿到同一張 Issue。
