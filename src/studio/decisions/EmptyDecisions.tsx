@@ -5,7 +5,7 @@
  * **這裡沒有自動化測試**（spec.md：React 組件不寫測試）。沒有 props、沒有
  * state、沒有分支 —— 該不該畫它是呼叫端的一個 `length === 0`。
  *
- * 新增入口是票 02 的範圍，這裡因此不提「按這裡新增」——那個按鈕這一票還不存在。
+ * 新增入口是票 02 的範圍，這裡因此不提「按這裡新增」——那個按鈕這一批還不存在。
  */
 export function EmptyDecisions(): React.JSX.Element {
   return (

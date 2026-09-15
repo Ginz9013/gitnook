@@ -11,8 +11,8 @@ import { Badge } from '@/components/ui/badge';
  * 收 `ProjectedIssue` 的既有理由：畫面上要畫的還有「這筆上面有沒有東西還沒
  * 落地」，只有投影帶得動。
  *
- * **點擊之後這票先不做任何事** —— drawer 是票 03 的範圍（spec.md 的票面）。
- * `onSelect` 因此先宣告介面、接上點擊，但呼叫端（`DecisionApp.tsx`）這票
+ * **點擊之後這一批先不做任何事** —— drawer 是票 03 的範圍（spec.md 的票面）。
+ * `onSelect` 因此先宣告介面、接上點擊，但呼叫端（`DecisionApp.tsx`）這一批
  * 還沒有任何 drawer 可開。
  *
  * **這裡沒有自動化測試**（spec.md：React 組件不寫測試）。

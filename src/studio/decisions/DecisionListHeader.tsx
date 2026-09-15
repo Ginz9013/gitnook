@@ -22,7 +22,7 @@ import {
 const DISPOSITIONS = ['proposed', 'accepted', 'superseded', 'rejected'] as const;
 
 /**
- * Decisions 扁平清單最上面那一條 —— 這一票只有 disposition 篩選，**沒有
+ * Decisions 扁平清單最上面那一條 —— 這一批只有 disposition 篩選，**沒有
  * 新增入口**（那是票 02 的範圍，spec.md 的票面）。
  *
  * **這裡沒有自動化測試**（spec.md：React 組件不寫測試）。可判定的規則

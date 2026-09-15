@@ -30,7 +30,7 @@ type Client = ClientDecisionState<DecisionView>;
  * state 的權威副本、輪詢迴圈、連線中斷橫幅），但**沒有拖曳相關的任何東西**：
  * Decision 沒有看板（spec.md Non-goals）。
  *
- * **這一票沒有寫入**（票 02／03 的範圍）：`send`／`onCreate` 這類接線這裡還
+ * **這一批沒有寫入**（票 02／03 的範圍）：`send`／`onCreate` 這類接線這裡還
  * 不存在。`selectedId` 先宣告、接上 `DecisionList` 的 `onSelect`，但沒有任何
  * drawer 會讀它 —— 那是票 03 的範圍（spec.md 的票面：「drawer 開關狀態先宣告
  * 但不使用」）。
@@ -53,7 +53,7 @@ export function DecisionApp(): React.JSX.Element {
   const [fault, setFault] = useState<ConnectionFault | null>(null);
   const [hash, setHash] = useState<string | null>(null);
   const [disposition, setDisposition] = useState<string | undefined>(undefined);
-  // 宣告但這一票不使用：沒有任何 drawer 會讀它（票 03 的範圍）。
+  // 宣告但這一批不使用：沒有任何 drawer 會讀它（票 03 的範圍）。
   const [selectedId, setSelectedId] = useState<string | null>(null);
   void selectedId;
 
@@ -191,7 +191,7 @@ function DecisionLoadFailure({ fault }: { readonly fault: ConnectionFault }): Re
   );
 }
 
-/** 連線中斷橫幅 —— 同 `IssueApp.tsx` 的 `StatusBanner`，這一票沒有寫入所以沒有 `failed` 那一半。 */
+/** 連線中斷橫幅 —— 同 `IssueApp.tsx` 的 `StatusBanner`，這一批沒有寫入所以沒有 `failed` 那一半。 */
 function DecisionStatusBanner({
   fault,
 }: {

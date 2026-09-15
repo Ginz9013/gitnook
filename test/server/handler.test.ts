@@ -1563,7 +1563,7 @@ describe('GET /api/decisions', () => {
     expect(Object.hasOwn(view!, 'legacyRef')).toBe(false);
   });
 
-  it('POST /api/decisions 是 405，Allow 說 GET —— 這票沒有寫入端點', () => {
+  it('POST /api/decisions 是 405，Allow 說 GET —— 這一批沒有寫入端點', () => {
     // 405 白名單在路由**之前**判斷，這則請求連不到 decisionLog，
     // 所以這裡不必先 `initDecisionLog()`。
     const res = post('/api/decisions', { title: 'should never land' });
