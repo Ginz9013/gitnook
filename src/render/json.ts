@@ -15,7 +15,7 @@ function sortKeys(value: unknown): unknown {
 }
 
 /**
- * `--json` 的輸出。僅供程式化串接 —— agent 用預設的緊湊表格，見 docs/adr/0005。
+ * `--json` 的輸出。僅供程式化串接 —— agent 用預設的緊湊表格，見 decision legacyRef 0005（`nook decision show 0005`）。
  * 無縮排：結構字元對機器讀者是純粹的成本。
  */
 export function renderJson(issues: readonly Issue[]): string;

@@ -132,7 +132,7 @@ describe('打包產物', () => {
         'process.stdout.write(`${typeof openBoard} ${STATUSES.join(\' \')}`);\n',
     );
 
-    // 八個固定 Status，順序取自 spec.md 的領域模型（docs/adr/0003）。
+    // 八個固定 Status，順序取自 spec.md 的領域模型（decision legacyRef 0003，`nook decision show 0003`）。
     expect(stdout).toBe(
       'function backlog todo queued in_progress review blocked done cancelled',
     );

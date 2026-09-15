@@ -46,7 +46,7 @@ export function diagnose(dir: string): Diagnostic[] {
   // marker 目錄在不在——`.decisions/` 不存在時這個診斷在這個 repo 裡「不存在」，
   // 不是被壓掉的真問題（同 private-mode 的既有哲學）。
   const knownEntities: readonly MergeGuaranteeEntity[] = [
-    // 唯一的單點失效：保證不在，資料就會靜默開始衝突（docs/adr/0001）。
+    // 唯一的單點失效：保證不在，資料就會靜默開始衝突（decision legacyRef 0001，`nook decision show 0001`）。
     { active: guaranteeMatters, rule: MERGE_RULE, initHint: 'nook init' },
     // Decision 用同一套機制，這條規則對它同樣成立——只是換一組 rule/sample/init 指令。
     {

@@ -4,7 +4,7 @@ import { AlreadySharedBoard, excludeBoard, opLogsTracked } from './sharing.js';
 import type { Sharing } from './sharing.js';
 
 /**
- * 整個零衝突保證的唯一支柱 —— docs/adr/0001。
+ * 整個零衝突保證的唯一支柱 —— decision legacyRef 0001（`nook decision show 0001`）。
  * 這一行被誤刪時資料會靜默開始衝突，因此 doctor 持續驗證它還在。
  */
 export const MERGE_RULE = '.issues/issues/*.ndjson merge=union';

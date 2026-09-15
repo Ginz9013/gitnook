@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 
 /**
  * Actor 用於合併時的決勝，不表示某張 Issue 歸誰負責。
- * 由 git config user.email 確定性推導 —— 不儲存任何本機狀態（docs/adr/0002）。
+ * 由 git config user.email 確定性推導 —— 不儲存任何本機狀態（decision legacyRef 0002，`nook decision show 0002`）。
  */
 export function deriveActor(dir: string): string {
   let email = '';

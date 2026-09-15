@@ -48,7 +48,7 @@ export const OP_KINDS = new Set(['create', 'set', 'label.add', 'label.rm', 'comm
 
 /**
  * 一個 Op 一行，永遠以 \n 結尾。
- * 缺少 trailing newline 會讓 git 的 union merge 把兩行黏成非法 JSON —— docs/adr/0001。
+ * 缺少 trailing newline 會讓 git 的 union merge 把兩行黏成非法 JSON —— decision legacyRef 0001（`nook decision show 0001`）。
  */
 export function serialize(op: Op): string {
   return JSON.stringify(op) + '\n';
