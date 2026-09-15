@@ -127,7 +127,7 @@ describe('decision new', () => {
 });
 
 describe('decision show', () => {
-  it('印出 title/body/disposition/supersededBy（有值才印）', async () => {
+  it('印出 compact header（shortId／disposition／title）＋body 區塊，同票 08 的 ADR-0005 版面', async () => {
     await dispatchDecision(['init'], capture());
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X', '--body', 'why', '--disposition', 'accepted'], newIo);
@@ -137,11 +137,20 @@ describe('decision show', () => {
     const code = await dispatchDecision(['show', ref], io);
 
     expect(code).toBe(0);
-    expect(io.out).toContain('X');
-    expect(io.out).toContain('why');
-    expect(io.out).toContain('accepted');
-    expect(io.out).not.toContain('supersededBy');
+    expect(io.out).toBe(`${ref.slice(0, 6)}  accepted  X\n\nwhy\n`);
     expect(io.err).toBe('');
+  });
+
+  it('body 為空時 header 一行就是全部輸出，不留空 body 區塊', async () => {
+    await dispatchDecision(['init'], capture());
+    const newIo = capture();
+    await dispatchDecision(['new', '--title', 'X'], newIo);
+    const ref = newIo.out.trim();
+
+    const io = capture();
+    await dispatchDecision(['show', ref], io);
+
+    expect(io.out).toBe(`${ref.slice(0, 6)}  proposed  X\n`);
   });
 
   it('印 supersededBy 只在有值時', async () => {

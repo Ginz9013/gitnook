@@ -154,6 +154,29 @@ export function renderDecisionTable(decisions: readonly Decision[], shortIdLen?:
 }
 
 /**
+ * 單張 Decision 的 detail 版面 —— 比照 Issue 既有 `renderDetail` 的節奏：
+ * header 一行（shortId／disposition／title）＋空行＋`body`（不截斷，理由同
+ * Issue 的 description：這是唯一拿得回完整內容的地方）＋`supersededBy`
+ * （有值才印）。**不是**逐欄 key:value 傾印 —— 那是票 08 review 判定要換掉
+ * 的舊版面（見票 08 spec.md 的「從哪來」）。
+ *
+ * `shortIdLen` 省略時比照 `renderDetail`：對這一張自己算，永遠得到
+ * `SHORT_ID_MIN`——單張 Decision 跟自己不會撞號，算不出「這批」要幾碼。
+ */
+export function renderDecisionDetail(decision: Decision, shortIdLen?: number): string {
+  const len = shortIdLen ?? shortIdLength([decision.id]);
+  const header = [shortDecisionId(decision, len), decision.disposition, decision.title]
+    .join(GAP)
+    .trimEnd();
+
+  const supersededBy =
+    decision.supersededBy === undefined ? '' : `supersededBy: ${decision.supersededBy}`;
+
+  // 空的區塊整個略去 —— 同 renderDetail 的既有規則：空白行既無資訊也佔 token。
+  return [header, decision.body, supersededBy].filter((block) => block !== '').join('\n\n');
+}
+
+/**
  * 一個成員 Board 分組後要印的份量：來源路徑（相對於 workspace 根目錄）、
  * 篩選後的 issue 清單、以及**這個成員自己**的短 ID 顯示長度 —— 每個成員
  * 完全維持自己的獨立性（CONTEXT.md 的 Workspace 詞條），不跨成員合算長度。

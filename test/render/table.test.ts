@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { renderTable, renderWorkspaceList, renderDecisionTable } from '../../src/render/table.js';
+import {
+  renderTable,
+  renderWorkspaceList,
+  renderDecisionTable,
+  renderDecisionDetail,
+} from '../../src/render/table.js';
 import { renderJson } from '../../src/render/json.js';
 import { displayWidth } from '../../src/render/width.js';
 import { resolvePrefix, SHORT_ID_MIN } from '../../src/core/ids.js';
@@ -364,6 +369,69 @@ describe('renderDecisionTable', () => {
     const titleCell = renderDecisionTable(decisions).split('\n')[0]!.split('  ')[1]!;
     expect(titleCell.endsWith('…')).toBe(true);
     expect(displayWidth(titleCell)).toBeLessThanOrEqual(48);
+  });
+});
+
+/**
+ * 票 08：單張 Decision 的 detail 版面，比照 Issue 既有 renderDetail 的節奏 ——
+ * header 一行（shortId／disposition／title），空的區塊整個略去，不是逐欄
+ * key:value 傾印（見票 08 spec.md）。
+ */
+describe('renderDecisionDetail', () => {
+  const decision = (over: Partial<Decision> & Pick<Decision, 'id' | 'title'>): Decision => ({
+    body: '',
+    disposition: 'proposed',
+    ...over,
+  });
+
+  it('header 一行是 shortId／disposition／title，body 另起一段', () => {
+    const d = decision({
+      id: '01AAAAAAAAAAAAAAAAAAAAAAAA',
+      title: 'Use ULIDs',
+      disposition: 'accepted',
+      body: 'because sortable',
+    });
+
+    expect(renderDecisionDetail(d)).toBe(
+      ['01AAAA  accepted  Use ULIDs', 'because sortable'].join('\n\n'),
+    );
+  });
+
+  it('body 為空時整個略去該區塊', () => {
+    const d = decision({ id: '01AAAAAAAAAAAAAAAAAAAAAAAA', title: 'X', disposition: 'proposed' });
+
+    expect(renderDecisionDetail(d)).toBe('01AAAA  proposed  X');
+  });
+
+  it('supersededBy 只在有值時印出', () => {
+    const d = decision({
+      id: '01AAAAAAAAAAAAAAAAAAAAAAAA',
+      title: 'X',
+      supersededBy: '01BBBBBBBBBBBBBBBBBBBBBBBB',
+    });
+
+    expect(renderDecisionDetail(d)).toBe(
+      ['01AAAA  proposed  X', 'supersededBy: 01BBBBBBBBBBBBBBBBBBBBBBBB'].join('\n\n'),
+    );
+  });
+
+  it('body 不截斷 —— 讀者為了看完整內容才點進來', () => {
+    const long = 'x'.repeat(200);
+    const d = decision({ id: '01AAAAAAAAAAAAAAAAAAAAAAAA', title: 'X', body: long });
+
+    expect(renderDecisionDetail(d)).toContain(long);
+  });
+
+  it('沒給長度時對單張 Decision 算出 SHORT_ID_MIN 碼', () => {
+    const d = decision({ id: '01JBXAAAAAAAAAAAAAAAAAAAAA', title: 'X' });
+
+    expect(renderDecisionDetail(d).split('  ')[0]).toBe('01JBXA');
+  });
+
+  it('依呼叫端給定的短 ID 長度顯示，而不是只對單張自己算', () => {
+    const d = decision({ id: '01JBXAAAAAAAAAAAAAAAAAAAAA', title: 'X' });
+
+    expect(renderDecisionDetail(d, 13).split('  ')[0]).toBe('01JBXAAAAAAAA');
   });
 });
 

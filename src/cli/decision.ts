@@ -17,7 +17,7 @@ import {
 } from '../core/decisionTypes.js';
 import type { CreateDecisionInput, Decision, DecisionFilter } from '../core/decisionTypes.js';
 import { ConflictingGitAttributes, NestedBoard } from '../core/gitattributes.js';
-import { renderDecisionTable } from '../render/table.js';
+import { renderDecisionDetail, renderDecisionTable } from '../render/table.js';
 import { errLine, line, UsageError } from './run.js';
 import type { Io } from './run.js';
 
@@ -219,25 +219,19 @@ function requireRef(ref: string): string {
 }
 
 /**
- * `nook decision show <ref> [--json]`：印出 title/body/disposition/
- * supersededBy（有值才印）。JSON 輸出走本檔自己的一份 sortKeys + stringify，
- * 不重用 `render/json.ts`（它的簽章釘死在 `Issue`，且不在這張票的寫入範圍）。
+ * `nook decision show <ref> [--json]`：預設輸出走 `renderDecisionDetail`——
+ * 同 Issue 的 `nook show`，compact header 一行＋body 區塊，不是逐欄
+ * key:value 傾印（票 08 review 判定的版面問題，見票 08 spec.md 的「從哪來」）。
+ * JSON 輸出走本檔自己的一份 sortKeys + stringify，不重用 `render/json.ts`
+ * （它的簽章釘死在 `Issue`，且不在這張票的寫入範圍），且不受本票影響。
  */
 function cmdShow(args: DecisionArgs, io: Io): number {
   const log = openDecisionLog({ dir: io.cwd });
   const ref = requireRef(args.positional[0] ?? '');
   const decision = log.get(ref);
 
-  line(io, args.has('--json') ? renderDecisionJson(decision) : renderDecisionText(decision));
+  line(io, args.has('--json') ? renderDecisionJson(decision) : renderDecisionDetail(decision));
   return 0;
-}
-
-/** 純文字：一欄一個欄位，`body`/`supersededBy` 只在有值時印，同 AC 的措辭。 */
-function renderDecisionText(decision: Decision): string {
-  const lines = [`title: ${decision.title}`, `disposition: ${decision.disposition}`];
-  if (decision.body !== '') lines.push(`body: ${decision.body}`);
-  if (decision.supersededBy !== undefined) lines.push(`supersededBy: ${decision.supersededBy}`);
-  return lines.join('\n');
 }
 
 /** 鍵依字母排序——同 `render/json.ts` 的 `sortKeys` 對 Issue 的既有慣例，
