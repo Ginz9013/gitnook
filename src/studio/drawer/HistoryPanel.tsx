@@ -1,24 +1,39 @@
 import { useEffect, useState } from 'react';
 import { ChevronRightIcon } from 'lucide-react';
 
-import { fetchHistory } from '@/api';
 import { historyRows } from './history';
-import type { HistoryRow } from './history';
+import type { HistoryRow, HistoryWrite } from './history';
 
 /**
- * 這張 Issue 的每一次 LWW 欄位寫入 —— **接在留言時間軸下面，預設收合**。
+ * 這一張 Issue 或這一筆 Decision 的每一次 LWW 欄位寫入 —— **接在留言時間軸
+ * （Issue）或編輯欄位（Decision）下面，預設收合**。
  *
  * 它是「出事才會去看」的東西，不該跟每天在用的編輯欄位搶版面，所以既不預設
  * 展開，也**不做「每個欄位旁邊各一個小小的歷史入口」** —— 那會在 drawer 上撒
  * 五個幾乎不會被按的圖示（票 B7）。
  *
- * 被 LWW 蓋掉的舊值以前只有 CLI 的 `nook history` 撈得回來，而 studio 是人的
- * 主要操作介面（ADR-0007）。`deleted` 也在這份清單上（它是第五個 LWW 欄位），
- * 這裡因此正是刪除確認框答應給使用者的那條救生索。
+ * 被 LWW 蓋掉的舊值以前只有 CLI 的 `nook history`／`nook decision history`
+ * 撈得回來，而 studio 是人的主要操作介面（ADR-0007）。`deleted` 也在 Issue
+ * 那份清單上（它是第五個 LWW 欄位），這裡因此正是刪除確認框答應給使用者的
+ * 那條救生索。
+ *
+ * **這個組件本身是 Issue 與 Decision 共用的同一份實作**（spec.md Domain
+ * decisions）：`historyRows()` 只看 field/value/actor/t，跟欄位名稱的值域
+ * 無關；唯一曾經寫死 Issue 的地方是內部直接 import 的 `fetchHistory`，這一批
+ * （票 04）把它換成呼叫端傳進來的 `fetchWrites`，Issue 既有呼叫端改傳
+ * `fetchHistory` 本身，行為逐字不變。
  */
 export interface HistoryPanelProps {
-  /** 這張 Issue 的 id（完整 ULID）—— `GET /api/history/<ref>` 的那個 ref。 */
-  readonly issueId: string;
+  /** 這一張 Issue 或這一筆 Decision 的 id（完整 ULID）—— history 端點的那個 ref。 */
+  readonly id: string;
+  /**
+   * 打哪個 history 端點由呼叫端決定 —— Issue 傳 `fetchHistory`
+   * （`GET /api/history/<ref>`），Decision 傳 `fetchDecisionHistory`
+   * （`GET /api/decision-history/<ref>`）。兩邊回應的 `writes` 型別各自窄一點
+   * （`WriteView`／`DecisionWriteView`），但結構上都是 `HistoryWrite` 的子集，
+   * 因此都能原樣交給這裡。
+   */
+  readonly fetchWrites: (id: string, signal: AbortSignal) => Promise<{ readonly writes: readonly HistoryWrite[] }>;
 }
 
 /**
@@ -32,21 +47,23 @@ type Load =
   | { readonly state: 'ready'; readonly rows: readonly HistoryRow[] }
   | { readonly state: 'failed'; readonly message: string };
 
-export function HistoryPanel({ issueId }: HistoryPanelProps): React.JSX.Element {
+export function HistoryPanel({ id, fetchWrites }: HistoryPanelProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [load, setLoad] = useState<Load | null>(null);
 
   // **展開時才 fetch，不在開 drawer 時**（票 B7）：多數人不會展開它，而每開
   // 一次 drawer 就多讀一次 op-log 是替不會發生的事付錢。
   //
-  // 相依只有 `open` 與 `issueId`，`load` 刻意不在裡面 —— 把自己設定的狀態放進
-  // 相依會讓 effect 立刻重跑，而 cleanup 會把剛送出的那個請求 abort 掉。
-  // 收合時 cleanup 取消還在飛的請求；再展開就重抓一次（這也就是失敗之後的重試）。
+  // 相依是 `open`／`id`／`fetchWrites`，`load` 刻意不在裡面 —— 把自己設定的
+  // 狀態放進相依會讓 effect 立刻重跑，而 cleanup 會把剛送出的那個請求 abort
+  // 掉。收合時 cleanup 取消還在飛的請求；再展開就重抓一次（這也就是失敗之後
+  // 的重試）。`fetchWrites` 兩邊呼叫端都是模組層級的函式參照（`fetchHistory`／
+  // `fetchDecisionHistory`），不會隨每次 render 變動，放進相依因此不會多重跑。
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
     setLoad({ state: 'loading' });
-    fetchHistory(issueId, controller.signal)
+    fetchWrites(id, controller.signal)
       .then((history) => setLoad({ state: 'ready', rows: historyRows(history.writes) }))
       .catch((err: unknown) => {
         // 自己取消的請求不是失敗 —— 那個 AbortError 是收合這個動作本身。
@@ -54,7 +71,7 @@ export function HistoryPanel({ issueId }: HistoryPanelProps): React.JSX.Element 
         setLoad({ state: 'failed', message: err instanceof Error ? err.message : String(err) });
       });
     return () => controller.abort();
-  }, [open, issueId]);
+  }, [open, id, fetchWrites]);
 
   return (
     <section className="flex flex-col gap-3 border-t pt-4">

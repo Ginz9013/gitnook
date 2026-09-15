@@ -1951,3 +1951,90 @@ describe('GET /d/<ref>', () => {
     }
   });
 });
+
+const decisionHistory = (ref: string) =>
+  handleRequest(
+    board(),
+    decisionLog(),
+    { method: 'GET', url: `/api/decision-history/${ref}` },
+    { assetsDir: assets },
+  );
+
+interface DecisionWriteView {
+  field: string;
+  value: string;
+  actor: string;
+  t: number;
+}
+
+const decisionWrites = (ref: string): DecisionWriteView[] =>
+  (JSON.parse(decisionHistory(ref).body) as { writes: DecisionWriteView[] }).writes;
+
+/**
+ * `GET /api/decision-history/<ref>` —— 對 LWW 欄位的每一次寫入，含是誰寫的與
+ * Lamport 時刻，鏡射既有 `GET /api/history/<ref>`（`issueHistory`）的做法：
+ * 篩選走 core 的 `decisionFieldWrites`，與 `nook decision history` 是同一份。
+ */
+describe('GET /api/decision-history/<ref>', () => {
+  it('列出對 LWW 欄位的每一次寫入，含 actor 與 t，create 折成 title 的第一次寫入', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    post(`/d/${id}`, { body: 'first draft' });
+    post(`/d/${id}`, { disposition: 'accepted' });
+
+    const res = decisionHistory(id);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+    // 同 `issueHistory`：不重寫一次「create 折成 title 第一次寫入」的邏輯，
+    // 這裡驗的正是 `decisionFieldWrites` 已經做好的那一份折法。
+    expect(decisionWrites(id)).toEqual([
+      { field: 'title', value: 'Adopt trunk-based development', actor: 'test', t: 1 },
+      { field: 'body', value: 'first draft', actor: 'test', t: 2 },
+      { field: 'disposition', value: 'accepted', actor: 'test', t: 3 },
+    ]);
+  });
+
+  /**
+   * 沿用 `applyDecisionChange` 既有的那張對應表：解析不出 ref 是 404，不是
+   * 500 —— 同既有 `GET /api/history/<ref> 的錯誤對應`。
+   */
+  it('DecisionNotFound → 404，不外洩例外也不外洩內容', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    for (const ref of [fullId('01JDEC9'), 'ZZZZZZ', '../../etc/passwd']) {
+      const res = decisionHistory(ref);
+      expect(res.status, ref).toBe(404);
+      expect(res.body, ref).not.toContain('Adopt trunk-based development');
+      expect(res.body, ref).not.toContain('at Object');
+    }
+  });
+
+  it('AmbiguousDecisionRef → 404，且內文含足以區分的候選', () => {
+    createDecisionWith(fullId('01JDECAB'), 'Adopt trunk-based development');
+    createDecisionWith(fullId('01JDECAC'), 'Use conventional commits');
+
+    const res = decisionHistory('01JDECA');
+
+    expect(res.status).toBe(404);
+    expect(res.body).toContain('01JDECAB');
+    expect(res.body).toContain('01JDECAC');
+  });
+
+  /**
+   * 這條路徑住在 `/api/` 底下，不是 `/d/`——同既有的
+   * `唯讀端點沒有讓 405 白名單鬆動`：一條 GET 路徑不該因為前綴長得像
+   * 就被 405 白名單誤判成可寫。
+   */
+  it('POST 這條路徑是 405，Allow 說 GET，且一個 op 都沒落下', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const before = decisionOpsOnDisk(id).length;
+
+    const res = post(`/api/decision-history/${id}`, { title: 'should never land' });
+
+    expect(res.status).toBe(405);
+    expect(res.headers['allow']).toBe('GET');
+    expect(decisionOpsOnDisk(id)).toHaveLength(before);
+  });
+});

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
 import { historyRows } from '../../src/studio/drawer/history.js';
-import { isIssueHistory } from '../../src/studio/api.js';
+import type { HistoryWrite } from '../../src/studio/drawer/history.js';
+import { isDecisionHistory, isIssueHistory } from '../../src/studio/api.js';
 import type { WriteView } from '../../src/studio/api.js';
 
 // 純函式，environment: 'node'。不 import React、不碰 DOM。
@@ -99,6 +100,25 @@ describe('historyRows —— 多行的值收起來只看得到第一行', () => 
   });
 });
 
+describe('historyRows —— Issue 與 Decision 的欄位名稱共用同一份規則', () => {
+  // `historyRows()` 只看 field/value/actor/t 這個形狀，跟欄位名稱的值域無關
+  // （spec.md Domain decisions）。這裡故意混一筆 Issue 的欄位名（`status`）
+  // 與一筆 Decision 才有的欄位名（`disposition`），證明同一份實作對兩者都對，
+  // 不是收窄回 Issue 的 `SetKey` 之後再靠巧合放行 Decision 的值。
+  const decisionLike: HistoryWrite = { field: 'disposition', value: 'accepted', actor: 'kouhei', t: 2 };
+  const issueLike: HistoryWrite = { field: 'status', value: 'doing', actor: 'kouhei', t: 1 };
+
+  it('兩種欄位名稱在同一次呼叫裡都被正確處理', () => {
+    const rows = historyRows([issueLike, decisionLike]);
+
+    // 由新到舊：t2（decision）在前，t1（issue）在後。
+    expect(rows).toEqual([
+      { field: 'disposition', text: 'accepted', preview: 'accepted', actor: 'kouhei', t: 2 },
+      { field: 'status', text: 'doing', preview: 'doing', actor: 'kouhei', t: 1 },
+    ]);
+  });
+});
+
 describe('isIssueHistory —— 合法的 JSON 不等於承諾的形狀', () => {
   // `getJson` 的 `isShape` 是必填（api.ts），而它必填正是為了讓多一個端點的人在
   // 這裡回答「怎樣算是答對了」。擋的是「打錯 port，另一個 server 在那裡回了
@@ -124,5 +144,27 @@ describe('isIssueHistory —— 合法的 JSON 不等於承諾的形狀', () => 
   // `WriteView` 的定義，而它會與 server 那一份分岔。
   it('列裡面的東西不檢查', () => {
     expect(isIssueHistory({ writes: [{ nope: 1 }] })).toBe(true);
+  });
+});
+
+describe('isDecisionHistory —— 同 isIssueHistory，只看頂層', () => {
+  // `GET /api/decision-history/<ref>` 的形狀守門，鏡射 `isIssueHistory`
+  // 對 `GET /api/history/<ref>` 的既有規則——同一個理由：擋的是「打錯 port，
+  // 另一個 server 在那裡回了 JSON」，不是逐列驗 `DecisionWriteView`。
+  it('沒有 writes 的物件不是一份歷史', () => {
+    expect(isDecisionHistory({ nope: 1 })).toBe(false);
+  });
+
+  it('writes 是陣列就算答對了', () => {
+    expect(isDecisionHistory({ writes: [] })).toBe(true);
+  });
+
+  it('writes 不是陣列不算', () => {
+    expect(isDecisionHistory({ writes: { 0: 'x' } })).toBe(false);
+  });
+
+  it('不是物件的 body 同樣解得開，同樣不算', () => {
+    expect(isDecisionHistory(null)).toBe(false);
+    expect(isDecisionHistory([])).toBe(false);
   });
 });

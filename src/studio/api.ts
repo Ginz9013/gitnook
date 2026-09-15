@@ -3,6 +3,7 @@ import type {
   BoardSnapshot,
   CommentView,
   DecisionBoardSnapshot,
+  DecisionHistory,
   DecisionView,
   IssueHistory,
   IssueView,
@@ -26,6 +27,7 @@ export type {
   CommentView,
   DecisionBoardSnapshot,
   DecisionChange,
+  DecisionHistory,
   DecisionView,
   Diagnostic,
   DiagnosticKind,
@@ -151,6 +153,16 @@ export function isIssueHistory(value: unknown): value is IssueHistory {
 }
 
 /**
+ * 這塊 body 是不是一份 `DecisionHistory` —— 只看頂層，同 `isIssueHistory`。
+ * 存在的理由一模一樣：擋的是「打錯 port，另一個 server 在那裡回了 JSON」，
+ * 逐列驗 `DecisionWriteView` 的形狀是第二份會漂開的定義。
+ */
+export function isDecisionHistory(value: unknown): value is DecisionHistory {
+  if (value === null || typeof value !== 'object') return false;
+  return Array.isArray((value as { writes?: unknown }).writes);
+}
+
+/**
  * 這塊 body 是不是一份 `DecisionBoardSnapshot` —— 只看頂層，同 `isBoardSnapshot`。
  * 存在的理由一模一樣：擋的是「打錯 port，另一個 server 在那裡回了 JSON」。
  */
@@ -169,6 +181,7 @@ const HISTORY_PREFIX = '/api/history/';
 const DECISIONS_URL = '/api/decisions';
 const DECISION_HASH_URL = '/decision-hash';
 const DECISION_PREFIX = '/d/';
+const DECISION_HISTORY_PREFIX = '/api/decision-history/';
 
 /**
  * `isShape` 是必填而不是選填：這個位置以前是 `as T`，而 `as T` 對編譯器來說
@@ -282,6 +295,15 @@ export function fetchHistory(ref: string, signal?: AbortSignal): Promise<IssueHi
   // 同 `postChange`：ref 是 ULID，編碼對它是恆等變換；寫出來是為了讓
   // 「路徑片段就是路徑片段」不必靠 id 的字元集來成立。
   return getJson(`${HISTORY_PREFIX}${encodeURIComponent(ref)}`, isIssueHistory, signal);
+}
+
+/**
+ * 一筆 Decision 上每一次對 LWW 欄位的寫入 —— `GET /api/decision-history/<ref>`，
+ * 逐一鏡射 `fetchHistory`：只在有人展開歷史區塊時才叫（票 B7 的既有節奏），
+ * 這一批（票 04）把它接上泛化後的 `HistoryPanel`。
+ */
+export function fetchDecisionHistory(ref: string, signal?: AbortSignal): Promise<DecisionHistory> {
+  return getJson(`${DECISION_HISTORY_PREFIX}${encodeURIComponent(ref)}`, isDecisionHistory, signal);
 }
 
 /**

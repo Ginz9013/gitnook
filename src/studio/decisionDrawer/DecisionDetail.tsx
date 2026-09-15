@@ -4,8 +4,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { fetchDecisionHistory } from '@/api';
 import type { DecisionView } from '@/api';
 import type { ProjectedDecision } from '@/decisionReconcile';
+import { HistoryPanel } from '@/drawer/HistoryPanel';
 import { MARKDOWN_CONTENT_CLASS } from '@/drawer/markdownContent';
 import { DispositionPicker } from './DispositionPicker';
 import { bodyChange, supersededByChange, titleChange } from './decisionChanges';
@@ -83,6 +85,13 @@ export function DecisionDetail({ projected, onSubmit }: DecisionDetailProps): Re
           pending={projected.optimistic.has('supersededBy')}
           onSubmit={submit}
         />
+
+        {/*
+          變更歷史接在編輯欄位下面，預設收合，展開時才 fetch（票 B7 的既有
+          節奏）——同 `IssueDetail.tsx` 的擺法。`HistoryPanel` 是這一批（票 04）
+          泛化過的同一個組件，這裡只是換一個 `fetchWrites`。
+        */}
+        <HistoryPanel id={projected.id} fetchWrites={fetchDecisionHistory} />
       </div>
     </>
   );

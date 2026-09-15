@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { deriveActor } from '../core/actor.js';
 import type { Decision, DecisionChange, DecisionLog, Disposition } from '../core/decisionTypes.js';
 import { AmbiguousDecisionRef, DecisionNotFound, InvalidDisposition } from '../core/decisionTypes.js';
+import type { DecisionSetKey } from '../core/decisionOps.js';
+import { decisionFieldWrites } from '../core/decisionReduce.js';
 import { shortIdLength } from '../core/ids.js';
 import type { SetKey } from '../core/ops.js';
 import { fieldWrites } from '../core/reduce.js';
@@ -43,6 +45,7 @@ const ISSUE_PREFIX = '/i/';
 const API_DECISIONS_PATH = '/api/decisions';
 const DECISION_HASH_PATH = '/decision-hash';
 const DECISION_PREFIX = '/d/';
+const API_DECISION_HISTORY_PREFIX = '/api/decision-history/';
 
 function html(body: string): StudioResponse {
   return { status: 200, headers: { 'content-type': HTML }, body };
@@ -491,6 +494,53 @@ function issueHistory(board: Board, ref: string): StudioResponse {
   }
 }
 
+/**
+ * 一次對 Decision 的 LWW 欄位的寫入。同 `WriteView`，欄位名照 studio 的說法
+ * （`field`／`value`）而不是儲存格式的 `k`／`v`；`value` 這裡固定是字串 ——
+ * `DecisionSetOp['v']` 本來就沒有 boolean 這個分支（Decision 沒有
+ * `archived`／`deleted` 那種布林 LWW 欄位）。
+ */
+export interface DecisionWriteView {
+  readonly field: DecisionSetKey;
+  readonly value: string;
+  readonly actor: string;
+  readonly t: number;
+}
+
+export interface DecisionHistory {
+  readonly writes: readonly DecisionWriteView[];
+}
+
+/**
+ * 一筆 Decision 的變更歷史 —— `GET /api/decision-history/<ref>`，逐一鏡射
+ * `issueHistory`／`GET /api/history/<ref>` 的做法。
+ *
+ * 篩選走 core 的 `decisionFieldWrites`（decisionReduce.ts），**與
+ * `nook decision history` 是同一份**：`create` op 折成 title 的第一次寫入的
+ * 邏輯已經在那裡做好，這裡不重寫一次。
+ *
+ * **沒有「已刪的 Decision 照樣讀得到」這條特例**：Decision 沒有 `deleted`
+ * 欄位（spec.md Non-goals），這個概念在這個實體上不存在，所以這裡沒有
+ * `issueHistory` 那段對應的註記與行為。
+ */
+function decisionHistory(decisionLog: DecisionLog, ref: string): StudioResponse {
+  try {
+    const writes: DecisionWriteView[] = decisionFieldWrites(decisionLog.opLog(ref)).map((op) => ({
+      field: op.k,
+      value: op.v,
+      actor: op.a,
+      t: op.t,
+    }));
+    const payload: DecisionHistory = { writes };
+    return json(payload);
+  } catch (err) {
+    // 沿用 applyDecisionChange 既有的對應：解析不出來的 ref 是「這個 URL 沒有
+    // 對應的東西」，不是伺服器錯誤；有歧義時把候選原樣送出去。
+    if (err instanceof DecisionNotFound || err instanceof AmbiguousDecisionRef) return notFound(err.message);
+    throw err;
+  }
+}
+
 export interface HandlerOptions {
   /**
    * 前端資產的所在目錄。預設是套件自己的 `dist/studio/`；測試傳入自己造的
@@ -886,6 +936,12 @@ function route(board: Board, decisionLog: DecisionLog, req: StudioRequest, opts:
 
   if (path === DECISION_HASH_PATH) {
     return { status: 200, headers: { 'content-type': TEXT }, body: decisionHash(decisionLog) };
+  }
+
+  // 這一批（票 04）唯一新增的讀取端點：同上面 `/api/history/` 的擺法，住在
+  // `/api/` 底下而不是 `/d/` —— 那個前綴的意思是寫入面，見上面白名單那段。
+  if (path.startsWith(API_DECISION_HISTORY_PREFIX)) {
+    return decisionHistory(decisionLog, path.slice(API_DECISION_HISTORY_PREFIX.length));
   }
 
   return notFound();

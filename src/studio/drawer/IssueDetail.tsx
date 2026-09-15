@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { fetchHistory } from '@/api';
 import type { IssueView } from '@/api';
 import type { ProjectedIssue } from '@/reconcile';
 import { CommentTimeline } from './CommentTimeline';
@@ -101,7 +102,7 @@ export function IssueDetail({ projected, onSubmit }: IssueDetailProps): React.JS
           變更歷史接在留言下面，預設收合，展開時才 fetch（票 B7）。它與上面
           那些欄位不同：那些是每天在用的，這個是出事才來看的。
         */}
-        <HistoryPanel issueId={projected.id} />
+        <HistoryPanel id={projected.id} fetchWrites={fetchHistory} />
 
         <IssueActions
           shortId={shown.shortId}
