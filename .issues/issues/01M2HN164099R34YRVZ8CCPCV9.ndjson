@@ -1,0 +1,4 @@
+{"id":"01M2HN1640S6VEE95462YAP8NN","t":1,"a":"83a1","op":"create","title":"視圖切換殼 + 唯讀 Decision 清單"}
+{"id":"01M2HN164BGKVF19N0Q6SYB5P0","t":2,"a":"83a1","op":"set","k":"description","v":"App.tsx 拆殼（IssueApp.tsx/DecisionApp.tsx），decisionReconcile.ts 完整 reducer，Decision 扁平清單（唯讀），server 讀取路由。詳見 .scratch/decision-studio/01-view-switcher-readonly-list.md"}
+{"id":"01M2HN164BXNBG1HEDMR5KW3SD","t":3,"a":"83a1","op":"label.add","v":"decision-studio"}
+{"id":"01M2HN1CG4MKNH5GXNGD7TPQJZ","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}

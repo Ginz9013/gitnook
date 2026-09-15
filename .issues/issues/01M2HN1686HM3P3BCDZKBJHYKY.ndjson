@@ -1,0 +1,4 @@
+{"id":"01M2HN16862BAZHW0NNH6Q0FW3","t":1,"a":"83a1","op":"create","title":"Decision 修改紀錄面板"}
+{"id":"01M2HN168HWFMZBHYE6Z6SWHG5","t":2,"a":"83a1","op":"set","k":"description","v":"泛化 HistoryPanel.tsx 供 Decision 重用，GET /api/decision-history/<ref>。詳見 .scratch/decision-studio/04-decision-history-panel.md"}
+{"id":"01M2HN168HB3WYMY3S2JYV2NNK","t":3,"a":"83a1","op":"label.add","v":"decision-studio"}
+{"id":"01M2HN1CMGFKDXQEWMJZ69WKBW","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}

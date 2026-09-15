@@ -1,0 +1,4 @@
+{"id":"01M2HN166TTQ5DF0XQ938JDJTX","t":1,"a":"83a1","op":"create","title":"Decision drawer：看＋改"}
+{"id":"01M2HN1675BCT7WHV6PCYEPJ7M","t":2,"a":"83a1","op":"set","k":"description","v":"title/body/disposition/supersededBy 可編輯，POST /d/<ref>，DispositionPicker。詳見 .scratch/decision-studio/03-decision-drawer.md"}
+{"id":"01M2HN1675DGQXX3KTQ13X58V0","t":3,"a":"83a1","op":"label.add","v":"decision-studio"}
+{"id":"01M2HN1CK07XE2V6RBJ1STXFEY","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
