@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Diagnostic } from './types.js';
-import { MERGE_RULE, inspectMergeGuarantee } from './gitattributes.js';
+import { MERGE_RULE, inspectMergeGuarantee, DECISIONS_DIR, DECISION_MERGE_RULE, DECISION_LOG_SAMPLE } from './gitattributes.js';
 import { OP_KINDS, splitGluedLine } from './ops.js';
 import { ignoredByGit, inspectSharing, opLogsTracked, overridingRule } from './sharing.js';
 
@@ -39,23 +39,25 @@ export function diagnose(dir: string): Diagnostic[] {
   const trackedAnyway = sharing === 'private' && opLogsTracked(dir);
   const guaranteeMatters = sharing === 'shared' || trackedAnyway;
 
-  // 唯一的單點失效：保證不在，資料就會靜默開始衝突（docs/adr/0001）。
-  if (guaranteeMatters) {
-    const guarantee = inspectMergeGuarantee(dir);
-    if (guarantee.kind === 'absent') {
-      found.push({
-        kind: 'MissingMergeDriver',
-        file: '.gitattributes',
-        message: `missing the zero-conflict guarantee: ${MERGE_RULE} (run nook init to restore it)`,
-      });
-    } else if (guarantee.kind === 'conflicting') {
-      found.push({
-        kind: 'MissingMergeDriver',
-        file: '.gitattributes',
-        line: guarantee.line,
-        message: `this line keeps the op-log from getting merge=union: ${guarantee.rule}`,
-      });
-    }
+  // 已知會有零衝突保證需求的實體 pattern，逐一問 merge=union 齊不齊 ——
+  // 不是硬編一個 pattern，日後第三種實體只需要在這裡加一筆。**閘門刻意不共用**：
+  // Issue 有 private 模式（沒有 marker 目錄存在與否不代表保證不需要，保證需不需要
+  // 問的是 sharing），Decision 沒有（票 01 只支援 shared），所以它的閘門直接是
+  // marker 目錄在不在——`.decisions/` 不存在時這個診斷在這個 repo 裡「不存在」，
+  // 不是被壓掉的真問題（同 private-mode 的既有哲學）。
+  const knownEntities: readonly MergeGuaranteeEntity[] = [
+    // 唯一的單點失效：保證不在，資料就會靜默開始衝突（docs/adr/0001）。
+    { active: guaranteeMatters, rule: MERGE_RULE, initHint: 'nook init' },
+    // Decision 用同一套機制，這條規則對它同樣成立——只是換一組 rule/sample/init 指令。
+    {
+      active: existsSync(join(dir, ...DECISIONS_DIR)),
+      sample: DECISION_LOG_SAMPLE,
+      rule: DECISION_MERGE_RULE,
+      initHint: 'nook decision init',
+    },
+  ];
+  for (const entity of knownEntities) {
+    found.push(...mergeGuaranteeDiagnostics(dir, entity));
   }
 
   found.push(...sharingMismatches(dir, sharing, trackedAnyway, insideGit));
@@ -177,6 +179,44 @@ function sharingMismatches(
         `. This board looks shared, but a colleague's clone would be empty. ` +
         `If this is intentional, run nook init --private to record it; ` +
         `if not, remove that ignore rule.`,
+    },
+  ];
+}
+
+/**
+ * 「已知實體 pattern 清單」裡的一筆——`inspectMergeGuarantee` 需要知道的那三件事
+ * （比對用的 sample、報告用的 rule 文字、修復指令），加上這一筆現在算不算數
+ * （`active`：Issue 問 sharing，Decision 問 marker 目錄在不在，見呼叫端）。
+ */
+interface MergeGuaranteeEntity {
+  readonly active: boolean;
+  /** undefined 時 `inspectMergeGuarantee` 用它自己的預設 sample（Issue 那條）。 */
+  readonly sample?: string;
+  readonly rule: string;
+  readonly initHint: string;
+}
+
+/** 一筆實體的零衝突保證診斷；`active` 是 false 或保證本來就在時回傳 []。 */
+function mergeGuaranteeDiagnostics(dir: string, entity: MergeGuaranteeEntity): Diagnostic[] {
+  if (!entity.active) return [];
+
+  const guarantee = inspectMergeGuarantee(dir, entity.sample);
+  if (guarantee.kind === 'union') return [];
+  if (guarantee.kind === 'absent') {
+    return [
+      {
+        kind: 'MissingMergeDriver',
+        file: '.gitattributes',
+        message: `missing the zero-conflict guarantee: ${entity.rule} (run ${entity.initHint} to restore it)`,
+      },
+    ];
+  }
+  return [
+    {
+      kind: 'MissingMergeDriver',
+      file: '.gitattributes',
+      line: guarantee.line,
+      message: `this line keeps the op-log from getting merge=union: ${guarantee.rule}`,
     },
   ];
 }
