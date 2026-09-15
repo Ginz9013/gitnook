@@ -32,7 +32,7 @@ export function DecisionList({ decisions, onSelect }: DecisionListProps): React.
             <button
               type="button"
               onClick={() => onSelect(decision.id)}
-              className="bg-card text-card-foreground hover:bg-accent w-full rounded-md border p-3 text-left shadow-xs"
+              className="bg-card text-card-foreground hover:bg-accent w-full cursor-pointer rounded-md border p-3 text-left shadow-xs"
             >
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground font-mono text-[10px]">
