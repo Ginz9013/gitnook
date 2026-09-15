@@ -1,6 +1,4 @@
-import { HttpError, MalformedResponseError, fetchBoard, fetchHash } from './api.js';
-import type { IssueView } from './api.js';
-import type { ClientAction } from './reconcile.js';
+import { HttpError, MalformedResponseError } from './api.js';
 
 /**
  * 一次輪詢的結果：拿到答案（`'ok'`），或是一次失敗（`ConnectionFault`）。
@@ -139,17 +137,26 @@ export function classifyFailure(err: unknown): ConnectionFault {
 /** 輪詢間隔。票 09 的契約，不變。 */
 export const POLL_INTERVAL_MS = 2000;
 
-export interface PollOptions {
+/**
+ * 輪詢一份泛型的快照 `S`，套用之後 dispatch 一個泛型的 action `A`。
+ *
+ * 這一批（票 05）把原本寫死 Issue 的 `startPolling` 拆開：指紋怎麼拿
+ * （`fetchHash`）、快照怎麼拿（`fetchSnapshot`）、快照怎麼變成一個 action
+ * （`toAction`）三件事全部由呼叫端決定，`startPolling` 只剩下接線本身 ——
+ * 間隔、`busy` 旗標、abort 規則、連線狀態機，這些對 Issue 與 Decision 是同
+ * 一份規則、同一份測試涵蓋，不會再各自寫一份然後分岔（見本檔開頭的說明）。
+ */
+export interface PollOptions<S, A> {
   /** 開場那份快照的 hash —— 有它，第一次輪詢才不會白抓一次整塊 board。 */
   readonly hash: string;
-  /**
-   * 新快照交給調和 reducer。畫面該不該跟著動由它決定，不由這裡決定（票 02）。
-   *
-   * 型別參數釘的是 `IssueView` 而不是 reducer 預設的 `ReconcileIssue`：這裡
-   * 派出去的快照就是 `fetchBoard()` 的產物，兩者是同一個形狀。寫成較寬的那個
-   * 會讓呼叫端（它的 state 帶著 `descriptionHtml`）在逆變位置上接不住。
-   */
-  readonly dispatch: (action: ClientAction<IssueView>) => void;
+  /** 當前指紋。值變了才值得抓一次完整快照。 */
+  readonly fetchHash: (signal: AbortSignal) => Promise<string>;
+  /** 一次全量快照 —— 只在 `fetchHash` 回傳的值跟上次不同時才呼叫。 */
+  readonly fetchSnapshot: (signal: AbortSignal) => Promise<S>;
+  /** 把一份快照變成交給 reducer 的 action。判斷（該不該動畫面）留給 reducer。 */
+  readonly toAction: (snapshot: S) => A;
+  /** 新 action 交給調和 reducer。畫面該不該跟著動由它決定，不由這裡決定（票 02）。 */
+  readonly dispatch: (action: A) => void;
   /**
    * 中斷狀態變了才呼叫一次，不是每次輪詢都叫。null = 連得上。
    *
@@ -164,12 +171,20 @@ export interface PollOptions {
 /**
  * 輪詢迴圈。回傳的函式停掉它（給 `useEffect` 的 cleanup 用）。
  *
- * 這一段沒有自動化測試 —— 有判斷的部分都在上面的 `connectionReduce`、
- * `classifyFailure` 與 `connectionFault` 裡（三個都是純函式，都有測試），這裡剩下
- * 的是接線：問 hash、變了才抓 board、把快照丟給 reducer。整頁重載不在這裡，也不該
- * 在任何地方（ADR-0007：它與拖曳、開著的 drawer、捲動位置全都不相容）。
+ * **接線本身逐字不變（票 05）**——間隔、`busy` 旗標語意、abort 規則、連線
+ * 狀態機全部照舊；改變的只是「問 hash 用哪個函式」「抓快照用哪個函式」
+ * 「快照變 action 的規則」三件事，現在由呼叫端注入，而不是寫死 Issue 的
+ * `fetchHash`/`fetchBoard`/`POLL`。`IssueApp.tsx` 與 `DecisionApp.tsx` 因此
+ * 是同一份被同一份測試涵蓋（`test/studio/poll.test.ts`）的迴圈，不再各自
+ * 寫一份、遲早分岔（見本檔開頭的說明）。
+ *
+ * 有判斷的部分都在上面的 `connectionReduce`、`classifyFailure` 與
+ * `connectionFault` 裡（三個都是純函式，都有測試）；這裡剩下的是接線：問
+ * hash、變了才抓快照、把快照丟給呼叫端指定的 `toAction`/`dispatch`。整頁
+ * 重載不在這裡，也不該在任何地方（ADR-0007：它與拖曳、開著的 drawer、捲動
+ * 位置全都不相容）。
  */
-export function startPolling(options: PollOptions): () => void {
+export function startPolling<S, A>(options: PollOptions<S, A>): () => void {
   const abort = new AbortController();
   let hash = options.hash;
   let connection = CONNECTED;
@@ -191,13 +206,13 @@ export function startPolling(options: PollOptions): () => void {
     if (busy) return;
     busy = true;
     try {
-      const latest = await fetchHash(abort.signal);
+      const latest = await options.fetchHash(abort.signal);
       if (latest !== hash) {
         // 指紋是 64 字元，快照是整塊 board —— 值沒變就不抓（ADR-0002：沒有增量，
         // 要嘛全量要嘛不要）。`/hash` 涵蓋 all: true，archived 與 done 的變動同樣算數。
-        const snapshot = await fetchBoard(abort.signal);
+        const snapshot = await options.fetchSnapshot(abort.signal);
         hash = latest;
-        options.dispatch({ type: 'POLL', issues: snapshot.issues });
+        options.dispatch(options.toAction(snapshot));
       }
       record('ok');
     } catch (err) {

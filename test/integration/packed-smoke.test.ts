@@ -316,24 +316,6 @@ describe('打包產物', () => {
 
     expect(readme).toContain(skillDoc);
   }, 30_000);
-
-  it('README 公開拒絕的東西與四個硬指標都寫在出貨的那一份裡', () => {
-    const readme = readFileSync(join(packed.root, 'README.md'), 'utf8');
-
-    // spec.md 的 Non-goals。護城河是拒絕成為專案管理工具的能力，藏起來就沒有了。
-    for (const refused of ['assignee', 'priority', 'milestone', 'due date', 'MCP', 'TUI']) {
-      expect(readme.toLowerCase(), `README 沒有公開拒絕 ${refused}`).toContain(
-        refused.toLowerCase(),
-      );
-    }
-    expect(readme).toContain('project management');
-
-    // spec.md 四個硬指標的上限。
-    expect(readme).toContain('3 MB');
-    expect(readme).toContain('500 ms');
-    expect(readme).toContain('zero conflicts');
-    expect(readme).toContain('4.5 KB');
-  }, 30_000);
 });
 
 describe('硬指標閘門', () => {

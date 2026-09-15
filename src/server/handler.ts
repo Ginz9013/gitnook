@@ -4,6 +4,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deriveActor } from '../core/actor.js';
+import type { Decision, DecisionChange, DecisionLog, Disposition } from '../core/decisionTypes.js';
+import { AmbiguousDecisionRef, DecisionNotFound, InvalidDisposition } from '../core/decisionTypes.js';
+import type { DecisionSetKey } from '../core/decisionOps.js';
+import { decisionFieldWrites } from '../core/decisionReduce.js';
 import { shortIdLength } from '../core/ids.js';
 import type { SetKey } from '../core/ops.js';
 import { fieldWrites } from '../core/reduce.js';
@@ -38,6 +42,10 @@ const API_BOARD_INFO_PATH = '/api/board-info';
 const API_HISTORY_PREFIX = '/api/history/';
 const ASSETS_PREFIX = '/assets/';
 const ISSUE_PREFIX = '/i/';
+const API_DECISIONS_PATH = '/api/decisions';
+const DECISION_HASH_PATH = '/decision-hash';
+const DECISION_PREFIX = '/d/';
+const API_DECISION_HISTORY_PREFIX = '/api/decision-history/';
 
 function html(body: string): StudioResponse {
   return { status: 200, headers: { 'content-type': HTML }, body };
@@ -95,6 +103,16 @@ function serverError(err: unknown): StudioResponse {
  */
 export function boardHash(board: Board): string {
   return createHash('sha256').update(JSON.stringify(board.list({ all: true }))).digest('hex');
+}
+
+/**
+ * 當前 Decision Log 狀態的指紋 —— 同 `boardHash` 的雜湊規則，量測對象換成
+ * `decisionLog.list({})`。**沒有 `all` 概念**：Decision 沒有 archived／done
+ * 這種被預設過濾掉的可見性欄位（spec.md Design contract），`list({})` 本來
+ * 就不隱藏任何東西。
+ */
+export function decisionHash(log: DecisionLog): string {
+  return createHash('sha256').update(JSON.stringify(log.list({}))).digest('hex');
 }
 
 /**
@@ -303,6 +321,66 @@ function boardSnapshot(board: Board): BoardSnapshot {
 }
 
 /**
+ * SPA 眼中的一筆 Decision。同 `IssueView` 之於 `Issue`——一個檢視模型，加的是
+ * client 自己算不出來（或算了會不安全）的東西：`shortId` 與預渲染的 `bodyHtml`。
+ *
+ * 沒有 `deleted`、沒有 `archived`、沒有 `comments`——Decision 沒有這些欄位
+ * （spec.md Non-goals，core 的 `decisionTypes.ts`）。
+ */
+export interface DecisionView {
+  readonly id: string;
+  /** 顯示用的短 Ref。長度對整塊 Decision Log 算，見 decisionDisplayLength()。 */
+  readonly shortId: string;
+  readonly title: string;
+  readonly disposition: Disposition;
+  /** 原文，供編輯用。 */
+  readonly body: string;
+  /** renderMarkdown 的產物，已安全。 */
+  readonly bodyHtml: string;
+  /** 指向另一個 Decision 的 ref，只驗形狀不驗存在（spec.md Non-goals）。 */
+  readonly supersededBy?: string;
+  /** 遷移用的歷史欄位，只在遷移既有 ADR 時標記一次（spec.md Domain decisions）。 */
+  readonly legacyRef?: string;
+}
+
+/**
+ * 短 Ref 的顯示長度，對整塊 Decision Log 算一次 —— 同 `displayLength` 之於
+ * `Board`。`decisionLog.refs()` 就是解析所看的那一串識別碼。
+ */
+function decisionDisplayLength(log: DecisionLog): number {
+  return shortIdLength(log.refs());
+}
+
+function toDecisionView(decision: Decision, shortIdLen: number): DecisionView {
+  return {
+    id: decision.id,
+    shortId: decision.id.slice(0, shortIdLen),
+    title: decision.title,
+    disposition: decision.disposition,
+    body: decision.body,
+    bodyHtml: renderMarkdown(decision.body),
+    // optional 欄位是「從沒被寫過」用鍵不存在表達，不是空字串
+    // （core 的 `reduceDecision` 對它們的既有規則，這裡原樣延續）。
+    ...(decision.supersededBy === undefined ? {} : { supersededBy: decision.supersededBy }),
+    ...(decision.legacyRef === undefined ? {} : { legacyRef: decision.legacyRef }),
+  };
+}
+
+/**
+ * SPA 對 Decisions 視圖的一次讀取。同 `BoardSnapshot`——快照與指紋一起送。
+ */
+export interface DecisionBoardSnapshot {
+  readonly decisions: readonly DecisionView[];
+  readonly hash: string;
+}
+
+function decisionSnapshot(log: DecisionLog): DecisionBoardSnapshot {
+  // 沒有 `all` 概念——Decision 不像 Issue 有需要預設過濾掉的可見性欄位。
+  const len = decisionDisplayLength(log);
+  return { decisions: log.list({}).map((d) => toDecisionView(d, len)), hash: decisionHash(log) };
+}
+
+/**
  * 開場抓一次的那份東西：這塊 board 在磁碟上的位置。
  *
  * **與快照分開，而且只在開場抓一次。** `board.health()` 會 spawn 子行程 ——
@@ -416,6 +494,53 @@ function issueHistory(board: Board, ref: string): StudioResponse {
   }
 }
 
+/**
+ * 一次對 Decision 的 LWW 欄位的寫入。同 `WriteView`，欄位名照 studio 的說法
+ * （`field`／`value`）而不是儲存格式的 `k`／`v`；`value` 這裡固定是字串 ——
+ * `DecisionSetOp['v']` 本來就沒有 boolean 這個分支（Decision 沒有
+ * `archived`／`deleted` 那種布林 LWW 欄位）。
+ */
+export interface DecisionWriteView {
+  readonly field: DecisionSetKey;
+  readonly value: string;
+  readonly actor: string;
+  readonly t: number;
+}
+
+export interface DecisionHistory {
+  readonly writes: readonly DecisionWriteView[];
+}
+
+/**
+ * 一筆 Decision 的變更歷史 —— `GET /api/decision-history/<ref>`，逐一鏡射
+ * `issueHistory`／`GET /api/history/<ref>` 的做法。
+ *
+ * 篩選走 core 的 `decisionFieldWrites`（decisionReduce.ts），**與
+ * `nook decision history` 是同一份**：`create` op 折成 title 的第一次寫入的
+ * 邏輯已經在那裡做好，這裡不重寫一次。
+ *
+ * **沒有「已刪的 Decision 照樣讀得到」這條特例**：Decision 沒有 `deleted`
+ * 欄位（spec.md Non-goals），這個概念在這個實體上不存在，所以這裡沒有
+ * `issueHistory` 那段對應的註記與行為。
+ */
+function decisionHistory(decisionLog: DecisionLog, ref: string): StudioResponse {
+  try {
+    const writes: DecisionWriteView[] = decisionFieldWrites(decisionLog.opLog(ref)).map((op) => ({
+      field: op.k,
+      value: op.v,
+      actor: op.a,
+      t: op.t,
+    }));
+    const payload: DecisionHistory = { writes };
+    return json(payload);
+  } catch (err) {
+    // 沿用 applyDecisionChange 既有的對應：解析不出來的 ref 是「這個 URL 沒有
+    // 對應的東西」，不是伺服器錯誤；有歧義時把候選原樣送出去。
+    if (err instanceof DecisionNotFound || err instanceof AmbiguousDecisionRef) return notFound(err.message);
+    throw err;
+  }
+}
+
 export interface HandlerOptions {
   /**
    * 前端資產的所在目錄。預設是套件自己的 `dist/studio/`；測試傳入自己造的
@@ -510,6 +635,68 @@ function applyChange(board: Board, ref: string, body: string): StudioResponse {
 }
 
 /**
+ * `DecisionChange` 每個欄位的形狀。逐欄列出而不是信任 `as DecisionChange` ——
+ * 同 `CHANGE_SHAPE` 之於 `Change` 的既有理由。**沒有 `legacyRef`**：那格
+ * 唯讀（spec.md Non-goals，同 CLI 的 `set` 不曝露它的理由），drawer 從不送
+ * 它，送了就是一個不認得的欄位，同任何一個打錯的鍵一樣回 400。
+ */
+const DECISION_CHANGE_SHAPE: Readonly<Record<string, (value: unknown) => boolean>> = {
+  title: (v) => typeof v === 'string',
+  body: (v) => typeof v === 'string',
+  disposition: (v) => typeof v === 'string',
+  supersededBy: (v) => typeof v === 'string',
+};
+
+/**
+ * 把請求主體解讀成一份 DecisionChange，形狀不符時回傳 undefined ——
+ * 同 `parseChange` 之於 `Change` 的既有理由：不認得的欄位一律拒絕，而不是
+ * 忽略。
+ */
+function parseDecisionChange(body: string): DecisionChange | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+
+  if (!isRecord(parsed)) return undefined;
+  for (const [key, value] of Object.entries(parsed)) {
+    const shaped = DECISION_CHANGE_SHAPE[key];
+    if (shaped === undefined || !shaped(value)) return undefined;
+  }
+  return parsed as DecisionChange;
+}
+
+/**
+ * 一次寫入。端點直接鏡射 `decisionLog.apply(ref, change)` —— 同 `applyChange`
+ * 之於 `board.apply`：`DecisionChange` 已經是領域裡「呼叫端表達的意圖」的
+ * 型別，studio 因此不發明任何新詞彙。四個 Disposition 一視同仁，這裡沒有
+ * 任何一個值需要額外條件（見 `decisionChanges.ts` 對這條規則的說明）。
+ *
+ * ref 原樣交給 core：前綴解析、大小寫正規化與路徑穿越檢查只有一份實作，
+ * 就是 `decisionLog` 自己那一份。
+ */
+function applyDecisionChange(decisionLog: DecisionLog, ref: string, body: string): StudioResponse {
+  const change = parseDecisionChange(body);
+  if (change === undefined) {
+    return badRequest('body must be a JSON object representing a DecisionChange');
+  }
+
+  try {
+    return json(toDecisionView(decisionLog.apply(ref, change), decisionDisplayLength(decisionLog)));
+  } catch (err) {
+    // 解析不出來的 ref 是「這個 URL 沒有對應的東西」，不是伺服器錯誤 ——
+    // 同 `applyChange` 對 `RefNotFound`/`AmbiguousRef` 的既有對應：兩者都是
+    // 404，有歧義時把候選原樣送出去。
+    if (err instanceof DecisionNotFound || err instanceof AmbiguousDecisionRef) return notFound(err.message);
+    // 呼叫端送了一個不是 Disposition 的值 —— 這是請求的問題，不是找不到東西。
+    if (err instanceof InvalidDisposition) return badRequest(err.message);
+    throw err;
+  }
+}
+
+/**
  * `POST /api/issues` 收得的欄位。**`description` 與 `labels` 刻意不收** ——
  * 表單只填標題，端點不該提供一個沒有呼叫端的能力；要補描述就是接著一次
  * `POST /i/<ref>`。
@@ -565,6 +752,68 @@ function createIssue(board: Board, body: string): StudioResponse {
 }
 
 /**
+ * `POST /api/decisions` 收得的欄位。**`supersededBy` 與 `legacyRef` 刻意不收**
+ * ——同 `CREATE_FIELDS` 之於 `description`／`labels`：表單只填標題，端點不該
+ * 提供沒有呼叫端的能力；要補這兩格就是接著一次 `POST /d/<ref>`（票 03）。
+ */
+const DECISION_CREATE_FIELDS: ReadonlySet<string> = new Set(['title', 'body', 'disposition']);
+
+/**
+ * 一次新增。新增是這一批（票 02）唯一新增的 Decision 端點 —— 同 `createIssue`
+ * 的理由：建立的時候還沒有 ref 可以放進 URL，`POST /d/<ref>` 因此不可能承接它。
+ */
+function createDecision(decisionLog: DecisionLog, body: string): StudioResponse {
+  // 同 createIssue：解析失敗收斂成一個接不住 isRecord 的值，兩條路在下一行匯合。
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    parsed = undefined;
+  }
+  if (!isRecord(parsed)) return badRequest('body must be a JSON object');
+
+  // 不認得的欄位一律拒絕，而不是忽略 —— 同 createIssue 的 CREATE_FIELDS。
+  for (const key of Object.keys(parsed)) {
+    if (!DECISION_CREATE_FIELDS.has(key)) {
+      return badRequest(`unrecognized field: ${key} (only title, body and disposition are accepted)`);
+    }
+  }
+
+  // 標題是唯一的必填欄位，而且空白不算 —— 同 createIssue 的理由：append-only
+  // 之下一筆沒有標題的 Decision 刪不掉，只能再寫一次 op 蓋過去。
+  const title = parsed['title'];
+  if (typeof title !== 'string' || title.trim() === '') {
+    return badRequest('title must be a non-empty string');
+  }
+
+  const bodyField = parsed['body'];
+  if (bodyField !== undefined && typeof bodyField !== 'string') {
+    return badRequest('body must be a string');
+  }
+
+  // disposition 原樣交給 core：前綴解析與合法性只有一份實作，就是
+  // resolveDisposition 那一份。這裡只確認它是個字串。
+  const disposition = parsed['disposition'];
+  if (disposition !== undefined && typeof disposition !== 'string') {
+    return badRequest('disposition must be a string');
+  }
+
+  try {
+    const decision = decisionLog.create({
+      title,
+      ...(bodyField === undefined ? {} : { body: bodyField }),
+      ...(disposition === undefined ? {} : { disposition }),
+    });
+    return created(toDecisionView(decision, decisionDisplayLength(decisionLog)));
+  } catch (err) {
+    // 呼叫端送了一個不是 Disposition 的值 —— 這是請求的問題，不是伺服器錯誤。
+    // 同 createIssue 對 InvalidStatus 的對應：狀態碼的決定權集中在這個檔案裡。
+    if (err instanceof InvalidDisposition) return badRequest(err.message);
+    throw err;
+  }
+}
+
+/**
  * 一個請求，一份回應。**這是一個全函數（total function）：任何輸入都回得出
  * 一份 StudioResponse，一個例外都不往上拋。**
  *
@@ -585,11 +834,12 @@ function createIssue(board: Board, body: string): StudioResponse {
  */
 export function handleRequest(
   board: Board,
+  decisionLog: DecisionLog,
   req: StudioRequest,
   opts: HandlerOptions = {},
 ): StudioResponse {
   try {
-    return route(board, req, opts);
+    return route(board, decisionLog, req, opts);
   } catch (err) {
     // 認得的例外在 applyChange 裡就已經對應完畢（404 / 400）；走到這裡的
     // 一律是「沒預期到」—— 例如 session 進行中 board 目錄被移走。
@@ -597,7 +847,7 @@ export function handleRequest(
   }
 }
 
-function route(board: Board, req: StudioRequest, opts: HandlerOptions): StudioResponse {
+function route(board: Board, decisionLog: DecisionLog, req: StudioRequest, opts: HandlerOptions): StudioResponse {
   // 手動切掉 query string，不走 new URL() —— 後者會把 `..` 正規化掉，
   // 使路徑穿越在到達 /assets/ 的守衛之前就消失，而那個守衛正是這一層要證明的。
   const path = req.url.split('?')[0]!;
@@ -609,11 +859,26 @@ function route(board: Board, req: StudioRequest, opts: HandlerOptions): StudioRe
   //
   // `/api/issues` 用**完全相等**比對，不是 startsWith：白名單只有短而精確才
   // 守得住上面那條性質，前綴比對會讓 `/api/issues/foo` 一併變成可寫。
-  const writable = path.startsWith(ISSUE_PREFIX) || path === API_ISSUES_PATH;
+  //
+  // `/api/decisions` 加進來是這一批（票 02）唯一真的擴大這份白名單的地方 ——
+  // **它跟 `/api/issues` 不同：GET 仍然是合法方法**（`decisionSnapshot`，
+  // 票 01 已落地），所以下面沒有一行「GET 這條路徑 → 405」——那條規則只屬於
+  // `/api/issues` 這種只收 POST 的路徑。它因此也是唯一一條 Allow 要同時列出
+  // `GET, POST` 的路徑（RFC 9110：Allow 講的是這個資源支援什麼），不是照搬
+  // `/api/issues` 那份「只有 POST」。
+  //
+  // `/d/<ref>` 加進來是這一批唯一再擴大這份白名單的地方 —— 同 `/i/<ref>`：
+  // 純寫入路徑，GET 仍然不合法，落在下面 `readWrite` 的 false 那一半。
+  const writable =
+    path.startsWith(ISSUE_PREFIX) ||
+    path === API_ISSUES_PATH ||
+    path === API_DECISIONS_PATH ||
+    path.startsWith(DECISION_PREFIX);
+  const readWrite = path === API_DECISIONS_PATH;
   if (req.method !== 'GET' && !(req.method === 'POST' && writable)) {
-    // 兩條路徑答案不同：可寫的那些只收 POST（`/i/<ref>` 伺服器渲染的詳情頁已經
-    // 移除，讀取一律走 `/api/board`），其餘只收 GET。
-    return methodNotAllowed(path, writable ? 'POST' : 'GET');
+    // 三種答案：純寫入路徑（`/i/<ref>`、`/api/issues`）只收 POST；讀寫都合法的
+    // `/api/decisions` 兩者都收；其餘只收 GET。
+    return methodNotAllowed(path, writable ? (readWrite ? 'GET, POST' : 'POST') : 'GET');
   }
 
   // `/api/issues` 是一條**只收 POST** 的路徑，GET 它因此是 405 而不是 404 ——
@@ -623,6 +888,10 @@ function route(board: Board, req: StudioRequest, opts: HandlerOptions): StudioRe
 
   if (req.method === 'POST') {
     if (path === API_ISSUES_PATH) return createIssue(board, req.body ?? '');
+    if (path === API_DECISIONS_PATH) return createDecision(decisionLog, req.body ?? '');
+    if (path.startsWith(DECISION_PREFIX)) {
+      return applyDecisionChange(decisionLog, path.slice(DECISION_PREFIX.length), req.body ?? '');
+    }
     return applyChange(board, path.slice(ISSUE_PREFIX.length), req.body ?? '');
   }
 
@@ -655,6 +924,24 @@ function route(board: Board, req: StudioRequest, opts: HandlerOptions): StudioRe
 
   if (path === HASH_PATH) {
     return { status: 200, headers: { 'content-type': TEXT }, body: boardHash(board) };
+  }
+
+  // Decisions 的兩條讀取端點：一份全量快照（票 01，`/api/decisions` 之後被
+  // 票 02 加進寫入白名單，GET 仍然合法——見上面 `readWrite` 那段）+ 一份裸
+  // 文字指紋（`/decision-hash`，維持只收 GET，非 GET 落到上面的方法檢查，
+  // 405 Allow: GET）。
+  if (path === API_DECISIONS_PATH) {
+    return json(decisionSnapshot(decisionLog));
+  }
+
+  if (path === DECISION_HASH_PATH) {
+    return { status: 200, headers: { 'content-type': TEXT }, body: decisionHash(decisionLog) };
+  }
+
+  // 這一批（票 04）唯一新增的讀取端點：同上面 `/api/history/` 的擺法，住在
+  // `/api/` 底下而不是 `/d/` —— 那個前綴的意思是寫入面，見上面白名單那段。
+  if (path.startsWith(API_DECISION_HISTORY_PREFIX)) {
+    return decisionHistory(decisionLog, path.slice(API_DECISION_HISTORY_PREFIX.length));
   }
 
   return notFound();

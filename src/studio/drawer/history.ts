@@ -5,13 +5,24 @@
  * （spec.md 的測試策略），所以能推進純函式的就不留在組件裡。
  */
 
-// 型別在打包時整條被抹掉，所以 server 不會出現在 studio 的 bundle 裡 ——
-// 同 `api.ts` 的規則（ADR-0008）。
-import type { WriteView } from '@/api';
+/**
+ * 一次寫入，`historyRows()` 真正在乎的那個形狀 —— 比 `WriteView`／
+ * `DecisionWriteView` 都寬：`field` 不收窄成任一邊的欄位名稱聯集
+ * （`SetKey`／`DecisionSetKey`），因為這份規則跟欄位名稱的值域完全無關，
+ * 只看 field/value/actor/t 這四格（spec.md Domain decisions）。Issue 與
+ * Decision 的 history 回應各自的型別窄一點，結構上仍然是這個形狀的子集，
+ * 所以兩邊都能原樣交給同一份 `historyRows()`，不必先轉型別。
+ */
+export interface HistoryWrite {
+  readonly field: string;
+  readonly value: string | boolean;
+  readonly actor: string;
+  readonly t: number;
+}
 
 /** 一列歷史 —— 欄位 · 值 · actor · `t`，與 CLI 的 `nook history` 同一份資訊。 */
 export interface HistoryRow {
-  readonly field: WriteView['field'];
+  readonly field: string;
   /**
    * 那一次寫入的值，**原文**。markdown 不在這裡渲染（ADR-0008：前端不得有第二份
    * 渲染器），而歷史要看的本來就是原文本身。
@@ -28,13 +39,16 @@ export interface HistoryRow {
 }
 
 /**
- * `GET /api/history/<ref>` 的 `writes` 翻成畫面上的列，**由新到舊**。
+ * `GET /api/history/<ref>`（Issue）或 `GET /api/decision-history/<ref>`
+ * （Decision）的 `writes` 翻成畫面上的列，**由新到舊**——同一份規則，兩邊共用。
+ * 這一批（票 04）把 Decision 接上這裡，Issue 既有呼叫端的輸出逐字不變。
  *
- * **反轉，不重排。** `board.opLog()` 交出來的已經是 `orderOps` 的全序（由舊到新，
- * board.ts:113），而全序只有一份。在這裡放第二個比較器就是第二個真相 ——
- * commit 463343d 那個 bug 就是這樣來的，`CommentTimeline` 上面同一句話的由來也是。
+ * **反轉，不重排。** `board.opLog()`／`decisionLog.opLog()` 交出來的已經是
+ * `orderOps` 的全序（由舊到新，board.ts:113），而全序只有一份。在這裡放第二個
+ * 比較器就是第二個真相 —— commit 463343d 那個 bug 就是這樣來的，
+ * `CommentTimeline` 上面同一句話的由來也是。
  */
-export function historyRows(writes: readonly WriteView[]): readonly HistoryRow[] {
+export function historyRows(writes: readonly HistoryWrite[]): readonly HistoryRow[] {
   return writes
     .map((w) => {
       const text = valueText(w.value);

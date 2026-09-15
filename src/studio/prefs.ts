@@ -10,8 +10,15 @@ export interface PrefStorage {
 
 const THEME_KEY = 'nook.studio.theme';
 const COLLAPSED_KEY = 'nook.studio.collapsed';
+const ACTIVE_VIEW_KEY = 'nook.studio.activeView';
+const SIDEBAR_OPEN_KEY = 'nook.studio.sidebarOpen';
 
 const THEMES: readonly string[] = ['light', 'dark', 'system'];
+
+/** 頂層切換：Issues 的看板，或 Decisions 的扁平清單。 */
+export type ActiveView = 'issues' | 'decisions';
+
+const ACTIVE_VIEWS: readonly string[] = ['issues', 'decisions'];
 
 /**
  * 讀主題偏好。**任何讀不懂的值都退回 `'system'`，絕不拋。**
@@ -27,6 +34,37 @@ export function readTheme(s: PrefStorage): ThemePreference {
 
 export function writeTheme(s: PrefStorage, p: ThemePreference): void {
   s.setItem(THEME_KEY, p);
+}
+
+/**
+ * 讀頂層視圖偏好。**任何讀不懂的值都退回 `'issues'`，絕不拋** —— 同 `readTheme`
+ * 的既有模式：`localStorage` 是使用者瀏覽器說了算，手改過的一格或舊版留下的
+ * 格式都不該讓整個 studio 開不起來，這一格甚至決定了開場要掛哪一個
+ * composition root（`App.tsx` 一次只掛一個），讀壞了更不能連畫面都不見。
+ */
+export function readActiveView(s: PrefStorage): ActiveView {
+  const raw = s.getItem(ACTIVE_VIEW_KEY);
+  return raw !== null && ACTIVE_VIEWS.includes(raw) ? (raw as ActiveView) : 'issues';
+}
+
+export function writeActiveView(s: PrefStorage, v: ActiveView): void {
+  s.setItem(ACTIVE_VIEW_KEY, v);
+}
+
+/**
+ * 讀側邊欄開合偏好。**讀不懂就是展開**（同其餘偏好「壞掉的值不該讓畫面
+ * 消失」的既有規則），因為收合是省空間用的，預設值應該是資訊量較多的那一種。
+ *
+ * shadcn 的 Sidebar 原本用 cookie 存這一格（為了 SSR 時第一幀就對），但這裡
+ * 是純前端的 SPA，沒有 SSR 這個前提——沿用這個檔案既有的 `localStorage` 模式，
+ * 不必為了一個不存在的情境多一種持久化機制。
+ */
+export function readSidebarOpen(s: PrefStorage): boolean {
+  return s.getItem(SIDEBAR_OPEN_KEY) !== 'false';
+}
+
+export function writeSidebarOpen(s: PrefStorage, open: boolean): void {
+  s.setItem(SIDEBAR_OPEN_KEY, String(open));
 }
 
 /**

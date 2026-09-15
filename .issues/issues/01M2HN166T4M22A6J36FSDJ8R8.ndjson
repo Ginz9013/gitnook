@@ -1,0 +1,6 @@
+{"id":"01M2HN166TTQ5DF0XQ938JDJTX","t":1,"a":"83a1","op":"create","title":"Decision drawer：看＋改"}
+{"id":"01M2HN1675BCT7WHV6PCYEPJ7M","t":2,"a":"83a1","op":"set","k":"description","v":"title/body/disposition/supersededBy 可編輯，POST /d/<ref>，DispositionPicker。詳見 .scratch/decision-studio/03-decision-drawer.md"}
+{"id":"01M2HN1675DGQXX3KTQ13X58V0","t":3,"a":"83a1","op":"label.add","v":"decision-studio"}
+{"id":"01M2HN1CK07XE2V6RBJ1STXFEY","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M2HRPWAH8DHF07Z8475CGWZC","t":5,"a":"83a1","op":"comment","body":"落地：1c2b75d（實作）+ 4fb8dea（更正票面 409/404 錯誤斷言）+ 758b358（review 修 onCloseAutoFocus 缺失的無障礙迴歸）。941 tests, 0 型別錯誤。"}
+{"id":"01M2HRPWBPC8TPJF03SWEF6CZV","t":6,"a":"83a1","op":"set","k":"status","v":"done"}

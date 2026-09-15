@@ -2,11 +2,15 @@ import type {
   BoardInfo,
   BoardSnapshot,
   CommentView,
+  DecisionBoardSnapshot,
+  DecisionHistory,
+  DecisionView,
   IssueHistory,
   IssueView,
   WriteView,
 } from '../server/handler.js';
 import type { Change, Diagnostic, DiagnosticKind, Status } from '../core/types.js';
+import type { DecisionChange, Disposition } from '../core/decisionTypes.js';
 
 /**
  * SPA 與 server 之間的那一面 —— 讀取與寫入都在這裡，**只有這裡**。
@@ -21,8 +25,13 @@ export type {
   BoardSnapshot,
   Change,
   CommentView,
+  DecisionBoardSnapshot,
+  DecisionChange,
+  DecisionHistory,
+  DecisionView,
   Diagnostic,
   DiagnosticKind,
+  Disposition,
   IssueHistory,
   IssueView,
   Status,
@@ -143,12 +152,36 @@ export function isIssueHistory(value: unknown): value is IssueHistory {
   return Array.isArray((value as { writes?: unknown }).writes);
 }
 
+/**
+ * 這塊 body 是不是一份 `DecisionHistory` —— 只看頂層，同 `isIssueHistory`。
+ * 存在的理由一模一樣：擋的是「打錯 port，另一個 server 在那裡回了 JSON」，
+ * 逐列驗 `DecisionWriteView` 的形狀是第二份會漂開的定義。
+ */
+export function isDecisionHistory(value: unknown): value is DecisionHistory {
+  if (value === null || typeof value !== 'object') return false;
+  return Array.isArray((value as { writes?: unknown }).writes);
+}
+
+/**
+ * 這塊 body 是不是一份 `DecisionBoardSnapshot` —— 只看頂層，同 `isBoardSnapshot`。
+ * 存在的理由一模一樣：擋的是「打錯 port，另一個 server 在那裡回了 JSON」。
+ */
+export function isDecisionBoardSnapshot(value: unknown): value is DecisionBoardSnapshot {
+  if (value === null || typeof value !== 'object') return false;
+  const body = value as { decisions?: unknown; hash?: unknown };
+  return Array.isArray(body.decisions) && typeof body.hash === 'string';
+}
+
 const BOARD_URL = '/api/board';
 const BOARD_INFO_URL = '/api/board-info';
 const HASH_URL = '/hash';
 const ISSUE_PREFIX = '/i/';
 const ISSUES_URL = '/api/issues';
 const HISTORY_PREFIX = '/api/history/';
+const DECISIONS_URL = '/api/decisions';
+const DECISION_HASH_URL = '/decision-hash';
+const DECISION_PREFIX = '/d/';
+const DECISION_HISTORY_PREFIX = '/api/decision-history/';
 
 /**
  * `isShape` 是必填而不是選填：這個位置以前是 `as T`，而 `as T` 對編譯器來說
@@ -181,6 +214,15 @@ async function getJson<T>(
 /** 一次全量快照。ADR-0002：沒有快取也沒有增量 —— 全量掃描加摺疊就是實作。 */
 export function fetchBoard(signal?: AbortSignal): Promise<BoardSnapshot> {
   return getJson(BOARD_URL, isBoardSnapshot, signal);
+}
+
+/**
+ * Decisions 視圖的一次全量快照 —— `GET /api/decisions`，同 `fetchBoard` 的
+ * 節奏。**沒有 `all` 概念**：Decision 不像 Issue 有需要預設過濾掉的可見性
+ * 欄位，這條端點本來就不隱藏任何一筆（`handler.ts` 的 `decisionSnapshot`）。
+ */
+export function fetchDecisions(signal?: AbortSignal): Promise<DecisionBoardSnapshot> {
+  return getJson(DECISIONS_URL, isDecisionBoardSnapshot, signal);
 }
 
 /**
@@ -223,6 +265,24 @@ export async function fetchHash(signal?: AbortSignal): Promise<string> {
 }
 
 /**
+ * 當前 Decision Log 的指紋 —— `GET /decision-hash`，同 `fetchHash` 的形狀
+ * （裸文字，不是 JSON）。同一個理由：這裡刻意沒有形狀檢查，任何一段文字都是
+ * 合法的回應，錯的 server 會在下一次 `fetchDecisions` 被抓到。
+ */
+export async function fetchDecisionHash(signal?: AbortSignal): Promise<string> {
+  const res = await fetch(DECISION_HASH_URL, signal === undefined ? {} : { signal });
+  if (!res.ok) {
+    throw new HttpError(
+      DECISION_HASH_URL,
+      res.status,
+      `${DECISION_HASH_URL} returned ${res.status}`,
+      await said(res),
+    );
+  }
+  return await res.text();
+}
+
+/**
  * 一張 Issue 上每一次對 LWW 欄位的寫入 —— `GET /api/history/<ref>`。
  *
  * **只在有人展開歷史區塊時才叫**，不在開 drawer 時（票 B7）：多數人不會展開它，
@@ -235,6 +295,15 @@ export function fetchHistory(ref: string, signal?: AbortSignal): Promise<IssueHi
   // 同 `postChange`：ref 是 ULID，編碼對它是恆等變換；寫出來是為了讓
   // 「路徑片段就是路徑片段」不必靠 id 的字元集來成立。
   return getJson(`${HISTORY_PREFIX}${encodeURIComponent(ref)}`, isIssueHistory, signal);
+}
+
+/**
+ * 一筆 Decision 上每一次對 LWW 欄位的寫入 —— `GET /api/decision-history/<ref>`，
+ * 逐一鏡射 `fetchHistory`：只在有人展開歷史區塊時才叫（票 B7 的既有節奏），
+ * 這一批（票 04）把它接上泛化後的 `HistoryPanel`。
+ */
+export function fetchDecisionHistory(ref: string, signal?: AbortSignal): Promise<DecisionHistory> {
+  return getJson(`${DECISION_HISTORY_PREFIX}${encodeURIComponent(ref)}`, isDecisionHistory, signal);
 }
 
 /**
@@ -273,7 +342,48 @@ export async function createIssue(title: string, status?: Status): Promise<Issue
 }
 
 /**
- * 一次 JSON 寫入。**兩個寫入端點共用這一份，這是刻意的。**
+ * 一次新增 —— `POST /api/decisions`。同 `createIssue` 的理由：建立的那一刻
+ * 還沒有 ref 可以放進 URL。
+ *
+ * **`body`／`disposition` 省略時就不送那個鍵**，不是自己填一個預設值 ——
+ * 同 `createIssue` 對 `status` 的既有規則：預設值是 `decisionLog.create()`
+ * 的決定（core 那一份），這裡填一個等於把它抄成第二份，兩份預設值哪天分岔了，
+ * 畫面與 `nook decision new` 會把同一個「不指定」開到不同的 disposition。
+ *
+ * **只送 `title`／`body`／`disposition`。** 端點對不認得的欄位回 400 而不是
+ * 忽略（`handler.ts` 的 `DECISION_CREATE_FIELDS`），同 `createIssue` 的規則。
+ */
+export async function createDecision(
+  title: string,
+  body?: string,
+  disposition?: Disposition,
+): Promise<DecisionView> {
+  return await postJson(DECISIONS_URL, {
+    title,
+    ...(body === undefined ? {} : { body }),
+    ...(disposition === undefined ? {} : { disposition }),
+  });
+}
+
+/**
+ * 一次寫入 —— `POST /d/<ref>`。body 是一份 `DecisionChange`，回應是套用後的
+ * 整筆 `DecisionView`。端點直接鏡射 `decisionLog.apply(ref, change)`，同
+ * `postChange` 之於 `board.apply` 的既有理由：這裡不發明任何新詞彙，也不做
+ * 任何包裝。
+ *
+ * **只送 `DecisionChange` 定義的鍵。** 對不認得的欄位回 400 而不是忽略 ——
+ * append-only 之下沒有「被拒絕的寫入」可以事後翻查，一個打錯的欄位名若被
+ * 靜靜吃掉，呼叫端看到的是 200 加上一筆沒有變化的 Decision。`legacyRef`
+ * 唯讀（spec.md Non-goals），因此從不出現在呼叫端送出的 `DecisionChange` 裡。
+ */
+export async function postDecisionChange(ref: string, change: DecisionChange): Promise<DecisionView> {
+  // ref 是 server 給的 ULID（只有 [0-9A-Z]），編碼對它是恆等變換 —— 同
+  // `postChange` 的理由：讓「路徑片段就是路徑片段」不必靠 id 的字元集來成立。
+  return await postJson(`${DECISION_PREFIX}${encodeURIComponent(ref)}`, change);
+}
+
+/**
+ * 一次 JSON 寫入。**四個寫入端點共用這一份，這是刻意的。**
  *
  * 拆出來的理由與 `postChange` 當初被拖曳與 drawer 共用是同一個：兩處各寫一次
  * fetch 慣例（method、content-type、錯誤訊息的形狀、回應怎麼解）遲早會分歧，

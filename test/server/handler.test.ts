@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBoard } from '../../src/index.js';
 import type { Board, CreateInput, IdSource, Issue } from '../../src/index.js';
+import { openDecisionLog } from '../../src/core/decisionLog.js';
+import type { DecisionLog } from '../../src/core/decisionTypes.js';
 import { handleRequest } from '../../src/server/handler.js';
-import type { IssueView } from '../../src/server/handler.js';
+import type { DecisionBoardSnapshot, DecisionView, IssueView } from '../../src/server/handler.js';
 
 // ADR-0004：無 storage 接縫、無 in-memory fake。每個測試用例一個 mkdtemp 的真實 board。
 let dir: string;
@@ -38,11 +41,13 @@ function seeded(issueId: string): IdSource {
 }
 
 const board = (): Board => openBoard({ dir, actor: 'test' });
+const decisionLog = (): DecisionLog => openDecisionLog({ dir, actor: 'test' });
 
 const createWith = (issueId: string, input: CreateInput): Issue =>
   openBoard({ dir, actor: 'test', ids: seeded(issueId) }).create(input);
 
-const get = (url: string) => handleRequest(board(), { method: 'GET', url }, { assetsDir: assets });
+const get = (url: string) =>
+  handleRequest(board(), decisionLog(), { method: 'GET', url }, { assetsDir: assets });
 
 describe('GET /', () => {
   it('回傳 SPA 殼，200', () => {
@@ -186,7 +191,7 @@ describe('方法白名單收窄而非移除', () => {
 
     for (const method of ['PUT', 'DELETE', 'PATCH']) {
       for (const url of ['/', '/i/01JBXA', '/hash']) {
-        const res = handleRequest(board(), { method, url });
+        const res = handleRequest(board(), decisionLog(), { method, url });
         expect(res.status, `${method} ${url}`).toBe(405);
         // 405 必須告訴呼叫端還剩什麼方法可用（RFC 9110）。
         expect(res.headers['allow'], `${method} ${url}`).toBeDefined();
@@ -194,7 +199,7 @@ describe('方法白名單收窄而非移除', () => {
     }
 
     for (const url of ['/', '/hash']) {
-      const res = handleRequest(board(), { method: 'POST', url });
+      const res = handleRequest(board(), decisionLog(), { method: 'POST', url });
       expect(res.status, `POST ${url}`).toBe(405);
       expect(res.headers['allow'], `POST ${url}`).toBe('GET');
     }
@@ -247,6 +252,7 @@ describe('「哪些路徑存在」不能決定「能不能寫」', () => {
       for (const url of [...NOT_WRITABLE, `/i/${id}`, '/i/01JBXA']) {
         const res = handleRequest(
           board(),
+          decisionLog(),
           { method, url, body: JSON.stringify({ comment: 'should never land' }) },
           { assetsDir: assets },
         );
@@ -260,7 +266,9 @@ describe('「哪些路徑存在」不能決定「能不能寫」', () => {
   it('/i/<ref> 的 Allow 說的是 POST —— 伺服器渲染的詳情頁在票 01 就沒了', () => {
     createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
 
-    expect(handleRequest(board(), { method: 'PUT', url: '/i/01JBXA' }).headers['allow']).toBe('POST');
+    expect(handleRequest(board(), decisionLog(), { method: 'PUT', url: '/i/01JBXA' }).headers['allow']).toBe(
+      'POST',
+    );
   });
 });
 
@@ -300,7 +308,7 @@ describe('新增端點沒有讓 405 白名單鬆動', () => {
 
   it('/api/issues 上的 PUT / DELETE / PATCH 是 405，Allow 說 POST', () => {
     for (const method of ['PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']) {
-      const res = handleRequest(board(), {
+      const res = handleRequest(board(), decisionLog(), {
         method,
         url: '/api/issues',
         body: JSON.stringify({ title: 'should never land' }),
@@ -335,6 +343,7 @@ describe('新增端點沒有讓 405 白名單鬆動', () => {
 const post = (url: string, body: unknown) =>
   handleRequest(
     board(),
+    decisionLog(),
     { method: 'POST', url, body: typeof body === 'string' ? body : JSON.stringify(body) },
     { assetsDir: assets },
   );
@@ -972,7 +981,7 @@ function fakeAssets(files: Readonly<Record<string, string>>): string {
 }
 
 const getAsset = (url: string, assetsDir: string) =>
-  handleRequest(board(), { method: 'GET', url }, { assetsDir });
+  handleRequest(board(), decisionLog(), { method: 'GET', url }, { assetsDir });
 
 describe('GET /assets/<file>', () => {
   it('服務 dist/studio/ 底下的檔案，帶對的 content-type', () => {
@@ -1115,7 +1124,7 @@ describe('未預期的例外', () => {
 
     rmSync(join(dir, '.issues'), { recursive: true, force: true });
 
-    const res = handleRequest(alive, { method: 'GET', url: '/api/board' }, { assetsDir: assets });
+    const res = handleRequest(alive, decisionLog(), { method: 'GET', url: '/api/board' }, { assetsDir: assets });
 
     expect(res.status).toBe(500);
     expect(res.headers['content-type']).toMatch(/^text\/plain/);
@@ -1129,7 +1138,7 @@ describe('未預期的例外', () => {
     const alive = board();
     rmSync(join(dir, '.issues'), { recursive: true, force: true });
 
-    const res = handleRequest(alive, { method: 'GET', url: '/api/board' }, { assetsDir: assets });
+    const res = handleRequest(alive, decisionLog(), { method: 'GET', url: '/api/board' }, { assetsDir: assets });
 
     expect(res.status).toBe(500);
     expect(res.body).not.toMatch(/\n\s*at /);
@@ -1144,13 +1153,13 @@ describe('未預期的例外', () => {
     const alive = board();
 
     // 對應得到的仍然照舊 —— 兜底不得把 400 吃成 500。
-    const invalid = handleRequest(alive, { method: 'POST', url: `/i/${id}`, body: '{"status":"nope"}' });
+    const invalid = handleRequest(alive, decisionLog(), { method: 'POST', url: `/i/${id}`, body: '{"status":"nope"}' });
     expect(invalid.status).toBe(400);
 
     rmSync(join(dir, '.issues'), { recursive: true, force: true });
 
     // board 消失不是「找不到這張 issue」（404），也不是請求的錯（400）。
-    const gone = handleRequest(alive, { method: 'POST', url: `/i/${id}`, body: '{"status":"queued"}' });
+    const gone = handleRequest(alive, decisionLog(), { method: 'POST', url: `/i/${id}`, body: '{"status":"queued"}' });
     expect(gone.status).toBe(500);
     expect(gone.body).toContain('not a Nook board');
   });
@@ -1162,7 +1171,7 @@ describe('未預期的例外', () => {
  * 每次全量讀取都多一個子行程，而快照在 ACK 落空時還會被重抓。
  */
 const boardInfo = () =>
-  handleRequest(board(), { method: 'GET', url: '/api/board-info' }, { assetsDir: assets });
+  handleRequest(board(), decisionLog(), { method: 'GET', url: '/api/board-info' }, { assetsDir: assets });
 
 describe('GET /api/board-info', () => {
   it('回傳這塊 board 的絕對路徑', () => {
@@ -1275,7 +1284,7 @@ describe('/api/board-info 的 root 就是這個 Board 的根', () => {
     mkdirSync(deep, { recursive: true });
     const fromDeep = openBoard({ dir: deep, actor: 'test' });
 
-    const res = handleRequest(fromDeep, { method: 'GET', url: '/api/board-info' }, { assetsDir: assets });
+    const res = handleRequest(fromDeep, decisionLog(), { method: 'GET', url: '/api/board-info' }, { assetsDir: assets });
 
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body) as { root: string; branch: string | null };
@@ -1289,7 +1298,7 @@ describe('/api/board-info 的 root 就是這個 Board 的根', () => {
 
 /** 一張 Issue 的變更歷史。drawer 底部那塊折疊區塊的資料來源（票 B7）。 */
 const history = (ref: string) =>
-  handleRequest(board(), { method: 'GET', url: `/api/history/${ref}` }, { assetsDir: assets });
+  handleRequest(board(), decisionLog(), { method: 'GET', url: `/api/history/${ref}` }, { assetsDir: assets });
 
 interface WriteView {
   field: string;
@@ -1458,7 +1467,7 @@ describe('唯讀端點沒有讓 405 白名單鬆動', () => {
   it('PUT / DELETE / PATCH 也是 405，Allow 說 GET', () => {
     for (const url of READ_ONLY) {
       for (const method of ['PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']) {
-        const res = handleRequest(board(), { method, url }, { assetsDir: assets });
+        const res = handleRequest(board(), decisionLog(), { method, url }, { assetsDir: assets });
         expect(res.status, `${method} ${url}`).toBe(405);
         expect(res.headers['allow'], `${method} ${url}`).toBe('GET');
       }
@@ -1481,5 +1490,551 @@ describe('GET /api/history/ 沒有 ref', () => {
       expect(res.body, url).not.toContain('writes');
       expect(res.body, url).not.toContain('Fix login redirect');
     }
+  });
+});
+
+/**
+ * 票 01：Studio 開始知道 Decision 存在。第一片是唯讀 —— 兩條 GET 端點，
+ * 鏡射 Issue 的 `/api/board`／`/hash`。
+ *
+ * **每個用例自己 `mkdir .decisions/decisions`，不是共用的 `beforeEach`** ——
+ * 這個目錄一存在，既有的 `board.health()` 就會連帶檢查 Decision 那份
+ * merge=union 保證（`diagnose()` 已泛化成掃描已知實體清單），把它放進全域
+ * `beforeEach` 會讓 `/api/board-info 的 diagnostics` 那組既有測試多一條
+ * 不相干的 `MissingMergeDriver`。
+ */
+function initDecisionLog(): void {
+  mkdirSync(join(dir, '.decisions', 'decisions'), { recursive: true });
+}
+
+const createDecisionWith = (decisionId: string, title: string, over: { body?: string; disposition?: string } = {}) => {
+  initDecisionLog();
+  return openDecisionLog({ dir, actor: 'test', ids: seeded(decisionId) }).create({ title, ...over });
+};
+
+describe('GET /api/decisions', () => {
+  it('回傳 DecisionBoardSnapshot：decisions 陣列與 hash', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    const res = get('/api/decisions');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+
+    const snapshot = JSON.parse(res.body) as DecisionBoardSnapshot;
+    expect(snapshot.decisions).toHaveLength(1);
+    expect(snapshot.decisions[0]).toMatchObject({
+      id: fullId('01JDEC1'),
+      title: 'Adopt trunk-based development',
+      disposition: 'proposed',
+      body: '',
+    });
+    // bodyHtml 是預渲染的安全 HTML，同 IssueView.descriptionHtml 的既有規則。
+    expect(snapshot.decisions[0]!.bodyHtml).toBeTypeOf('string');
+    expect(snapshot.hash).toBeTypeOf('string');
+  });
+
+  it('一個 Decision 都沒有時回空陣列，不炸開', () => {
+    initDecisionLog();
+
+    const res = get('/api/decisions');
+
+    expect(res.status).toBe(200);
+    expect((JSON.parse(res.body) as DecisionBoardSnapshot).decisions).toEqual([]);
+  });
+
+  it('shortId 對整塊 decision log 算，同 IssueView 既有的 displayLength 規則', () => {
+    createDecisionWith(fullId('01JDECQ'), 'Adopt trunk-based development');
+    createDecisionWith(fullId('01JDECR'), 'Use conventional commits');
+
+    const snapshot = JSON.parse(get('/api/decisions').body) as DecisionBoardSnapshot;
+    const view = snapshot.decisions.find((d) => d.id === fullId('01JDECQ'));
+
+    // 兩筆只在第 7 碼分開，所以 6 碼不夠 —— shortId 因此對整塊 log 算。
+    expect(view!.shortId).toBe('01JDECQ');
+  });
+
+  it('supersededBy／legacyRef 沒被寫過時整格不存在，不是空字串', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    const [view] = JSON.parse(get('/api/decisions').body).decisions as Record<string, unknown>[];
+
+    expect(Object.hasOwn(view!, 'supersededBy')).toBe(false);
+    expect(Object.hasOwn(view!, 'legacyRef')).toBe(false);
+  });
+
+  // 票 01 這裡曾經斷言 POST /api/decisions 是 405（那一批沒有寫入端點）。
+  // 這一批（票 02）把這條路徑加進白名單，新增行為的測試搬到下面的
+  // `describe('POST /api/decisions')`。
+});
+
+/**
+ * 新增是這一批（票 02）唯一新增的 Decision 寫入端點 —— 同 `POST /api/issues`
+ * 的理由：建立的時候還沒有 ref 可以放進 URL，`POST /d/<ref>` 因此不可能承接它
+ * （那是票 03 的範圍）。
+ */
+describe('POST /api/decisions', () => {
+  it('建立一筆 Decision：201 + DecisionView，而且下一次 /api/decisions 就有它', () => {
+    initDecisionLog();
+    const res = post('/api/decisions', { title: 'Adopt trunk-based development' });
+
+    // 201 而不是 200：這次請求造出了一個之前不存在的資源（RFC 9110）。
+    expect(res.status).toBe(201);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+
+    const view = JSON.parse(res.body) as DecisionView;
+    expect(view.title).toBe('Adopt trunk-based development');
+    // server 產生 ULID —— client 沒有 id 可以先畫，同 Issue 的新增規則。
+    expect(view.id).toMatch(/^[0-9A-Z]{26}$/);
+    // disposition 沒送 → core 的預設值 `proposed`（`decisionLog.create()` 的決定，
+    // 不是這個端點自己填的）。
+    expect(view.disposition).toBe('proposed');
+    expect(view.body).toBe('');
+
+    // 回應說建立成功了不算數，下一次全量讀取看得到它才算。
+    const decisions = JSON.parse(get('/api/decisions').body).decisions as DecisionView[];
+    expect(decisions.map((d) => d.id)).toContain(view.id);
+    expect(decisionLog().get(view.id).title).toBe('Adopt trunk-based development');
+  });
+
+  it('沒有 title、title 不是字串、或 trim 後是空的 → 400，且不造出任何 Decision', () => {
+    initDecisionLog();
+    const rejected: unknown[] = [{}, { title: '' }, { title: '   ' }, { title: '\n\t' }, { title: 1 }, { title: null }, { title: ['x'] }];
+
+    for (const body of rejected) {
+      const res = post('/api/decisions', body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    // 一筆都不該存在 —— 半成品的 Decision 檔比一個錯誤訊息貴得多。
+    expect(decisionLog().refs()).toHaveLength(0);
+  });
+
+  it('body／disposition 一起送 → 201，且那筆真的帶著它們', () => {
+    initDecisionLog();
+    const res = post('/api/decisions', {
+      title: 'Adopt trunk-based development',
+      body: 'Because long-lived branches rot.',
+      disposition: 'accepted',
+    });
+
+    expect(res.status).toBe(201);
+    const view = JSON.parse(res.body) as DecisionView;
+    expect(view.body).toBe('Because long-lived branches rot.');
+    expect(view.disposition).toBe('accepted');
+    expect(decisionLog().get(view.id).disposition).toBe('accepted');
+  });
+
+  it('disposition 不合法 → 400，不是 500，且不造出任何 Decision', () => {
+    initDecisionLog();
+    // 不存在的值、對應到多個 Disposition 的前綴（accepted/superseded 都沒有
+    // 撞號的前綴，這裡改用一個對不到任何值的前綴）、空字串、非字串。
+    for (const disposition of ['nope', '', 5, null, ['accepted']]) {
+      const res = post('/api/decisions', { title: 'Adopt trunk-based development', disposition });
+      expect(res.status, JSON.stringify(disposition)).toBe(400);
+      expect(res.body, JSON.stringify(disposition)).not.toContain('at Object');
+    }
+
+    expect(decisionLog().refs()).toHaveLength(0);
+  });
+
+  /**
+   * 沿用寫入面既有的「不認得的欄位一律拒絕」（同 `POST /api/issues` 的
+   * `CREATE_FIELDS`）：`supersededBy`／`legacyRef` 刻意不收 —— 表單只填標題，
+   * 端點不該提供沒有呼叫端的能力。
+   */
+  it('title / body / disposition 以外的鍵 → 400，且不造出任何 Decision', () => {
+    initDecisionLog();
+    const rejected: unknown[] = [
+      { title: 'x', supersededBy: '01JBXA' },
+      { title: 'x', legacyRef: 'ADR-0001' },
+      { title: 'x', id: fullId('01JDEC1') },
+      // 打錯的欄位名：靜靜地少一格，比一次 400 難查得多。
+      { title: 'x', dispositon: 'accepted' },
+    ];
+
+    for (const body of rejected) {
+      const res = post('/api/decisions', body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    expect(decisionLog().refs()).toHaveLength(0);
+  });
+
+  it('body 不是 JSON 物件 → 400，不是 500', () => {
+    initDecisionLog();
+    for (const body of ['', '{', 'not json', 'null', '42', '"x"', '["x"]']) {
+      const res = post('/api/decisions', body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    expect(decisionLog().refs()).toHaveLength(0);
+  });
+
+  /**
+   * `/api/decisions` 跟 `/api/issues` 不同 —— **兩個方法都合法**（GET 讀快照、
+   * POST 新增），所以既不是 issues 那種「GET 也是 405」的純寫入路徑，也不是
+   * 一般唯讀端點那種「只有 GET」。Allow 因此要同時列出兩者（RFC 9110：
+   * Allow 講的是這個資源支援什麼），而不是照搬 `/api/issues` 那份「只有 POST」。
+   */
+  it('PUT / DELETE / PATCH 是 405，Allow 同時列出 GET 與 POST', () => {
+    for (const method of ['PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']) {
+      const res = handleRequest(board(), decisionLog(), { method, url: '/api/decisions' });
+      expect(res.status, method).toBe(405);
+      expect(res.headers['allow'], method).toBe('GET, POST');
+    }
+  });
+});
+
+describe('GET /decision-hash', () => {
+  it('回傳裸文字指紋，同 /hash 的形狀（不是 JSON）', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    const res = get('/decision-hash');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^text\/plain/);
+    expect(res.body).toBe(decisionHashOf());
+  });
+
+  it('新增一筆之後指紋跟著換', () => {
+    initDecisionLog();
+    const before = get('/decision-hash').body;
+
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    expect(get('/decision-hash').body).not.toBe(before);
+  });
+
+  it('POST /decision-hash 是 405，Allow 說 GET', () => {
+    // 同上：405 白名單先擋下，這則請求連不到 decisionLog。
+    const res = post('/decision-hash', {});
+
+    expect(res.status).toBe(405);
+    expect(res.headers['allow']).toBe('GET');
+  });
+});
+
+/** `/decision-hash` 的期望值：對 `decisionLog.list({})` 的雜湊，直接算一次來比對。 */
+function decisionHashOf(): string {
+  return createHashOfDecisions(decisionLog().list({}));
+}
+
+function createHashOfDecisions(decisions: unknown): string {
+  return createHash('sha256').update(JSON.stringify(decisions)).digest('hex');
+}
+
+/** 磁碟上那一份 Decision op-log 的每一行 —— 同 `opsOnDisk` 之於 Issue。 */
+const decisionOpsOnDisk = (id: string): Record<string, unknown>[] =>
+  readFileSync(join(dir, '.decisions', 'decisions', `${id}.ndjson`), 'utf8')
+    .split('\n')
+    .filter((l) => l !== '')
+    .map((l) => JSON.parse(l) as Record<string, unknown>);
+
+/**
+ * `POST /d/<ref>`（這一批）：直接鏡射 `decisionLog.apply(ref, change)`，同
+ * `POST /i/<ref>` 的薄度。這裡逐一鏡射 Issue 那三組既有測試
+ * （寫入本身、Change 的全部意圖、錯誤對應），而不是重新發明一套涵蓋範圍。
+ */
+describe('POST /d/<ref>', () => {
+  it('回印的 shortId 對整塊 decision log 算，不是對回印的那一筆算', () => {
+    createDecisionWith(fullId('01JDECQ'), 'Adopt trunk-based development');
+    createDecisionWith(fullId('01JDECR'), 'Use conventional commits');
+
+    const view = JSON.parse(
+      post(`/d/${fullId('01JDECQ')}`, { disposition: 'accepted' }).body,
+    ) as DecisionView;
+
+    // 兩筆只在第 7 碼分開，所以 6 碼不夠 —— 同 IssueView 既有的 displayLength 規則。
+    expect(view.shortId).toBe('01JDECQ');
+    expect(decisionLog().get(view.shortId).id).toBe(fullId('01JDECQ'));
+  });
+
+  it('改 disposition：回 200 + DecisionView，且 op 真的 append 到 .ndjson', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const beforeOps = decisionOpsOnDisk(id).length;
+
+    const res = post(`/d/${id}`, { disposition: 'accepted' });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+
+    const view = JSON.parse(res.body) as DecisionView;
+    expect(view.id).toBe(id);
+    expect(view.disposition).toBe('accepted');
+    // DecisionView，不是 Decision：預渲染的安全 HTML 一併回來，同 IssueView 的既有規則。
+    expect(view.bodyHtml).toBeTypeOf('string');
+
+    // 回應可能是任何東西編出來的 —— 檔案才是事實。
+    const ops = decisionOpsOnDisk(id);
+    expect(ops).toHaveLength(beforeOps + 1);
+    expect(ops.at(-1)).toMatchObject({ op: 'set', k: 'disposition', v: 'accepted', a: 'test' });
+  });
+
+  it('接受無歧義前綴，且大小寫不敏感 —— ref 原樣交給 core', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+
+    expect(post('/d/01jdec1', { disposition: 'rejected' }).status).toBe(200);
+
+    expect(decisionOpsOnDisk(id).at(-1)).toMatchObject({ op: 'set', k: 'disposition', v: 'rejected' });
+  });
+});
+
+describe('POST /d/<ref> 涵蓋 DecisionChange 的全部意圖', () => {
+  it('欄位編輯：title / body / disposition / supersededBy 各自成為一個 set op', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const other = fullId('01JDEC2');
+    createDecisionWith(other, 'Use conventional commits');
+
+    const view = JSON.parse(
+      post(`/d/${id}`, {
+        title: 'Adopt trunk-based development (revised)',
+        body: 'Because long-lived branches rot.',
+        disposition: 'accepted',
+        supersededBy: other,
+      }).body,
+    ) as DecisionView;
+
+    expect(view).toMatchObject({
+      title: 'Adopt trunk-based development (revised)',
+      body: 'Because long-lived branches rot.',
+      disposition: 'accepted',
+      supersededBy: other,
+    });
+    // 預渲染的 HTML 跟著新的原文走，不是回舊值 —— 同 IssueView.descriptionHtml 既有規則。
+    expect(view.bodyHtml).toBe('<p>Because long-lived branches rot.</p>');
+
+    const ops = decisionOpsOnDisk(id);
+    expect(ops.filter((o) => o['op'] === 'set')).toMatchObject([
+      { k: 'title', v: 'Adopt trunk-based development (revised)' },
+      { k: 'body', v: 'Because long-lived branches rot.' },
+      { k: 'disposition', v: 'accepted' },
+      { k: 'supersededBy', v: other },
+    ]);
+  });
+
+  it('寫入之後 /decision-hash 換值', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const before = get('/decision-hash').body;
+
+    post(`/d/${id}`, { disposition: 'accepted' });
+
+    expect(get('/decision-hash').body).not.toBe(before);
+  });
+});
+
+/**
+ * `legacyRef` 唯讀（spec.md Non-goals，同 CLI 的 `set` 不曝露它的理由）—— 這裡
+ * 釘的是「送了它」跟「送了任何一個打錯的鍵」是同一種失敗：一次 400，不是靜靜
+ * 忽略。
+ */
+describe('POST /d/<ref> 的錯誤對應', () => {
+  it('DecisionNotFound → 404，不是 500，也不外洩例外', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    for (const url of [`/d/${fullId('01JDEC9')}`, '/d/ZZZZZZZZZZZZZZZZZZZZZZZZZZ', '/d/']) {
+      const res = post(url, { disposition: 'accepted' });
+      expect(res.status, url).toBe(404);
+      expect(res.body, url).not.toContain('Adopt trunk-based development');
+      expect(res.body, url).not.toContain('at Object');
+    }
+  });
+
+  /**
+   * 有歧義的前綴 —— 同 `POST /i/<ref>` 既有的對應（`AmbiguousRef` → 404，內文
+   * 含足以區分的候選）。spec.md 的票面寫著這一格是 409，但那句話跟「同既有
+   * Issue 路由的狀態碼對應表」自相矛盾：`POST /i/<ref>` 對 `AmbiguousRef` 的
+   * 既有對應是 404（見上面的 `POST /i/<ref> 的錯誤對應`），這份程式碼裡從來
+   * 沒有出現過 409。這裡照抄那份既有對應表，而不是照抄那句寫錯的話 ——
+   * 「逐一鏡射既有 Issue 路由的錯誤處理慣例」是這一批唯一講得通的那一半。
+   */
+  it('AmbiguousDecisionRef → 404，且內文含足以區分的候選', () => {
+    createDecisionWith(fullId('01JDECAB'), 'Adopt trunk-based development');
+    createDecisionWith(fullId('01JDECAC'), 'Use conventional commits');
+
+    const res = post('/d/01JDECA', { disposition: 'accepted' });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toContain('01JDECAB');
+    expect(res.body).toContain('01JDECAC');
+    // 兩筆都不得被寫到 —— 有歧義時什麼都不做，而不是挑一筆。
+    for (const id of [fullId('01JDECAB'), fullId('01JDECAC')]) {
+      expect(decisionOpsOnDisk(id).some((o) => o['op'] === 'set')).toBe(false);
+    }
+  });
+
+  it('InvalidDisposition → 400', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const before = decisionOpsOnDisk(id).length;
+
+    for (const disposition of ['nope', '']) {
+      const res = post(`/d/${id}`, { disposition });
+      expect(res.status, disposition).toBe(400);
+    }
+
+    // 驗證先於任何寫入：被拒絕的 Change 不得留下半個 Op。
+    expect(decisionOpsOnDisk(id)).toHaveLength(before);
+  });
+
+  it('body 不是合法 JSON → 400，不是 500', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const before = decisionOpsOnDisk(id).length;
+
+    for (const body of ['', '{', 'not json', '{"disposition":}']) {
+      const res = post(`/d/${id}`, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    expect(decisionOpsOnDisk(id)).toHaveLength(before);
+  });
+
+  it('body 是合法 JSON 但不是 DecisionChange 的形狀 → 400', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const before = decisionOpsOnDisk(id).length;
+
+    const notChanges: unknown[] = [
+      null,
+      42,
+      'accepted',
+      ['accepted'],
+      { title: 5 },
+      { body: 5 },
+      { disposition: 5 },
+      { supersededBy: 5 },
+      // legacyRef 唯讀 —— 送它跟送任何一個打錯的鍵是同一種失敗（見本 describe 開頭）。
+      { legacyRef: 'ADR-0001' },
+      // 打錯的欄位名靜靜地什麼都不做，是最糟的失敗模式 —— 同 `Change` 既有規則。
+      { dispositon: 'accepted' },
+    ];
+
+    for (const body of notChanges) {
+      const res = post(`/d/${id}`, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+
+    expect(decisionOpsOnDisk(id)).toHaveLength(before);
+  });
+
+  it('穿越用的 ref 在寫入面上同樣是 404，且不在 decision log 外面造出檔案', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    for (const url of ['/d/../../OUTSIDE', '/d/../../../etc/passwd', '/d/..%2f..%2fOUTSIDE']) {
+      const res = post(url, { body: 'LEAKED' });
+      expect(res.status, url).toBe(404);
+    }
+
+    expect(existsSync(join(dir, 'OUTSIDE.ndjson'))).toBe(false);
+  });
+});
+
+/**
+ * `/d/<ref>` 從來沒有一個讀取面 —— 同 `/i/<ref>`：它是一條純寫入路徑，這個
+ * 前綴上唯一存在過的動詞就是 POST。GET 因此是 404 而不是 405：那不是「這個
+ * 方法不被這個資源接受」，是這個 URL 上根本沒有東西可讀（見上面
+ * `describe('GET /i/<ref>')` 對同一件事的既有斷言）。
+ */
+describe('GET /d/<ref>', () => {
+  it('沒有讀取面，一律 404', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    for (const url of [`/d/${fullId('01JDEC1')}`, '/d/01JDEC1', '/d/01jdec1']) {
+      const res = get(url);
+      expect(res.status, url).toBe(404);
+      expect(res.body, url).not.toContain('Adopt trunk-based development');
+    }
+  });
+});
+
+const decisionHistory = (ref: string) =>
+  handleRequest(
+    board(),
+    decisionLog(),
+    { method: 'GET', url: `/api/decision-history/${ref}` },
+    { assetsDir: assets },
+  );
+
+interface DecisionWriteView {
+  field: string;
+  value: string;
+  actor: string;
+  t: number;
+}
+
+const decisionWrites = (ref: string): DecisionWriteView[] =>
+  (JSON.parse(decisionHistory(ref).body) as { writes: DecisionWriteView[] }).writes;
+
+/**
+ * `GET /api/decision-history/<ref>` —— 對 LWW 欄位的每一次寫入，含是誰寫的與
+ * Lamport 時刻，鏡射既有 `GET /api/history/<ref>`（`issueHistory`）的做法：
+ * 篩選走 core 的 `decisionFieldWrites`，與 `nook decision history` 是同一份。
+ */
+describe('GET /api/decision-history/<ref>', () => {
+  it('列出對 LWW 欄位的每一次寫入，含 actor 與 t，create 折成 title 的第一次寫入', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    post(`/d/${id}`, { body: 'first draft' });
+    post(`/d/${id}`, { disposition: 'accepted' });
+
+    const res = decisionHistory(id);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+    // 同 `issueHistory`：不重寫一次「create 折成 title 第一次寫入」的邏輯，
+    // 這裡驗的正是 `decisionFieldWrites` 已經做好的那一份折法。
+    expect(decisionWrites(id)).toEqual([
+      { field: 'title', value: 'Adopt trunk-based development', actor: 'test', t: 1 },
+      { field: 'body', value: 'first draft', actor: 'test', t: 2 },
+      { field: 'disposition', value: 'accepted', actor: 'test', t: 3 },
+    ]);
+  });
+
+  /**
+   * 沿用 `applyDecisionChange` 既有的那張對應表：解析不出 ref 是 404，不是
+   * 500 —— 同既有 `GET /api/history/<ref> 的錯誤對應`。
+   */
+  it('DecisionNotFound → 404，不外洩例外也不外洩內容', () => {
+    createDecisionWith(fullId('01JDEC1'), 'Adopt trunk-based development');
+
+    for (const ref of [fullId('01JDEC9'), 'ZZZZZZ', '../../etc/passwd']) {
+      const res = decisionHistory(ref);
+      expect(res.status, ref).toBe(404);
+      expect(res.body, ref).not.toContain('Adopt trunk-based development');
+      expect(res.body, ref).not.toContain('at Object');
+    }
+  });
+
+  it('AmbiguousDecisionRef → 404，且內文含足以區分的候選', () => {
+    createDecisionWith(fullId('01JDECAB'), 'Adopt trunk-based development');
+    createDecisionWith(fullId('01JDECAC'), 'Use conventional commits');
+
+    const res = decisionHistory('01JDECA');
+
+    expect(res.status).toBe(404);
+    expect(res.body).toContain('01JDECAB');
+    expect(res.body).toContain('01JDECAC');
+  });
+
+  /**
+   * 這條路徑住在 `/api/` 底下，不是 `/d/`——同既有的
+   * `唯讀端點沒有讓 405 白名單鬆動`：一條 GET 路徑不該因為前綴長得像
+   * 就被 405 白名單誤判成可寫。
+   */
+  it('POST 這條路徑是 405，Allow 說 GET，且一個 op 都沒落下', () => {
+    const id = fullId('01JDEC1');
+    createDecisionWith(id, 'Adopt trunk-based development');
+    const before = decisionOpsOnDisk(id).length;
+
+    const res = post(`/api/decision-history/${id}`, { title: 'should never land' });
+
+    expect(res.status).toBe(405);
+    expect(res.headers['allow']).toBe('GET');
+    expect(decisionOpsOnDisk(id)).toHaveLength(before);
   });
 });
