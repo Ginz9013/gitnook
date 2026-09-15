@@ -2,3 +2,5 @@
 {"id":"01M2HBAFK74B6Y3XH22AAACY2H","t":2,"a":"83a1","op":"set","k":"description","v":"把既有扁平 Issue 指令搬進 nook issue 命名空間，與 nook decision 對稱。詳見 .scratch/decision-module/05-cli-issue-namespace.md"}
 {"id":"01M2HBAFK7DC51ZNE5J4XPJAED","t":3,"a":"83a1","op":"label.add","v":"decision-module"}
 {"id":"01M2HBAYPSD6CTJB8Z8QSKZZPT","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M2HFZX6VSCDR16HP1Y80Z73T","t":5,"a":"83a1","op":"comment","body":"落地：730bb6b（breaking change）+ b6d2a4c（整合測試同步）+ e1e4b20（review 小修：AGENT.md/CHANGELOG/issue.ts 註解）。npm run bench 六列全綠，token 預算餘裕 458B。"}
+{"id":"01M2HFZX7ZY5E00EP5E5FTX8R0","t":6,"a":"83a1","op":"set","k":"status","v":"done"}

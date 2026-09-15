@@ -2,3 +2,5 @@
 {"id":"01M2HBAFMB8C16YY7F4GTE0BZP","t":2,"a":"83a1","op":"set","k":"description","v":"詳見 .scratch/decision-module/06-doctor-decisions.md"}
 {"id":"01M2HBAFMBPA6EYK9W4JSWTMJ7","t":3,"a":"83a1","op":"label.add","v":"decision-module"}
 {"id":"01M2HBAYQXPFG3EF2DYKJM02SH","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M2HFZX4MXZRJ81PJYDG9X4DP","t":5,"a":"83a1","op":"comment","body":"落地：3f784ed。"}
+{"id":"01M2HFZX5Q0KEF54DZN8SND7T8","t":6,"a":"83a1","op":"set","k":"status","v":"done"}
