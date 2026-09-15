@@ -1,0 +1,4 @@
+{"id":"01M2HDCWB7XGEBWX9RS1AFHXCB","t":1,"a":"83a1","op":"create","title":"nook decision show 改用 ADR-0005 的 compact header + 內文區塊"}
+{"id":"01M2HDCWBH985VDSE9GD766XXC","t":2,"a":"83a1","op":"set","k":"description","v":"review（票 01）發現 nook decision show 用逐欄 key:value 傾印，偏離 ADR-0005 與 Issue nook show 既有的 compact header + 內文區塊慣例。詳見 .scratch/decision-module/08-decision-show-render.md"}
+{"id":"01M2HDCWBHV3S8SMQ1WGK0SVQ3","t":3,"a":"83a1","op":"label.add","v":"decision-module"}
+{"id":"01M2HDD3XNFTKFV7KDRGDWDR9V","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}

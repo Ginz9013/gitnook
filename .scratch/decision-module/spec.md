@@ -177,11 +177,14 @@ Measured 2026-09-15，`main`（`bfeca4a`）：
 | 04 | `cli/decision.ts`（擴充 history） `render/table.ts`（decision history 呈現）+ 測試 | 01（與 02、03 對 `cli/decision.ts` 全序） |
 | 05 | `cli/run.ts`（拆出 dispatch） `cli/issue.ts`(新) `test/cli/run.test.ts` `test/cli/issue.test.ts`(新) `README.md` `README.zh-TW.md` `AGENT.md` `CHANGELOG.md` | 01（避免同時改 `run.ts`） |
 | 06 | `core/health.ts` + 測試 | 01 |
-| 07 | **unbounded**：`.decisions/decisions/*.ndjson`(新) `docs/adr/*.md`(刪) `src/**`／`CONTEXT.md`／`README*.md`／`AGENT.md` 的引用掃尾 `test/integration/packed-smoke.test.ts` fixture | 01,02,03,04,05,06 |
+| 07 | **unbounded**：`.decisions/decisions/*.ndjson`(新) `docs/adr/*.md`(刪) `src/**`／`CONTEXT.md`／`README*.md`／`AGENT.md` 的引用掃尾 `test/integration/packed-smoke.test.ts` fixture | 01,02,03,04,05,06,08 |
+| 08 | `render/table.ts`（Decision 單張 detail 版面） `cli/decision.ts`（`show` 改叫新函式）+ 測試——**票 01 落地後 review 追加**，見 `08-decision-show-render.md` | 02 |
 
-批次：**B1=[01]、B2=[02,05,06]、B3=[03]、B4=[04]、B5=[07]**。02/03/04 對
-`cli/decision.ts` 是誠實的全序鏈，不是刻意製造的序列化——跟
-`workspace-write` 那批的教訓一樣。
+批次：**B1=[01]、B2=[02,05,06]、B3=[08]、B4=[03]、B5=[04]、B6=[07]**。
+02/03/04/08 全部碰 `cli/decision.ts`（08 還碰 `render/table.ts`），是
+誠實的全序鏈，不是刻意製造的序列化——跟 `workspace-write` 那批的教訓
+一樣。08 排在 02 之後、03/04 之前，因為它要用票 02 剛做出來的 Decision
+compact table 渲染基礎，晚做只會讓 03/04 疊上去的東西多一次要重新對齊。
 
 ## Risks and deferred questions
 
