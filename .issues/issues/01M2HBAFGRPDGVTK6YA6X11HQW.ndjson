@@ -1,0 +1,4 @@
+{"id":"01M2HBAFGSSVF3SZAHS74B5KZH","t":1,"a":"83a1","op":"create","title":"nook decision set（可改 title/body/disposition/supersededBy）"}
+{"id":"01M2HBAFH2GX72RWKFDQMMFSG1","t":2,"a":"83a1","op":"set","k":"description","v":"詳見 .scratch/decision-module/03-decision-set.md"}
+{"id":"01M2HBAFH2P3TAG91AHEF4A2F9","t":3,"a":"83a1","op":"label.add","v":"decision-module"}
+{"id":"01M2HBAYMJ2JMW6BQ97ZD8EENV","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}

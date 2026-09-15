@@ -1,0 +1,4 @@
+{"id":"01M2HBAFJZAG4DJ6S2T1ESP9HD","t":1,"a":"83a1","op":"create","title":"CLI breaking change：nook issue <verb>"}
+{"id":"01M2HBAFK74B6Y3XH22AAACY2H","t":2,"a":"83a1","op":"set","k":"description","v":"把既有扁平 Issue 指令搬進 nook issue 命名空間，與 nook decision 對稱。詳見 .scratch/decision-module/05-cli-issue-namespace.md"}
+{"id":"01M2HBAFK7DC51ZNE5J4XPJAED","t":3,"a":"83a1","op":"label.add","v":"decision-module"}
+{"id":"01M2HBAYPSD6CTJB8Z8QSKZZPT","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}

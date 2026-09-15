@@ -1,0 +1,4 @@
+{"id":"01M2HBAFFP178XQ61RBHK4FKJ7","t":1,"a":"83a1","op":"create","title":"nook decision list（title list 快速搜尋）"}
+{"id":"01M2HBAFFY73G8E5T3QJWM8C4G","t":2,"a":"83a1","op":"set","k":"description","v":"compact table 列出 ref/title/disposition，就是需求裡的 title list 快速搜尋。詳見 .scratch/decision-module/02-decision-list.md"}
+{"id":"01M2HBAFFYPYV37M7B6YR14SP6","t":3,"a":"83a1","op":"label.add","v":"decision-module"}
+{"id":"01M2HBAYKEMHFHXYQATJ9K4851","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}

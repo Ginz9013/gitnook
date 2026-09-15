@@ -1,0 +1,4 @@
+{"id":"01M2HBAFN5H7V6HFYQJY6NZ08D","t":1,"a":"83a1","op":"create","title":"遷移 12 篇既有 ADR 進 Decision Log + 全 repo 引用掃尾"}
+{"id":"01M2HBAFNDF7NCCZ3TG56A61Z1","t":2,"a":"83a1","op":"set","k":"description","v":"unbounded：把 docs/adr/0001-0012 轉成 Decision，刪除 markdown，改寫 src/**/CONTEXT.md 裡失效的 docs/adr/000X 引用。詳見 .scratch/decision-module/07-migrate-adrs.md"}
+{"id":"01M2HBAFNDQBK27ZT5SFYM96QX","t":3,"a":"83a1","op":"label.add","v":"decision-module"}
+{"id":"01M2HBAYRZEVWCJ8AFDCTY0AS4","t":4,"a":"83a1","op":"set","k":"status","v":"queued"}
