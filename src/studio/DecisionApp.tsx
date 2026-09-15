@@ -30,7 +30,7 @@ type Client = ClientDecisionState<DecisionView>;
  * state 的權威副本、輪詢迴圈、連線中斷橫幅），但**沒有拖曳相關的任何東西**：
  * Decision 沒有看板（spec.md Non-goals）。
  *
- * **新增（`onCreate`）是票 02 落地的第一個寫入**：`send`（drawer 的
+ * **新增（`onCreate`）是這一批（票 02）落地的第一個寫入**：`send`（drawer 的
  * EDIT/ACK/FAIL 那一整條）還不存在，那是票 03 的範圍。`selectedId` 先宣告、
  * 接上 `DecisionList` 的 `onSelect`，但沒有任何 drawer 會讀它 —— 那也是票 03
  * 的範圍（spec.md 的票面：「drawer 開關狀態先宣告但不使用」）。

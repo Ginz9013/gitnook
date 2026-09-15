@@ -24,7 +24,7 @@ import { NewDecisionForm, useNewDecisionEntry } from './NewDecisionForm';
 const DISPOSITIONS = ['proposed', 'accepted', 'superseded', 'rejected'] as const;
 
 /**
- * Decisions 扁平清單最上面那一條 —— disposition 篩選 + 新增入口（票 02）。
+ * Decisions 扁平清單最上面那一條 —— disposition 篩選 + 新增入口（這一批，票 02）。
  *
  * **這裡沒有自動化測試**（spec.md：React 組件不寫測試）。可判定的規則
  * （哪些筆數中選）在 `decisions/filter.ts`，那裡有測試；新增表單本身的規則

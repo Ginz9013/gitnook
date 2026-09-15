@@ -1564,7 +1564,7 @@ describe('GET /api/decisions', () => {
   });
 
   // 票 01 這裡曾經斷言 POST /api/decisions 是 405（那一批沒有寫入端點）。
-  // 票 02 把這條路徑加進白名單，新增行為的測試搬到下面的
+  // 這一批（票 02）把這條路徑加進白名單，新增行為的測試搬到下面的
   // `describe('POST /api/decisions')`。
 });
 

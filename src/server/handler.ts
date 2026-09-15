@@ -747,7 +747,7 @@ function route(board: Board, decisionLog: DecisionLog, req: StudioRequest, opts:
   // `/api/issues` 用**完全相等**比對，不是 startsWith：白名單只有短而精確才
   // 守得住上面那條性質，前綴比對會讓 `/api/issues/foo` 一併變成可寫。
   //
-  // `/api/decisions` 加進來是票 02 唯一真的擴大這份白名單的地方 ——
+  // `/api/decisions` 加進來是這一批（票 02）唯一真的擴大這份白名單的地方 ——
   // **它跟 `/api/issues` 不同：GET 仍然是合法方法**（`decisionSnapshot`，
   // 票 01 已落地），所以下面沒有一行「GET 這條路徑 → 405」——那條規則只屬於
   // `/api/issues` 這種只收 POST 的路徑。它因此也是唯一一條 Allow 要同時列出
@@ -804,9 +804,10 @@ function route(board: Board, decisionLog: DecisionLog, req: StudioRequest, opts:
     return { status: 200, headers: { 'content-type': TEXT }, body: boardHash(board) };
   }
 
-  // Decisions 的唯讀端點（票 01）。同 Issue 的兩條：一份全量快照 + 一份裸文字
-  // 指紋。這兩條目前也不在寫入白名單裡，所以非 GET 落到上面的方法檢查，
-  // 一律 405 Allow: GET —— 這一批唯一新增的寫入路徑要等票 02／03。
+  // Decisions 的兩條讀取端點：一份全量快照（票 01，`/api/decisions` 之後被
+  // 票 02 加進寫入白名單，GET 仍然合法——見上面 `readWrite` 那段）+ 一份裸
+  // 文字指紋（`/decision-hash`，維持只收 GET，非 GET 落到上面的方法檢查，
+  // 405 Allow: GET）。
   if (path === API_DECISIONS_PATH) {
     return json(decisionSnapshot(decisionLog));
   }
