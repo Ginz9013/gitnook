@@ -104,11 +104,18 @@ in-progress
 ## Done when
 
 - A failing behavior test was observed before implementation, per slice.
-- Focused tests（`npx vitest run test/core/gitattributes.test.ts
-  test/core/gitattributes.decision.test.ts test/core/nookConfig.test.ts
-  test/integration/private-mode.test.ts test/cli/run.test.ts
-  test/cli/issue.test.ts test/cli/decision.test.ts test/agent-doc.test.ts`）
-  與 `npx tsc --noEmit` 通過。
+- Focused tests——`npx tsc --noEmit` 通過；`npx vitest run
+  test/core/gitattributes.test.ts test/core/gitattributes.decision.test.ts
+  test/core/nookConfig.test.ts test/integration/private-mode.test.ts
+  test/cli/run.test.ts test/cli/issue.test.ts test/agent-doc.test.ts` 全綠。
+  **`test/cli/decision.test.ts`／`test/cli/run.test.ts` 這兩個檔案本身是這張
+  票的 Write ownership，但它們各自有一部分斷言（`decision new/list/show/set/
+  history` 走 `decisionLog.ts`；`doctor`／`doctor --fix` 走 `health.ts`）結構
+  上不可能在這張票的邊界內通過——那兩個檔案在「不得碰」清單上。這是票板本身
+  原本沒寫清楚的地方（two-axis review 的 Spec 軸抓到，已在此更正），不是這張
+  票留下的缺陷：`test/cli/decision.test.ts` 只要求「decision init 已移除」那組
+  斷言綠，其餘留給票 03；`test/cli/run.test.ts` 只要求非 doctor 的斷言綠，
+  `doctor`／`doctor --fix` 留給票 02。**
 - 廣義回歸套件（`npx vitest run`）**不要求全綠**——寫入範圍外的檔案（health/
   workspace/decisionLog/serve/cli-workspace/render/studio）此時仍指向舊路徑，
   會紅。只要求：紅的測試全部落在「不得碰」清單裡列出的檔案範圍內，且失敗原因
