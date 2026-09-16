@@ -75,6 +75,30 @@ describe('serve', () => {
     // 關兩次不得拋出：CLI 會在 SIGINT 與正常結束兩條路徑上都呼叫它。
     await expect(studio.close()).resolves.toBeUndefined();
   });
+
+  // 票 04：`lazyDecisionLog` 從這個檔案的私有函式升格成 `decisionLog.ts` 的共用
+  // 匯出，serve.ts 改成匯入那份。這裡本來只有 issue 側的真實 HTTP 斷言
+  // （上面那個用例），decision 側完全沒有透過 `serve()` 真的送過一次 HTTP
+  // 請求——`handler.test.ts` 測的是 `handleRequest()` 直呼，繞過了
+  // `serve()` 自己怎麼把 `lazyDecisionLog(board)` 接進 `handleRequest` 那一段
+  // 接線。這裡補上，確認搬移沒有在接線層留下破洞。
+  it('decision 側同樣走真實 HTTP：GET/POST /api/decisions', async () => {
+    mkdirSync(join(dir, '.gitnook', 'decisions'), { recursive: true });
+    const studio = await start();
+
+    const empty = await (await fetch(`${studio.url}/api/decisions`)).json();
+    expect(empty.decisions).toEqual([]);
+
+    const created = await fetch(`${studio.url}/api/decisions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Adopt trunk-based development' }),
+    });
+    expect(created.status).toBe(201);
+
+    const snapshot = await (await fetch(`${studio.url}/api/decisions`)).json();
+    expect(snapshot.decisions.map((d: { title: string }) => d.title)).toEqual(['Adopt trunk-based development']);
+  });
 });
 
 type Reach = 'open' | 'refused';
