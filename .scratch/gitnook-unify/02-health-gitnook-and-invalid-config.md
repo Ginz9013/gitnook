@@ -71,7 +71,7 @@ None。
 
 ## Status
 
-in-progress
+done
 
 ## Done when
 
