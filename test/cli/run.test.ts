@@ -118,6 +118,24 @@ const gitInit = (): void => {
   execFileSync('git', ['config', 'commit.gpgsign', 'false'], { cwd: dir, stdio: 'ignore' });
 };
 
+/**
+ * 票 03：找不到 `.gitnook/` 但沿路找到舊版佈局 marker 時，錯誤訊息附上可直接
+ * 複製貼上執行的 `git mv` 指令 —— 不自動搬移（nook 從不執行任何會寫入的 git
+ * 指令），使用者自己跑。沿用既有 Io capture adapter，不 spawn nook 子行程。
+ */
+describe('舊版佈局偵測', () => {
+  it('只有舊版 .issues/issues/：nook issue list 的錯誤訊息附上對應的 git mv 指令', async () => {
+    gitInit();
+    mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
+
+    const io = capture();
+    const code = await run(['issue', 'list'], io);
+
+    expect(code).toBe(1);
+    expect(io.err).toContain(`git mv "${join(dir, '.issues', 'issues')}" "${join(dir, '.gitnook', 'issues')}"`);
+  });
+});
+
 describe('doctor', () => {
   it('健康時沉默 exit 0；有 Diagnostic 時逐條印出並 exit 非 0', async () => {
     gitInit();

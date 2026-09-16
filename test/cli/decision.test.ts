@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { dispatchDecision } from '../../src/cli/decision.js';
@@ -113,7 +114,10 @@ describe('decision new', () => {
     const code = await dispatchDecision(['new', '--title', 'X'], io);
 
     expect(code).toBe(1);
-    expect(io.err).toContain('nook decision init');
+    // 票 03：DecisionLogNotInitialized 不再提 nook decision init（票 01 已移除
+    // 這個指令），改指向唯一的初始化入口 nook init。
+    expect(io.err).toContain('nook init');
+    expect(io.err).not.toContain('nook decision init');
   });
 });
 
@@ -515,5 +519,25 @@ describe('未知子指令', () => {
 
     expect(code).toBe(1);
     expect(io.err).toContain('bogus');
+  });
+});
+
+/**
+ * 票 03：找不到 `.gitnook/` 但沿路找到舊版佈局 marker 時，錯誤訊息附上可直接
+ * 複製貼上執行的 `git mv` 指令 —— 同 `test/cli/run.test.ts` 的 issue 側版本，
+ * 這裡驗證的是 decision 側 dispatch 也拿得到同一份提示（對稱處理）。
+ */
+describe('舊版佈局偵測', () => {
+  it('只有舊版 .decisions/decisions/：decision list 的錯誤訊息附上對應的 git mv 指令', async () => {
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+    mkdirSync(join(dir, '.decisions', 'decisions'), { recursive: true });
+
+    const io = capture();
+    const code = await dispatchDecision(['list'], io);
+
+    expect(code).toBe(1);
+    expect(io.err).toContain(
+      `git mv "${join(dir, '.decisions', 'decisions')}" "${join(dir, '.gitnook', 'decisions')}"`,
+    );
   });
 });

@@ -13,7 +13,7 @@ import {
 
 // ADR-0004：真實檔案系統，每個測試用例獨立 mkdtemp，不引入 mock。
 let dir: string;
-const decisionsDir = () => join(dir, '.decisions', 'decisions');
+const decisionsDir = () => join(dir, '.gitnook', 'decisions');
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nook-decision-'));

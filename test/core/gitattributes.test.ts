@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initBoard, initNook } from '../../src/core/gitattributes.js';
+import { findBoardRoot, initBoard, initNook } from '../../src/core/gitattributes.js';
 import { readNookConfig } from '../../src/core/nookConfig.js';
 
 // ADR-0004：打真實檔案系統與獨立的暫存目錄，不使用 in-memory fake。
@@ -306,6 +306,40 @@ describe('initNook 在既有 board 的子目錄執行', () => {
     expect(error?.name).toBe('NestedBoard');
     expect(error?.message).toContain(`root ${dir}`);
     expect(existsSync(join(sub, '.gitnook'))).toBe(false);
+  });
+});
+
+/**
+ * 票 03：找不到 `.gitnook/` 時，`findBoardRoot`/`findDecisionRoot` 順便沿路
+ * 偵測舊版佈局 marker，回傳形狀讓 `BoardNotInitialized`/
+ * `DecisionLogNotInitialized` 組出可直接複製貼上的 `git mv` 指令。
+ */
+describe('findBoardRoot 偵測舊版佈局', () => {
+  it('只有舊版 .issues/issues/：legacy.issues 為 true，legacy.decisions 為 false', () => {
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+    mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
+
+    const found = findBoardRoot(dir);
+
+    expect(found).toEqual({ found: false, ceiling: dir, legacy: { dir, issues: true, decisions: false } });
+  });
+
+  it('舊版 .issues/issues/ 與 .decisions/decisions/ 同時存在：兩個旗標都是 true', () => {
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+    mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
+    mkdirSync(join(dir, '.decisions', 'decisions'), { recursive: true });
+
+    const found = findBoardRoot(dir);
+
+    expect(found).toEqual({ found: false, ceiling: dir, legacy: { dir, issues: true, decisions: true } });
+  });
+
+  it('完全沒有舊版 marker：legacy 是 undefined，不憑空造一份', () => {
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+
+    const found = findBoardRoot(dir);
+
+    expect(found).toEqual({ found: false, ceiling: dir });
   });
 });
 

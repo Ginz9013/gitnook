@@ -1,4 +1,6 @@
+import { join } from 'node:path';
 import type { Op } from './ops.js';
+import type { LegacyLayout } from './gitattributes.js';
 
 /** 八個固定 Status。不可自訂 —— 見 decision legacyRef 0003（`nook decision show 0003`）。 */
 export const STATUSES = [
@@ -150,16 +152,46 @@ export class BoardNotInitialized extends Error {
   /**
    * `ceiling` 是向上尋根搜尋到的終點。訊息刻意保持單行 —— CLI 把它整條
    * 寫到 stderr，換行會被讀成「有兩個問題要修」。
+   *
+   * `legacy`（票 03）：尋根落空時沿路看到的舊版佈局 marker（`.issues/issues/`／
+   * `.decisions/decisions/`）。有的話，訊息附上可直接複製貼上的 `git mv` 指令
+   * ——不自動搬移，nook 從不執行任何會寫入的 git 指令（`AlreadySharedBoard`/
+   * `NoGitDir` 的既有原則）。`undefined` 時（真的從來沒 init 過）訊息維持既有
+   * 措辭，不附加任何東西。
    */
-  constructor(dir: string, ceiling?: string) {
+  constructor(dir: string, ceiling?: string, legacy?: LegacyLayout) {
     super(
       ceiling === undefined
         ? `not a Nook board: ${dir} (run nook init first)`
         : `not a Nook board: ${dir}` +
-          ` (searched up to ${ceiling} without finding .issues/issues/; run nook init at the project root)`,
+          ` (searched up to ${ceiling} without finding .gitnook/issues/; run nook init at the project root)` +
+          legacyMoveHint(legacy),
     );
     this.name = 'BoardNotInitialized';
   }
+}
+
+/**
+ * `BoardNotInitialized`/`DecisionLogNotInitialized` 共用的措辭 —— 兩份具名薄
+ * 包裝，各自對稱組出同一種提示（同 `findBoardRoot`/`findDecisionRoot` 之於
+ * `findMarkerRoot` 的既有設計語言）。指令帶上完整路徑而不是相對路徑：board
+ * 可能不在呼叫端的 cwd，貼上一條相對指令的人會在錯的目錄下執行它。兩條指令
+ * 用 `&&` 接在同一行，維持 `BoardNotInitialized` 訊息單行的既有紀律，也讓使用
+ * 者一次貼上就搬完，不必先後執行兩次、失敗兩次。
+ */
+function legacyMoveHint(legacy: LegacyLayout | undefined): string {
+  if (legacy === undefined) return '';
+  const moves: string[] = [];
+  if (legacy.issues) {
+    moves.push(`git mv "${join(legacy.dir, '.issues', 'issues')}" "${join(legacy.dir, '.gitnook', 'issues')}"`);
+  }
+  if (legacy.decisions) {
+    moves.push(
+      `git mv "${join(legacy.dir, '.decisions', 'decisions')}" "${join(legacy.dir, '.gitnook', 'decisions')}"`,
+    );
+  }
+  if (moves.length === 0) return '';
+  return ` — found a legacy layout at ${legacy.dir}, run: ${moves.join(' && ')}`;
 }
 
 export class RefNotFound extends Error {

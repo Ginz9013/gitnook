@@ -14,7 +14,13 @@ import { serialize, parseLine, nextLamport, orderOps } from './oplog.js';
 import type { DecisionOp, DecisionSetKey } from './decisionOps.js';
 import { systemIds, resolvePrefix, isValidRef, normalizeRef } from './ids.js';
 import { deriveActor } from './actor.js';
-import { findDecisionRoot, inspectMergeGuarantee, DECISION_MERGE_RULE, DECISION_LOG_SAMPLE } from './gitattributes.js';
+import {
+  findDecisionRoot,
+  inspectMergeGuarantee,
+  DECISION_MERGE_RULE,
+  DECISION_LOG_SAMPLE,
+  DECISIONS_DIR,
+} from './gitattributes.js';
 import { AmbiguousRef, RefNotFound } from './types.js';
 import { reduceDecision } from './decisionReduce.js';
 
@@ -37,11 +43,16 @@ export function openDecisionLog(opts: OpenDecisionLogOptions = {}): DecisionLog 
 
   const locate = (): string => {
     const found = findDecisionRoot(from);
-    if (!found.found) throw new DecisionLogNotInitialized(from, found.ceiling);
+    if (!found.found) throw new DecisionLogNotInitialized(from, found.ceiling, found.legacy);
     return found.root;
   };
 
-  const decisionsDir = (): string => join(rootDir(), '.decisions', 'decisions');
+  // 票 03：這裡曾經寫死 `.decisions/decisions`（票 01 之前的舊版佈局），
+  // `initDecisionRoot()` 早就已經改建 `.gitnook/decisions`（`DECISIONS_DIR`）
+  // ——兩者不對齊時，讀寫全部 ENOENT 在一個從未被建出來的路徑上。改用同一個
+  // 常數，同 `board.ts` 的 `ISSUES_DIR` 已經修過的那條紀律：路徑常數只有一份
+  // 來源，不會有第二份字面值漂移出去。
+  const decisionsDir = (): string => join(rootDir(), ...DECISIONS_DIR);
 
   const actorId = (): string => (actor ??= deriveActor(rootDir()));
 
@@ -176,7 +187,7 @@ export function openDecisionLog(opts: OpenDecisionLogOptions = {}): DecisionLog 
           {
             kind: 'MissingMergeDriver',
             file: '.gitattributes',
-            message: `missing the zero-conflict guarantee: ${DECISION_MERGE_RULE} (run nook decision init to restore it)`,
+            message: `missing the zero-conflict guarantee: ${DECISION_MERGE_RULE} (run nook init to restore it)`,
           },
         ];
       }

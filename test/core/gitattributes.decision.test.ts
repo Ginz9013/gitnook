@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -104,6 +105,22 @@ describe('既有的 .gitattributes 對 .gitnook/decisions 的 op-log 含衝突�
     expect(error?.name).toBe('ConflictingGitAttributes');
     expect(attrs()).toBe(before);
     expect(existsSync(join(dir, '.gitnook', 'decisions'))).toBe(false);
+  });
+});
+
+/**
+ * 票 03：舊版佈局偵測是 `findMarkerRoot` 共用的內部邏輯，`findDecisionRoot`
+ * 走同一條路——只驗證呼叫入口對稱，細節（旗標組合）已經在
+ * `gitattributes.test.ts` 的 `findBoardRoot 偵測舊版佈局` 群組測過。
+ */
+describe('findDecisionRoot 偵測舊版佈局', () => {
+  it('只有舊版 .decisions/decisions/：legacy.decisions 為 true，legacy.issues 為 false', () => {
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+    mkdirSync(join(dir, '.decisions', 'decisions'), { recursive: true });
+
+    const found = findDecisionRoot(dir);
+
+    expect(found).toEqual({ found: false, ceiling: dir, legacy: { dir, issues: false, decisions: true } });
   });
 });
 

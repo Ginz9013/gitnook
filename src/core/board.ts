@@ -30,7 +30,7 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
 
   const locate = (): string => {
     const found = findBoardRoot(from);
-    if (!found.found) throw new BoardNotInitialized(from, found.ceiling);
+    if (!found.found) throw new BoardNotInitialized(from, found.ceiling, found.legacy);
     return found.root;
   };
 

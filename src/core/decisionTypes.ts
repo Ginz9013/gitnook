@@ -1,5 +1,7 @@
+import { join } from 'node:path';
 import type { DecisionOp } from './decisionOps.js';
 import type { Diagnostic } from './types.js';
+import type { LegacyLayout } from './gitattributes.js';
 
 /**
  * 四個固定 Disposition。不可自訂——同 `Status` 之於 Issue，但這是完全不同的
@@ -88,15 +90,42 @@ export interface OpenDecisionLogOptions {
 }
 
 export class DecisionLogNotInitialized extends Error {
-  constructor(dir: string, ceiling?: string) {
+  /**
+   * 對稱於 `BoardNotInitialized`（`core/types.ts`）—— 同一份措辭結構，同一份
+   * `legacy` 提示邏輯（票 03），只是 marker 換成 `.gitnook/decisions/`。
+   * `nook decision init` 已經被票 01 移除，這裡不再提它，唯一的初始化入口是
+   * `nook init`。
+   */
+  constructor(dir: string, ceiling?: string, legacy?: LegacyLayout) {
     super(
       ceiling === undefined
-        ? `not a Nook decision log: ${dir} (run nook decision init first)`
+        ? `not a Nook decision log: ${dir} (run nook init first)`
         : `not a Nook decision log: ${dir}` +
-          ` (searched up to ${ceiling} without finding .decisions/decisions/; run nook decision init at the project root)`,
+          ` (searched up to ${ceiling} without finding .gitnook/decisions/; run nook init at the project root)` +
+          legacyMoveHint(legacy),
     );
     this.name = 'DecisionLogNotInitialized';
   }
+}
+
+/**
+ * 同 `core/types.ts` 的 `legacyMoveHint`——各自一份薄包裝，理由見那邊的註解。
+ * 兩份逐字相同：`BoardNotInitialized`/`DecisionLogNotInitialized` 對稱處理同
+ * 一種提示，不因為呼叫端是哪一個模組而有第二種措辭。
+ */
+function legacyMoveHint(legacy: LegacyLayout | undefined): string {
+  if (legacy === undefined) return '';
+  const moves: string[] = [];
+  if (legacy.issues) {
+    moves.push(`git mv "${join(legacy.dir, '.issues', 'issues')}" "${join(legacy.dir, '.gitnook', 'issues')}"`);
+  }
+  if (legacy.decisions) {
+    moves.push(
+      `git mv "${join(legacy.dir, '.decisions', 'decisions')}" "${join(legacy.dir, '.gitnook', 'decisions')}"`,
+    );
+  }
+  if (moves.length === 0) return '';
+  return ` — found a legacy layout at ${legacy.dir}, run: ${moves.join(' && ')}`;
 }
 
 export class DecisionNotFound extends Error {

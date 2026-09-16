@@ -84,11 +84,31 @@ export function inspectMergeGuarantee(dir: string, sample: string = OP_LOG_SAMPL
  */
 export const ISSUES_DIR = ['.gitnook', 'issues'] as const;
 
+/**
+ * 票 01 之前的佈局：各自獨立的 `.issues/issues/`、`.decisions/decisions/`。
+ * 只在尋根落空時拿來偵測「這裡是不是一個還沒搬家的舊 board」——找到 marker
+ * 之後本身不會被拿來開 Board／DecisionLog，那條路仍然只認 `.gitnook/...`。
+ */
+const LEGACY_ISSUES_DIR = ['.issues', 'issues'] as const;
+const LEGACY_DECISIONS_DIR = ['.decisions', 'decisions'] as const;
+
+/**
+ * 尋根落空、但沿路看到舊版佈局 marker 時的位置與種類 —— `BoardNotInitialized`／
+ * `DecisionLogNotInitialized` 拿它組出可直接複製貼上的 `git mv` 指令
+ * （票 03：舊版佈局偵測）。`dir` 是看到 marker 的那個目錄，不是呼叫端傳入的
+ * `dir`——board 可能不在呼叫端的 cwd，指令必須以實際位置為準。
+ */
+export interface LegacyLayout {
+  readonly dir: string;
+  readonly issues: boolean;
+  readonly decisions: boolean;
+}
+
 /** 由某個目錄向上尋根的結果。 */
 export type BoardRoot =
   | { readonly found: true; readonly root: string }
   /** 找不到時交代搜尋到哪裡為止 —— 錯誤訊息必須說出範圍。 */
-  | { readonly found: false; readonly ceiling: string };
+  | { readonly found: false; readonly ceiling: string; readonly legacy?: LegacyLayout | undefined };
 
 /**
  * 由 dir 向上找最近的一塊 board，行為同 git 尋找 `.git`。
@@ -119,18 +139,31 @@ export function findDecisionRoot(dir: string): BoardRoot {
  * 由 dir 向上找最近一個含 `marker` 這個相對路徑的目錄，行為同 git 尋找
  * `.git`。`findBoardRoot`/`findDecisionRoot` 是它的兩個具名薄包裝 ——
  * 呼叫端只看得到那兩個名字，不知道底下共用了同一份走法。
+ *
+ * 同一趟walk 順便偵測舊版佈局 marker（`LegacyLayout`）——找到現行 marker 就直接
+ * 回傳，用不到；找不到時，沿路第一個看到舊版 marker 的目錄（離 `dir` 最近的
+ * 那一個，同現行 marker「最近命中」的規則一致）連同兩個旗標一起交給呼叫端組
+ * 錯誤訊息。只記第一個看到的位置，不會被更上層的第二個舊版殘留覆蓋掉。
  */
 function findMarkerRoot(dir: string, marker: readonly string[]): BoardRoot {
   let here = resolve(dir);
+  let legacy: LegacyLayout | undefined;
   for (;;) {
     // 只問存在，不問是不是目錄：marker 變成一個檔案是「board 壞了」，
     // 不是「這裡沒有 board」—— 靜默略過它會讓呼叫端接到上層那一塊。
     if (existsSync(join(here, ...marker))) return { found: true, root: here };
+
+    if (legacy === undefined) {
+      const issues = existsSync(join(here, ...LEGACY_ISSUES_DIR));
+      const decisions = existsSync(join(here, ...LEGACY_DECISIONS_DIR));
+      if (issues || decisions) legacy = { dir: here, issues, decisions };
+    }
+
     // repo 根本身也要先看過才停，所以這個檢查排在後面。
     // `.git` 可能是檔案而不是目錄（worktree、submodule），因此同樣只問存在。
-    if (existsSync(join(here, '.git'))) return { found: false, ceiling: here };
+    if (existsSync(join(here, '.git'))) return { found: false, ceiling: here, legacy };
     const parent = dirname(here);
-    if (parent === here) return { found: false, ceiling: here };
+    if (parent === here) return { found: false, ceiling: here, legacy };
     here = parent;
   }
 }
