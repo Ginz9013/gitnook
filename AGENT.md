@@ -38,6 +38,10 @@ Issues are plain text files in the repo. They travel with the branch, merge with
 | `nook workspace set\|mv\|comment\|label\|rm <ref> ...` | write to whichever member owns `<ref>` — **`<ref>` must be the full 26-char ULID**, no short prefix; see below |
 | `nook decision new --title <t> [--body <b>] [--disposition <d>]` | create a decision (ADR); prints the **full 26-char ref** |
 | `nook decision show <ref> [--json]` | title, body, disposition, `supersededBy` (printed only when set) |
+| `nook workspace decision list [--disposition <d>] [--json]` | every member's decisions, grouped by path — same filter and empty-group semantics as `nook workspace list` |
+| `nook workspace decision new --title <t> [--body <b>] [--disposition <d>] --in <path>` | create in the member at `<path>`; `--in` is **required**, no fallback to cwd; prints the full 26-char ref |
+| `nook workspace decision set <ref> <title\|body\|disposition\|supersededBy> <value\|-> [--editor]` | write to whichever member owns `<ref>` — full 26-char ULID required, same as `nook workspace set` |
+| `nook workspace decision show\|history <ref> [<field>]` | detail view / op history for whichever member owns `<ref>` — `nook workspace` has no single-board equivalent for these two, they exist only under `decision` |
 
 **Every issue command lives under `nook issue`** — this is a breaking change from earlier gitNook releases, where `new`, `list` and `rm` (and the rest of the table above) were flat top-level commands instead. There is no compatibility alias: run `nook issue <verb>` from now on, and update anything (scripts, aliases, older skill files) that still calls the flat form. **`nook issue init` and `nook decision init` no longer exist either** — `nook init` is the single entry point for both modules now; running either old form prints a clear message pointing at `nook init`.
 
@@ -135,6 +139,8 @@ It binds loopback only. It has no authentication, so reachability *is* write acc
 `set`/`mv`/`comment`/`label` print exactly what the single-board command would print — no member path attached, because you already named the ref (or, for `new`, the `--in` path) yourself. `rm` is the one exception: its confirmation prompt and its final line both name the member's path, because the rescue step (`nook workspace set <ref> deleted false`) needs that path to `cd` into — there is no workspace `history`, so the message also tells you to `cd` in and run plain `nook issue history <ref>`.
 
 **The `queued` boundary applies here exactly as it does to plain `nook issue mv`.** `nook workspace mv <ref> queued` is the same authorization grant as `nook issue mv <ref> queued` — do not move an issue into `queued` under `workspace` on your own initiative any more than you would in a single board. Nothing about routing through a member changes who is allowed to decide that. `doctor --fix` under `workspace` repairs file-level data integrity the same way `nook doctor --fix` does for one board — that is not the kind of write `queued` is about, and it needs no more asking than the single-board form does.
+
+**`nook workspace decision <list|new|set|show|history>`** is the same idea applied to decisions instead of issues — cross-repo, routed to whichever member owns the ref. `list` groups every member's decisions by path, same filter (`--disposition`) and empty-group semantics as `nook workspace list`. `new` requires `--in`, same as `nook workspace new`. `set`/`show`/`history` all require the full 26-character ULID and use `locateDecisionInWorkspace` internally — a short prefix is refused, not guessed at, same discipline as the issue side. `show` and `history` exist here even though plain `nook workspace` has no issue equivalent for them (there is no `nook workspace history`) — decisions get both because looking up one ADR by ref, or its write history, is a common cross-repo need that issues do not share the same way.
 
 ## When something is wrong
 

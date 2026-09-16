@@ -215,6 +215,31 @@ export function renderWorkspaceList(groups: readonly WorkspaceGroup[]): string {
  * 一行」。全部一起換而不是逐列決定：讀者要能一眼看出一個值在哪裡結束，而那
  * 取決於整份輸出的形狀，不是單一列的。
  */
+/**
+ * 對稱於 `WorkspaceGroup`，但分組的是 Decision——來源路徑（相對於 workspace
+ * 根目錄）、篩選後的 decision 清單、以及**這個成員自己**的短 ID 顯示長度
+ * （不跨成員合算，理由同 `WorkspaceGroup`）。
+ */
+export interface WorkspaceDecisionGroup {
+  readonly path: string;
+  readonly decisions: readonly Decision[];
+  readonly shortIdLen: number;
+}
+
+/**
+ * 依來源路徑分組印出，組合既有 `renderDecisionTable`，不重新發明表格版面 ——
+ * 對稱於 `renderWorkspaceList`，同一份「篩選後為空的成員整組不列出、全部皆空
+ * 才印一句彙整訊息」規則。
+ */
+export function renderWorkspaceDecisionList(groups: readonly WorkspaceDecisionGroup[]): string {
+  const nonEmpty = groups.filter((g) => g.decisions.length > 0);
+  if (nonEmpty.length === 0) return EMPTY_DECISIONS;
+
+  return nonEmpty
+    .map((g) => `${g.path}\n${renderDecisionTable(g.decisions, g.shortIdLen)}`)
+    .join('\n\n');
+}
+
 export function renderSetOps(ops: readonly SetOp[]): string {
   if (ops.length === 0) return EMPTY_OPS;
 
