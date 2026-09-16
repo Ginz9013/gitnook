@@ -1,0 +1,6 @@
+{"id":"01M2MV1JM3NY5D6SCQTCK4K3XY","t":1,"a":"83a1","op":"create","title":"Workspace 可選遞迴掃描 + WorkspaceMember.decisionLog + locateDecisionInWorkspace"}
+{"id":"01M2MV1JMF20B78M73H6XWQT15","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：.scratch/gitnook-unify/04-workspace-scan-flag-and-decision-log.md（spec 同目錄 spec.md）\n\nhasBoard() 改判斷 .gitnook/ 存在。scan() 找到 board 後讀 .gitnook/config.json 的 workspace 欄位決定要不要繼續往下鑽（沒有/false 維持「找到就停」，true 繼續遞迴）。WorkspaceMember 加 decisionLog（用升格到 src/core/decisionLog.ts 的共用 lazyDecisionLog，serve.ts 改用同一份，刪掉自己的私有版本）。新增 locateDecisionInWorkspace()，對稱既有 locateInWorkspace()。\n\nWrite ownership：src/core/workspace.ts、src/core/types.ts、src/core/decisionTypes.ts、src/core/decisionLog.ts、src/server/serve.ts，及對應測試。\n\nBlocked by：01、02、03（types.ts／decisionTypes.ts 同一批檔案）。"}
+{"id":"01M2MV1JMFKZZ0Z6V6VF59EKHH","t":3,"a":"83a1","op":"label.add","v":"gitnook-unify"}
+{"id":"01M2MV1JMF9T5B3K4FKSFE091Y","t":4,"a":"83a1","op":"label.add","v":"core"}
+{"id":"01M2MV1JMFZPZMBMG32MTKTNHP","t":5,"a":"83a1","op":"label.add","v":"server"}
+{"id":"01M2MV4FE8TH1MDY1NKFNW71Z3","t":6,"a":"83a1","op":"set","k":"status","v":"queued"}

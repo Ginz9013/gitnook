@@ -1,0 +1,7 @@
+{"id":"01M2MV0ZWYY3RYFA926XGGSXED","t":1,"a":"83a1","op":"create","title":"統一 nook init 與 .gitnook/ 佈局"}
+{"id":"01M2MV0ZX8D3SCYYN3E1QATXE5","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：.scratch/gitnook-unify/01-unified-init-and-gitnook-layout.md（spec 同目錄 spec.md）\n\nnook init [--private] [--workspace] 是唯一初始化入口，同時建立 .gitnook/issues/ 與 .gitnook/decisions/（新建或補齊，冪等）。--private 用一條 exclude 規則涵蓋整個 .gitnook/；--workspace 寫入 .gitnook/config.json 的 workspace: true。nook issue init、nook decision init 整個移除，不留相容別名。\n\nWrite ownership：src/core/gitattributes.ts、src/core/sharing.ts、src/core/nookConfig.ts（新）、src/cli/run.ts、src/cli/issue.ts、src/cli/decision.ts、AGENT.md，及對應測試。\n\nBlocked by：無（unbounded，獨立跑，其餘五張票都間接依賴它）。"}
+{"id":"01M2MV0ZX81NXEW8D6YZ02EBCY","t":3,"a":"83a1","op":"label.add","v":"gitnook-unify"}
+{"id":"01M2MV0ZX8PN1W51JC581Z2D8X","t":4,"a":"83a1","op":"label.add","v":"core"}
+{"id":"01M2MV0ZX8BS24BZXFT3VJ7XZ2","t":5,"a":"83a1","op":"label.add","v":"cli"}
+{"id":"01M2MV4FANM2QRD49RN309TW0B","t":6,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M2MV5EA92V3YF3EHA5WP9T3P","t":7,"a":"83a1","op":"set","k":"status","v":"in_progress"}

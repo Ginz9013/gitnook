@@ -1,0 +1,5 @@
+{"id":"01M2MV1Y2YQSMAHSFNJS20TTDJ","t":1,"a":"83a1","op":"create","title":"文件、ADR-0012 supersede、nook 自己 repo 搬遷"}
+{"id":"01M2MV1Y38DW8GWD8F9D591S7X","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：.scratch/gitnook-unify/06-docs-adr-and-self-migration.md（spec 同目錄 spec.md）\n\nREADME/AGENT.md/CONTEXT.md 完整交代這次四個變化；開一條新 Decision 記錄 ADR-0012 被 superseded（用真的 nook decision new 指令）；nook 自己這個 repo 的 .issues/、.decisions/ git mv 到 .gitnook/ 底下（dogfood）；CHANGELOG 補breaking change 條目；npm run bench 六列閘門全綠作為最終驗證。\n\nWrite ownership：README.md、AGENT.md、CONTEXT.md、CHANGELOG.md、nook 自己的 .gitnook/、.gitattributes。不碰任何 src/* 或測試檔。\n\nBlocked by：05（最後一張，動的是 repo 自己的真實資料）。"}
+{"id":"01M2MV1Y38X07XXSKHD17JTD3A","t":3,"a":"83a1","op":"label.add","v":"gitnook-unify"}
+{"id":"01M2MV1Y38MX9HSXMC0VJCF12X","t":4,"a":"83a1","op":"label.add","v":"docs"}
+{"id":"01M2MV4FGF5XK5X99N9SB6W8WV","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
