@@ -33,6 +33,7 @@ import {
   RefNotFound,
   RefNotFoundInWorkspace,
 } from '../core/types.js';
+import { AmbiguousDecisionWorkspaceRef, DecisionRefNotFoundInWorkspace } from '../core/decisionTypes.js';
 import { PortInUse, serveAutoPort } from '../server/serve.js';
 import { dispatchDecision } from './decision.js';
 import { dispatchIssue } from './issue.js';
@@ -185,6 +186,11 @@ const USER_ERRORS = [
   // 同一個 ref 同時存在於多個成員：資料完整性問題，使用者自己造成的（見
   // spec.md Non-goals），不是 nook 的 bug。
   AmbiguousWorkspaceRef,
+  // `locateDecisionInWorkspace()` 版的 `RefNotFoundInWorkspace`/
+  // `AmbiguousWorkspaceRef`——同樣是使用者的 ref 打錯或資料本身有歧義，
+  // 不是 nook 的 bug（票 05，`nook workspace decision show/history/set`）。
+  DecisionRefNotFoundInWorkspace,
+  AmbiguousDecisionWorkspaceRef,
 ] as const;
 
 export async function run(argv: readonly string[], io: Io): Promise<number> {
