@@ -128,3 +128,29 @@ export class InvalidDisposition extends Error {
     this.name = 'InvalidDisposition';
   }
 }
+
+/**
+ * `locateDecisionInWorkspace()`（`core/workspace.ts`）掃過全部成員都沒找到
+ * 這個 ref —— 對稱於 `RefNotFoundInWorkspace`（`core/types.ts`），只是換成
+ * Decision 專用的型別，不重用 issue 那一個（兩者的呼叫端各自 catch 各自的
+ * 型別，共用會讓呼叫端多做一次「這其實是哪一種 ref」的判斷）。
+ */
+export class DecisionRefNotFoundInWorkspace extends Error {
+  constructor(readonly ref: string, readonly searchedCount: number) {
+    super(`decision ref not found in any of ${searchedCount} members: ${ref}`);
+    this.name = 'DecisionRefNotFoundInWorkspace';
+  }
+}
+
+/**
+ * 同一個 decision ref 同時存在於多個成員 —— 對稱於 `AmbiguousWorkspaceRef`
+ * （`core/types.ts`）。ULID 理論上不會撞號（見呼叫端的說明），這個型別存在
+ * 是為了讓 `locateDecisionInWorkspace()` 與 `locateInWorkspace()` 的行為對稱、
+ * 這條路徑可以被測到，不是因為預期它真的會發生。
+ */
+export class AmbiguousDecisionWorkspaceRef extends Error {
+  constructor(readonly ref: string, readonly memberPaths: readonly string[]) {
+    super(`decision ref ${ref} exists in ${memberPaths.length} members at once: ${memberPaths.join(', ')}`);
+    this.name = 'AmbiguousDecisionWorkspaceRef';
+  }
+}

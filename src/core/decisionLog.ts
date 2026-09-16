@@ -8,7 +8,7 @@ import type {
   CreateDecisionInput,
   OpenDecisionLogOptions,
 } from './decisionTypes.js';
-import type { Diagnostic } from './types.js';
+import type { Board, Diagnostic } from './types.js';
 import { DecisionLogNotInitialized, DecisionNotFound, AmbiguousDecisionRef, resolveDisposition } from './decisionTypes.js';
 import { serialize, parseLine, nextLamport, orderOps } from './oplog.js';
 import type { DecisionOp, DecisionSetKey } from './decisionOps.js';
@@ -200,5 +200,33 @@ export function openDecisionLog(opts: OpenDecisionLogOptions = {}): DecisionLog 
         },
       ];
     },
+  };
+}
+
+/**
+ * `board` 這塊 board 所在目錄的 Decision Log —— 惰性建構，且**每次呼叫才問
+ * `board.root()`**，不是在建構的當下就問一次，也不快取住問到的結果。
+ *
+ * 票 04：從 `src/server/serve.ts` 的私有函式升格為這裡的共用匯出 ——
+ * `serve.ts`／`workspace.ts` 都需要「跟著某個 Board 走、卻不強迫它已經
+ * 初始化」的同一份 Decision Log，原本各自維護一份逐字重複的實作。
+ *
+ * 惰性到「每次呼叫才問」而不是「呼叫一次後全部快取」：`board` 自己的
+ * `root()` 也是這樣 —— 目錄事後被移走或重建時，這裡要跟著問到最新的答案，
+ * 而不是抱著第一次問到的路徑不放。呼叫端因此不必等 board 已經 init 過才能
+ * 拿到一個可用的 `DecisionLog` 物件；那個要求會延到方法真的被呼叫的那一刻
+ * 才出現（同 `DecisionLogNotInitialized` 的既有語意）。
+ */
+export function lazyDecisionLog(board: Board): DecisionLog {
+  const open = (): DecisionLog => openDecisionLog({ dir: board.root() });
+  return {
+    create: (input) => open().create(input),
+    get: (ref) => open().get(ref),
+    list: (filter) => open().list(filter),
+    refs: () => open().refs(),
+    apply: (ref, change) => open().apply(ref, change),
+    opLog: (ref) => open().opLog(ref),
+    root: () => open().root(),
+    health: () => open().health(),
   };
 }

@@ -1,6 +1,7 @@
 import type { Op } from './ops.js';
 import { legacyMoveHint } from './gitattributes.js';
 import type { LegacyLayout } from './gitattributes.js';
+import type { DecisionLog } from './decisionTypes.js';
 
 /** 八個固定 Status。不可自訂 —— 見 decision legacyRef 0003（`nook decision show 0003`）。 */
 export const STATUSES = [
@@ -244,6 +245,13 @@ export interface WorkspaceMember {
   readonly path: string;
   /** `openBoard({ dir: path })` 的產物。 */
   readonly board: Board;
+  /**
+   * `lazyDecisionLog(board)`（`core/decisionLog.ts`）的產物 —— 惰性、每次呼叫
+   * 才問 `board.root()`，不快取。跟 `board` 一樣完全獨立的一份儲存（見
+   * CONTEXT.md 的 Workspace 詞條），不代表這個成員一定已經 init 過 decision
+   * log；沒有時方法呼叫會照常拋 `DecisionLogNotInitialized`。
+   */
+  readonly decisionLog: DecisionLog;
 }
 
 /**
