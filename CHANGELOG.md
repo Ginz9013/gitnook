@@ -8,6 +8,74 @@ While the major version is `0`, a minor bump may contain changes that would be
 breaking after `1.0.0`. Any such change is listed under **Changed** or
 **Removed** with what it means for you.
 
+## [Unreleased]
+
+The theme of this release is **`.gitnook/` — Issues and Decisions share one
+container directory**, plus an opt-in recursive mode for `nook workspace`'s
+scan.
+
+### Changed
+
+- **Breaking: the board's container directory is renamed.** `.issues/issues/`
+  is now `.gitnook/issues/`, and `.decisions/decisions/` (if you have one) is
+  now `.gitnook/decisions/`. Both modules live side by side under one parent
+  now, but nothing about how an individual Issue or Decision is stored
+  changes — the data format, marker subdirectory, and `merge=union` rule each
+  stay independent per module, just relocated.
+
+  **nook does not migrate existing boards for you.** nook never runs a git
+  command that writes — an existing, deliberate policy — and a rename is no
+  exception.
+
+  **How to migrate:** from your repo root, run:
+  ```
+  git mv .issues/issues .gitnook/issues
+  git mv .decisions/decisions .gitnook/decisions   # only if you have one
+  ```
+  then `nook init` once so it adds the `.gitnook/`-shaped `.gitattributes`
+  lines (idempotent — it will not duplicate a rule that's already correct;
+  the old `.issues/`/`.decisions/` lines are harmless leftovers it won't
+  touch, remove them by hand if you want to tidy up) and commit the result.
+  Until you migrate, `nook` on that repo reports `不是一個 Nook board` and
+  points at `nook init`. The reverse also fails cleanly rather than silently:
+  a pre-`.gitnook/` client (an older `nook` your teammate hasn't upgraded
+  yet) pointed at an already-migrated repo gets the same kind of clean,
+  named error (`不是一個 Nook board` from `list`, `MissingMergeDriver` from
+  `doctor`) — never a silent misread of an empty board, never a crash.
+
+- **Breaking: `nook issue init` and `nook decision init` are removed.**
+  `nook init [--private] [--workspace]` is the single entry point now — one
+  call creates (or idempotently completes) both `.gitnook/issues/` and
+  `.gitnook/decisions/` and their `.gitattributes` lines, instead of two
+  separate commands that were easy to run only one of and easy to get out of
+  sync. Running either old form prints a message pointing at `nook init`.
+
+### Added
+
+- **`--workspace` on `nook init`.** Marks the directory in
+  `.gitnook/config.json` (`{ "workspace": true }`) so `nook workspace`'s
+  recursive scan continues past it instead of stopping the moment it finds a
+  board there — for a directory that is itself a board *and* the parent of
+  other boards. (The motivating case: a mistaken `nook init` at the root of a
+  folder of 8 sibling repos silently hid all 8 from `nook workspace`, because
+  the root's own board looked like "found it, stop here" to the scan.) The
+  flag is additive-only — passing it sets the value to `true`; omitting it
+  never resets an existing `true` back to `false`. There is no flag yet to
+  turn it back off. Everywhere the flag isn't set, scanning keeps its
+  existing behavior unchanged: find a board, stop looking underneath it.
+- **`nook workspace decision list|new|set|show|history`** — the Decision
+  side of `nook workspace`, symmetrical with the existing Issue subcommands.
+  `list [--disposition <d>] [--json]` groups every member's decisions by
+  path, same filter and empty-group semantics as `workspace list`; `new
+  --title <t> [--body <b>] [--disposition <d>] --in <path>` creates in the
+  member at `<path>` (`--in` required, no cwd fallback, same as `workspace
+  new`); `set <ref> <title|body|disposition|supersededBy> <value|->
+  [--editor]` writes to whichever member owns `<ref>` (full 26-character
+  ULID required, same as `workspace set`); `show <ref> [--json]` and
+  `history <ref> [<field>]` have no Issue-side `workspace` equivalent
+  (there's no `nook workspace history`) but exist here because looking up
+  one ADR, or its write history, across repos is a common cross-repo need.
+
 ## [0.5.1] - 2026-09-16
 
 A small patch release: studio header/sidebar changes, no CLI or storage-format

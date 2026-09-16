@@ -12,14 +12,25 @@ import { initBoard } from '../../src/core/gitattributes.js';
  * 打真實檔案系統與真實 git；`packed-smoke` 與 `git-merge` 也都 spawn 真的子行程）。
  *
  * 守的是 ADR-0009 的 D2 —— **Issue 檔永不 unlink**，而不是 D1（刪除是 LWW 欄位）。
- * 兩者的差別決定了這個檔案長什麼樣：把 `deleted` 改成一個新的 op 型別（推翻 D1），
- * 舊版讀不懂那行、照樣看得見那張 Issue，這裡仍然全綠；真正會讓它紅的是有人把刪除
- * 實作成 `unlinkSync(pathOf(id))`，舊版於是**看不到**那張 Issue，失敗方向反轉。
+ * 兩者的差別決定了「被刪那張的 op-log 檔還在磁碟上」那條測試長什麼樣：把
+ * `deleted` 改成一個新的 op 型別（推翻 D1）不會讓舊版看不到那張 Issue 的檔案，
+ * 真正會讓它紅的是有人把刪除實作成 `unlinkSync(pathOf(id))`。
+ *
+ * **gitnook-unify（`.scratch/gitnook-unify/spec.md`）把容器目錄從
+ * `.issues/`／`.decisions/` 改名成 `.gitnook/`，是一次刻意、沒有自動遷移的
+ * breaking change（spec.md 的 Risks and deferred questions）。** 這推翻了這
+ * 個檔案原本「舊版仍然看得懂新資料」的前提——舊版二進位檔只認得
+ * `.issues/issues/`，`.gitnook/`-only 的 board 對它而言根本不存在，連讀都讀
+ * 不到。下面第一個 `describe` 因此改守一件更小、但同樣是這次 breaking change
+ * 唯一承諾的事：**舊版遇到新佈局要乾淨地失敗（清楚的訊息、exit 1），不是靜默
+ * 誤讀成一塊空 board，也不是崩潰**——實測過的真實輸出見各測試自己的斷言。
+ * D2 本身（issue 檔案永不 unlink）改由「被刪那張的 op-log 檔還在磁碟上」那條
+ * 測試直接對磁碟斷言，不再透過舊版二進位檔繞一圈去看它。
  *
  * 為什麼要有這個檔案：spec 的驗收條件 4 是整批工作最核心的承諾（資料活在 git 裡、
  * 隊友的版本不同步是常態 —— ADR-0001 硬規則 2），在此之前它只被人工走查驗過兩次。
  * `test/core/reduce.malformed.test.ts` 釘的是「`reduce` 忽略未知的 `set` 欄位」那個
- * 機制，沒有任何東西釘住「**那個已發布的二進位檔**讀這塊 board 時看得見它」。
+ * 機制，沒有任何東西釘住「**那個已發布的二進位檔**遇到這塊 board 時實際的行為」。
  */
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
@@ -88,51 +99,55 @@ function boardWithOneDeleted(): Fixture {
   const removed = board.create({ title: REMOVED });
   board.apply(removed.id, { deleted: true });
 
-  // 前置條件，不是結論：工作樹這一側必須真的把它刪掉了，否則下面「舊版看得見」
-  // 這件事只是因為根本沒發生過刪除。
+  // 前置條件，不是結論：工作樹這一側必須真的把它刪掉了，否則下面「op-log 檔案
+  // 還在磁碟上」這件事只是因為根本沒發生過刪除。
   //
   // 這裡刻意**只**問 list()。「board.get 照常回傳且 deleted 為 true」那一半住在
   // test/core/board.deleted.test.ts；把它也擺進前置條件，會讓 unlink 版的實作在
-  // 前置條件上就爆掉，紅燈於是講不出「舊版看不見它」這句真正要守的話。
+  // 前置條件上就爆掉，紅燈於是講不出「檔案被誰 unlink 掉了」這句真正要守的話。
   expect(board.list({ all: true }).map((i) => i.title)).toEqual([KEPT]);
 
   return { dir, keptId: kept.id, removedId: removed.id };
 }
 
-/** 緊湊表格（ADR-0005）：`<short ref>  <status>  <title>`，標題含空白所以取到行尾。 */
-function titlesOf(stdout: string): string[] {
-  return stdout
-    .split('\n')
-    .filter((line) => line !== '')
-    .map((line) => /^\S+ {2}\S+ {2}(.*)$/.exec(line)?.[1] ?? line);
-}
-
-describe('舊版 nook 讀一塊有墓碑的 board', () => {
-  it('list --all 仍然看得見被刪的那張 —— 失敗方向是「多看見」而不是「不見了」', () => {
+describe('舊版 nook 遇到一塊 .gitnook/-only 的 board：乾淨失敗，不是靜默誤讀或崩潰', () => {
+  it('list --all exit 1，訊息說「不是一個 Nook board」並指向 nook init', () => {
     const { dir } = boardWithOneDeleted();
 
     const listed = oldNook(dir, 'list', '--all');
 
-    expect(listed.status, listed.output).toBe(0);
-    // 舊版不認得 `set deleted=true`，依 ADR-0001 硬規則 2 跳過那一行 —— 於是兩張都在。
-    // 這條變紅只有一種原因：有人讓刪除把那張 Issue 從舊版的視野裡拿掉了。
-    expect(titlesOf(listed.stdout).sort()).toEqual([REMOVED, KEPT].sort());
+    // 舊版二進位檔只認得 `.issues/issues/`——它完全不知道 `.gitnook/` 這回
+    // 事，向上搜尋到 repo 根都找不到熟悉的 marker，於是乾淨地報「不是一個
+    // Nook board」而不是把 `.gitnook/` 誤讀成一塊空 board（那樣印出來的會是
+    // 「查無 issue」而不是報錯，讀者會誤以為自己的 board 真的是空的）。這條
+    // 變紅只有一種原因：有人讓這個錯誤路徑變得不清楚、或悄悄吞掉了。
+    expect(listed.status, listed.output).toBe(1);
+    expect(listed.output).toContain('不是一個 Nook board');
+    expect(listed.output).toContain('請在專案根目錄執行 nook init');
   }, 30_000);
 
-  it('doctor exit 0 —— 墓碑不是資料損壞', () => {
+  it('doctor exit 1，訊息說 MissingMergeDriver 並附上它認得的 .gitattributes 規則', () => {
     const { dir } = boardWithOneDeleted();
 
     const doctor = oldNook(dir, 'doctor');
 
-    // 一個未知的 `set` 欄位是**向前相容**，不是壞掉的資料。舊版若把它報成損壞，
-    // 隊友會以為自己的 board 需要修，而它其實好好的。
-    expect(doctor.status, doctor.output).toBe(0);
+    // 舊版的 doctor 用它自己認得的 `.issues/issues/*.ndjson merge=union` 去檢查
+    // `.gitattributes`，找不到那條規則就報既有的 MissingMergeDriver 診斷——
+    // 這一次觸發的原因是佈局搬家，不是真的少了一行規則，但訊息本身已經清楚
+    // 指向 `nook init`，同樣是「乾淨失敗」而不是把一塊看不懂的新佈局報成健康。
+    expect(doctor.status, doctor.output).toBe(1);
+    expect(doctor.output).toContain('MissingMergeDriver');
+    expect(doctor.output).toContain('.issues/issues/*.ndjson merge=union');
   }, 30_000);
+});
 
+describe('D2：被刪的 Issue 檔案永不 unlink', () => {
   it('被刪那張的 op-log 檔還在磁碟上，且刪除是 append 上去的一行', () => {
     const { dir, removedId } = boardWithOneDeleted();
 
-    // D2 的機制面：舊版看得見它，是因為那個檔從來沒有被 unlink。
+    // D2 的機制面，直接對磁碟斷言：檔案從來沒有被 unlink。不再透過舊版
+    // 二進位檔繞一圈去看它——`.gitnook/`-only 的 board 對舊版而言根本不存在
+    // （見上面那個 describe），這條保證因此改成直接檢查儲存層本身。
     const log = join(dir, '.gitnook', 'issues', `${removedId}.ndjson`);
     expect(existsSync(log)).toBe(true);
     // 誤刪的救生索 —— create 那一行也還在，不是被覆寫成一個墓碑。

@@ -49,17 +49,10 @@ README、AGENT.md、CONTEXT.md 完整交代這次的四個變化（`nook init` �
       沒有任何未預期的其餘變更——**已在票 01 之後提前完成，見上方「執行後追加」**
 - [ ] `npm run bench` 六列閘門全綠（既有慣例：這個指令會清掉整個 `dist/`，是這
       次全部票落地之後才跑一次的最終驗證，不在任何單張票的 Focused/Suite 裡）
-- [ ] `test/integration/forward-compat.test.ts`——這個檔案用一個刻意凍結在舊版
-      的打包 `nook`（`node_modules/gitnook/bin/nook.js`）驗證「舊版讀新版寫的
-      board」仍然能動。`.gitnook/` 是不留相容別名的 breaking change，舊版根本
-      不認得這個佈局，目前有 2 個斷言因此變紅（`list --all` 預期 exit 0 卻拿到
-      1、`doctor` 預期 exit 0 卻拿到 1，都是舊版找不到 `.issues/issues/` 導致）。
-      **這不是要修好讓它變綠**——舊版讀不到新佈局的 board 本來就是這次 breaking
-      change 的預期結果。這兩條斷言的前提本身已經不成立，需要改寫成驗證「舊版
-      遇到新佈局會怎樣」（例如乾淨地回報找不到 board，而不是靜默誤讀或崩潰），
-      不是繼續斷言「舊版跟新版相容」。這個決定牽涉到對舊版使用者體驗的產品判
-      斷，留給這張票的執行者跟使用者確認新的預期行為，不要自己猜一個答案硬讓
-      它變綠
+- [x] `test/integration/forward-compat.test.ts`——**已與使用者確認**：這兩條
+      斷言不是要修好讓它們維持「舊版仍相容」，而是改寫成驗證「舊版遇到新佈局
+      會乾淨失敗，不是靜默誤讀或崩潰」。實測過的舊版真實輸出、要套用的新斷言，
+      見下方 Write ownership 段落。
 - [ ] `test/integration/packed-smoke.test.ts` 全綠——這個檔案靠打包後的
       `dist/` 跑真的 CLI，裡面直接呼叫 `nook issue init`／`nook decision init`
       （票 01 已經移除的指令），且內部會跑一次 `npm run bench`。它從票 01 落地
@@ -87,9 +80,19 @@ None（這張票不改行為，只改文件與跑一次真實 CLI 操作在 nook
 - nook 自己 repo 的 `.issues/`、`.decisions/`（整個目錄被 `git mv` 清空）
 - `test/integration/packed-smoke.test.ts`（`nook issue init`/`nook decision
   init` 呼叫換成 `nook init`）
+- `test/integration/forward-compat.test.ts`——**已與使用者確認的改法**：兩條
+  斷言（`list --all` 預期 exit 0、`doctor` 預期 exit 0）改成預期舊版乾淨地
+  報「不是一個 Nook board」（exit 1）。實測過舊版 binary 對 `.gitnook/` 佈局
+  的實際輸出：
+  - `nook list --all` → `不是一個 Nook board：<dir>（向上搜尋至 <dir> 都沒有
+    .issues/issues/；請在專案根目錄執行 nook init）`，exit 1
+  - `nook doctor` → `MissingMergeDriver  .gitattributes  缺少零衝突保證：
+    .issues/issues/*.ndjson merge=union（執行 nook init 補回）`，exit 1
+  把這兩條斷言改成驗證「舊版乾淨失敗，不是靜默誤讀或崩潰」，測試標題與周圍
+  註解（目前講的是「向前相容」）要跟著改，不要留下跟新斷言矛盾的敘述。
 
-**不得碰**：任何 `src/*`、任何測試檔——文件跟實作對不上要回報 blocked，不是偷
-改程式碼配合文件。
+**不得碰**：任何 `src/*`；測試檔僅限上面明列的兩個，其餘測試檔不得碰——文件
+跟實作對不上要回報 blocked，不是偷改程式碼配合文件。
 
 ## Shared resources
 
@@ -104,7 +107,7 @@ Blocked by），因為它動的是 repo 自己的真實資料，不是暫存目�
 
 ## Status
 
-todo
+in-progress
 
 ## Done when
 

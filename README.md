@@ -8,12 +8,12 @@ issue on two branches merge without a conflict**.
 
 ```bash
 npm i -D gitnook
-npx nook issue init                                     # .issues/ + the .gitattributes line
+npx nook init                                           # .gitnook/ + both .gitattributes lines
 npx nook issue new "Fix login redirect loop on Safari"
 npx nook issue list
 ```
 
-Adopting this in a repository that is not yours to change? `npx nook issue init
+Adopting this in a repository that is not yours to change? `npx nook init
 --private` gives you the same board with **zero committed bytes** — nothing in
 anyone's diff, review or clone, so nobody has to be told about it yet. See
 [private mode](#private-mode).
@@ -23,7 +23,7 @@ runtime dependencies**, and installs with zero transitive packages.
 
 ## Why gitNook
 
-**Issues live in the working tree.** `.issues/issues/*.ndjson` are ordinary
+**Issues live in the working tree.** `.gitnook/issues/*.ndjson` are ordinary
 committed files. GitHub's web UI shows them in the diff, `grep` finds them, an
 agent can `cat` one without a tool call to anywhere, and a branch carries its
 issues along with the code that closes them.
@@ -77,7 +77,7 @@ candidates, never a silent guess. Statuses take prefixes too (`que` →
 ## private mode
 
 ```bash
-npx nook issue init --private      # a board with zero committed bytes
+npx nook init --private            # a board with zero committed bytes
 ```
 
 This keeps the board out of git entirely (via `$GIT_DIR/info/exclude`, never
@@ -105,8 +105,11 @@ Everything else works unchanged under `nook issue <verb>` — see
 ## Commands
 
 ```
-issue init [--private]                 create .issues/ and the .gitattributes line;
-                                       --private leaves zero committed bytes instead
+init [--private] [--workspace]         create .gitnook/issues/ and .gitnook/decisions/
+                                        (both modules, one shot) plus their .gitattributes
+                                        lines; --private leaves zero committed bytes instead;
+                                        --workspace marks this directory so a recursive scan
+                                        keeps going past it instead of stopping here
 issue new <title> [--description <text|->] [--label <l>] [--editor]
 issue list [--all] [--status <s>] [--label <l>] [--json]
 issue show <ref> [--json]
@@ -117,9 +120,11 @@ issue rm <ref> [--yes]                 delete: writes a tombstone, never unlinks
 issue comment <ref> <body|->
 issue label <ref> +bug -ui
 issue share                            upgrade a private board back to a shared one
-decision init                          create .decisions/ and the .gitattributes line
 decision new --title <t> [--body <b>] [--disposition <d>]
+decision list [--disposition <d>] [--json]
 decision show <ref> [--json]
+decision set <ref> <title|body|disposition|supersededBy> <value|-> [--editor]
+decision history <ref> [<field>]       every write to a field, read-only
 doctor [--fix]                         data health check; --fix repairs glued lines
 studio [--port <n>]                    board on localhost; create, drag, edit, comment
 workspace list|doctor|studio           cross-repo, read-only — see workspace below
@@ -129,13 +134,17 @@ workspace mv <ref> <status>            <ref> full ULID only — see workspace be
 workspace comment <ref> <body|->       <ref> full ULID only — see workspace below
 workspace label <ref> +bug -ui         <ref> full ULID only — see workspace below
 workspace rm <ref> [--yes]             <ref> full ULID only — see workspace below
+workspace decision list|new|set|show|history   cross-repo Decisions — see workspace below
 ```
 
 `nook decision` is a second, parallel log for Architecture Decision Records —
-same append-only shape and `merge=union` guarantee, its own `.decisions/`
-directory, deliberately smaller (no labels, comments, archiving, or private
-mode). A Decision has a `disposition`
-(`proposed`/`accepted`/`superseded`/`rejected`), not a workflow `status`.
+same append-only shape and `merge=union` guarantee, living in
+`.gitnook/decisions/` alongside `.gitnook/issues/`, deliberately smaller (no
+labels, comments, or archiving). It does not have a private mode of its own —
+Sharing is one state for the whole `.gitnook/` directory, so `nook init
+--private` and `nook issue share` cover both modules together. A Decision has
+a `disposition` (`proposed`/`accepted`/`superseded`/`rejected`), not a
+workflow `status`.
 
 `-` as a value reads the value from stdin.
 
@@ -196,6 +205,24 @@ other five take a ref — the **full 26-character ULID**, since a short prefix
 that's unambiguous in one member's board can collide with an unrelated issue
 in another. Semantics otherwise match the single-board commands exactly.
 
+`nook workspace decision <list|new|set|show|history>` is the same idea
+applied to Decisions instead of Issues:
+
+- `nook workspace decision list [--disposition <d>] [--json]` — every
+  member's decisions, grouped by path; same filter and empty-group semantics
+  as `nook workspace list`.
+- `nook workspace decision new --title <t> [--body <b>] [--disposition <d>]
+  --in <path>` — create in the member at `<path>`; `--in` is required, no
+  fallback to cwd, same as `nook workspace new`.
+- `nook workspace decision set <ref> <title|body|disposition|supersededBy>
+  <value|-> [--editor]` — write to whichever member owns `<ref>`; the full
+  26-character ULID is required, same as `nook workspace set`.
+- `nook workspace decision show <ref> [--json]` and `nook workspace decision
+  history <ref> [<field>]` — detail view and write history for whichever
+  member owns `<ref>`. These two have no single-board-`workspace` equivalent
+  (there's no `nook workspace history`) — Decisions get both because looking
+  up one ADR, or its write history, is a common cross-repo need.
+
 ## doctor
 
 `nook doctor` checks the `.gitattributes` line that makes merging work —
@@ -247,7 +274,7 @@ The CLI is one caller of a public API, not the other way round:
 ```ts
 import { openBoard } from 'gitnook';
 
-const board = openBoard();                  // defaults to ./.issues
+const board = openBoard();                  // searches upward from cwd for .gitnook/issues/
 const issue = board.create({ title: 'Fix login redirect', labels: ['bug'] });
 
 board.apply(issue.id, { status: 'queued', labels: { add: ['p1'] } });
