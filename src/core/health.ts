@@ -169,7 +169,7 @@ function sharingMismatches(
     if (ignoredByGit(dir).ignored) return [];
 
     // **下一步不能是「重跑 init --private」。** 這個狀態最常見的成因是一條優先序
-    // 更高的否定規則（committed 的 `!.issues/` 壓過 `$GIT_DIR/info/exclude`），
+    // 更高的否定規則（committed 的 `!.gitnook/` 壓過 `$GIT_DIR/info/exclude`），
     // 而那時我們那一行**已經在了** —— `init --private` 會回 unchanged、什麼都不動，
     // 使用者照做之後 doctor 再說一次同一句話，永遠。所以問 git 是誰壓過它，並把
     // 那一行指出來；指不出來時就說指不出來，同 `share` 的做法。
@@ -177,7 +177,7 @@ function sharingMismatches(
     const why =
       rule === null
         ? `and git cannot point at which rule overrides it — run ` +
-          `git check-ignore -v --non-matching "${dir}/.issues" yourself to find it.`
+          `git check-ignore -v --non-matching "${dir}/.gitnook" yourself to find it.`
         : `your line is being overridden by ${rule} — remove or adjust that rule (nook only ever ` +
           `touches its own line), then run nook doctor again to confirm.`;
     return [
