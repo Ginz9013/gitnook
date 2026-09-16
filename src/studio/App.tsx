@@ -106,23 +106,23 @@ export function App(): React.JSX.Element {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   type="button"
-                  tooltip="Issues"
-                  isActive={view === 'issues'}
-                  onClick={() => switchTo('issues')}
-                >
-                  <ListTodoIcon aria-hidden />
-                  <span className="group-data-[state=collapsed]:hidden">Issues</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  type="button"
                   tooltip="Decisions"
                   isActive={view === 'decisions'}
                   onClick={() => switchTo('decisions')}
                 >
                   <ScrollTextIcon aria-hidden />
                   <span className="group-data-[state=collapsed]:hidden">Decisions</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  type="button"
+                  tooltip="Issues"
+                  isActive={view === 'issues'}
+                  onClick={() => switchTo('issues')}
+                >
+                  <ListTodoIcon aria-hidden />
+                  <span className="group-data-[state=collapsed]:hidden">Issues</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
