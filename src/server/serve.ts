@@ -136,6 +136,40 @@ function lazyDecisionLog(board: Board): DecisionLog {
   };
 }
 
+/**
+ * `serveAutoPort()` 最多往上跳幾個 port 就放棄，改成直接把最後一次的
+ * `PortInUse` 丟出去。20 個涵蓋得了「筆電上同時開好幾個 `nook studio`」這種
+ * 真實情境；到了這個數字還在撞，通常是別的問題（忘記關掉的殭屍 process 一路
+ * 佔滿一整段高位 port），繼續往上找只是把同一句錯誤往後拖延。
+ */
+const MAX_AUTO_PORT_ATTEMPTS = 20;
+
+/**
+ * 跟 `serve()` 一樣，唯一差別：`opts.port` 沒給時，預設 port 被占用就往上
+ * +1 再試，而不是直接以 `PortInUse` 失敗。
+ *
+ * 同一台機器上開多個 `nook studio`（不同 board、不同終端機分頁）是常見情境
+ * —— 沒有理由要求使用者手動試出下一個空位。只在「呼叫端沒指定 `opts.port`」
+ * 時才跳號：`opts.port` 一旦是明講出來的號碼，代表背後有特定用途（寫死在
+ * 另一支工具設定裡、或是腳本依賴這個固定號碼），撞到了就該直接失敗讓使用者
+ * 知道 —— 自動跳號在那種情境下是把選擇權拿走，不是幫忙。
+ */
+export async function serveAutoPort(board: Board, opts: ServeOptions = {}): Promise<Studio> {
+  if (opts.port !== undefined) return serve(board, opts);
+
+  const start = DEFAULT_PORT;
+  for (let i = 0; i < MAX_AUTO_PORT_ATTEMPTS; i++) {
+    try {
+      return await serve(board, { ...opts, port: start + i });
+    } catch (err) {
+      const isLastAttempt = i === MAX_AUTO_PORT_ATTEMPTS - 1;
+      if (!(err instanceof PortInUse) || isLastAttempt) throw err;
+    }
+  }
+  /* c8 ignore next -- 迴圈每一輪都以 return 或 throw 收尾，這行不可達 */
+  throw new Error('unreachable');
+}
+
 export function serve(board: Board, opts: ServeOptions = {}): Promise<Studio> {
   const port = opts.port ?? DEFAULT_PORT;
   // 只把有指定的欄位往下傳：exactOptionalPropertyTypes 之下，

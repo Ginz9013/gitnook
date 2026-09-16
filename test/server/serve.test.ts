@@ -6,7 +6,7 @@ import { connect } from 'node:net';
 import { createServer } from 'node:http';
 import { openBoard } from '../../src/index.js';
 import type { Board, CreateInput, IdSource, Issue } from '../../src/index.js';
-import { serve, PortInUse, DEFAULT_PORT } from '../../src/server/serve.js';
+import { serve, serveAutoPort, PortInUse, DEFAULT_PORT } from '../../src/server/serve.js';
 import type { Studio } from '../../src/server/serve.js';
 
 // ADR-0004：真實檔案系統、真實 socket。每個測試用例一個 mkdtemp 的 board。
@@ -180,6 +180,56 @@ describe('port', () => {
     // 不把 errno 與系統呼叫細節推到使用者臉上。
     expect(message).not.toContain('EADDRINUSE');
     expect(message).not.toContain('listen');
+  });
+});
+
+describe('serveAutoPort', () => {
+  // 這裡是全套件裡唯一綁死 DEFAULT_PORT（而不是 port 0）的地方 —— 沒有別的
+  // 辦法：要測的正是「預設 port 被佔用時的行為」，繞不開那個真實的號碼。
+  // 若這台機器上剛好已經有一個真的 `nook studio` 佔著 4780，這裡的 start()
+  // 會先失敗，訊息會清楚說是哪個 port —— 不是這個測試本身有問題。
+
+  it('預設 port（DEFAULT_PORT）被占用時，自動往上找下一個空位', async () => {
+    const blocker = await start({ port: DEFAULT_PORT });
+    expect(Number(new URL(blocker.url).port)).toBe(DEFAULT_PORT);
+
+    const studio = await serveAutoPort(board(), { assetsDir: assets });
+    open.push(studio);
+
+    expect(Number(new URL(studio.url).port)).toBe(DEFAULT_PORT + 1);
+  });
+
+  it('連續好幾個都被占用時，跳過它們找到真正空的那一個', async () => {
+    open.push(await start({ port: DEFAULT_PORT }));
+    open.push(await start({ port: DEFAULT_PORT + 1 }));
+    open.push(await start({ port: DEFAULT_PORT + 2 }));
+
+    const studio = await serveAutoPort(board(), { assetsDir: assets });
+    open.push(studio);
+
+    expect(Number(new URL(studio.url).port)).toBe(DEFAULT_PORT + 3);
+  });
+
+  it('沒有任何 port 被占用時，就是 DEFAULT_PORT 本身', async () => {
+    const studio = await serveAutoPort(board(), { assetsDir: assets });
+    open.push(studio);
+
+    expect(Number(new URL(studio.url).port)).toBe(DEFAULT_PORT);
+  });
+
+  it('opts.port 是呼叫端自己指定的號碼時，撞到就直接失敗 —— 不自動跳號', async () => {
+    const taken = Number(new URL((await start()).url).port);
+
+    const err: unknown = await serveAutoPort(board(), { port: taken, assetsDir: assets }).then(
+      (s) => {
+        open.push(s);
+        return new Error('預期要失敗，卻成功綁上了已被占用的 port');
+      },
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(PortInUse);
+    expect((err as PortInUse).port).toBe(taken);
   });
 });
 

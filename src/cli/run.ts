@@ -22,7 +22,7 @@ import {
   RefNotFound,
   RefNotFoundInWorkspace,
 } from '../core/types.js';
-import { PortInUse, serve } from '../server/serve.js';
+import { PortInUse, serveAutoPort } from '../server/serve.js';
 import { dispatchDecision } from './decision.js';
 import { dispatchIssue } from './issue.js';
 import { dispatchWorkspace } from './workspace.js';
@@ -573,7 +573,7 @@ async function cmdStudio(args: Args, io: Io): Promise<number> {
     throw new UsageError(`not a valid port: ${given}`);
   }
 
-  const studio = await serve(openBoard({ dir: io.cwd }), port === undefined ? {} : { port });
+  const studio = await serveAutoPort(openBoard({ dir: io.cwd }), port === undefined ? {} : { port });
   line(io, studio.url);
 
   await untilAborted(io.signal);
