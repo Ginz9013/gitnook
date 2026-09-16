@@ -22,7 +22,7 @@ let assets: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nook-serve-'));
-  mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
+  mkdirSync(join(dir, '.gitnook', 'issues'), { recursive: true });
   assets = mkdtempSync(join(tmpdir(), 'nook-serve-assets-'));
 });
 
@@ -74,6 +74,30 @@ describe('serve', () => {
 
     // 關兩次不得拋出：CLI 會在 SIGINT 與正常結束兩條路徑上都呼叫它。
     await expect(studio.close()).resolves.toBeUndefined();
+  });
+
+  // 票 04：`lazyDecisionLog` 從這個檔案的私有函式升格成 `decisionLog.ts` 的共用
+  // 匯出，serve.ts 改成匯入那份。這裡本來只有 issue 側的真實 HTTP 斷言
+  // （上面那個用例），decision 側完全沒有透過 `serve()` 真的送過一次 HTTP
+  // 請求——`handler.test.ts` 測的是 `handleRequest()` 直呼，繞過了
+  // `serve()` 自己怎麼把 `lazyDecisionLog(board)` 接進 `handleRequest` 那一段
+  // 接線。這裡補上，確認搬移沒有在接線層留下破洞。
+  it('decision 側同樣走真實 HTTP：GET/POST /api/decisions', async () => {
+    mkdirSync(join(dir, '.gitnook', 'decisions'), { recursive: true });
+    const studio = await start();
+
+    const empty = await (await fetch(`${studio.url}/api/decisions`)).json();
+    expect(empty.decisions).toEqual([]);
+
+    const created = await fetch(`${studio.url}/api/decisions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Adopt trunk-based development' }),
+    });
+    expect(created.status).toBe(201);
+
+    const snapshot = await (await fetch(`${studio.url}/api/decisions`)).json();
+    expect(snapshot.decisions.map((d: { title: string }) => d.title)).toEqual(['Adopt trunk-based development']);
   });
 });
 
@@ -310,7 +334,7 @@ describe('線上（wire）行為', () => {
     expect((await res.json()).status).toBe('queued');
 
     // 回應說寫成功了不算數 —— 磁碟上那一份 op-log 才是事實。
-    const ops = readFileSync(join(dir, '.issues', 'issues', `${id}.ndjson`), 'utf8')
+    const ops = readFileSync(join(dir, '.gitnook', 'issues', `${id}.ndjson`), 'utf8')
       .split('\n')
       .filter((l) => l !== '')
       .map((l) => JSON.parse(l) as Record<string, unknown>);
@@ -361,7 +385,7 @@ describe('未預期的例外不得帶掉整個 process', () => {
 
     // session 進行中 board 目錄被移走：下一次 board.list() 丟 BoardNotInitialized，
     // 而那個 throw 發生在 createServer callback 的 promise 續行裡。
-    rmSync(join(dir, '.issues'), { recursive: true, force: true });
+    rmSync(join(dir, '.gitnook'), { recursive: true, force: true });
 
     expect((await fetch(`${studio.url}/api/board`)).status).toBe(500);
 
@@ -369,7 +393,7 @@ describe('未預期的例外不得帶掉整個 process', () => {
     expect((await fetch(`${studio.url}/api/board`)).status).toBe(500);
 
     // 而且是「還在服務」而不是「還在但壞了」：board 回來就照常回答。
-    mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
+    mkdirSync(join(dir, '.gitnook', 'issues'), { recursive: true });
     expect((await fetch(`${studio.url}/hash`)).status).toBe(200);
   });
 });
@@ -406,7 +430,7 @@ describe('未預期的 500 在終端機上留下痕跡', () => {
     expect((await fetch(`${studio.url}/api/board`)).status).toBe(200);
     expect(logged).toEqual([]);
 
-    rmSync(join(dir, '.issues'), { recursive: true, force: true });
+    rmSync(join(dir, '.gitnook'), { recursive: true, force: true });
     expect((await fetch(`${studio.url}/api/board`)).status).toBe(500);
 
     expect(logged).toHaveLength(1);

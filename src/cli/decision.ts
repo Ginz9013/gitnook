@@ -1,13 +1,4 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { openDecisionLog } from '../core/decisionLog.js';
-import {
-  DECISION_LOG_SAMPLE,
-  DECISION_MERGE_RULE,
-  findDecisionRoot,
-  initDecisionRoot,
-  inspectMergeGuarantee,
-} from '../core/gitattributes.js';
 import { isValidRef, shortIdLength } from '../core/ids.js';
 import {
   AmbiguousDecisionRef,
@@ -21,20 +12,20 @@ import type {
   DecisionChange,
   DecisionFilter,
 } from '../core/decisionTypes.js';
-import { ConflictingGitAttributes, NestedBoard } from '../core/gitattributes.js';
 import { decisionFieldWrites } from '../core/decisionReduce.js';
 import { renderDecisionDetail, renderDecisionSetOps, renderDecisionTable } from '../render/table.js';
 import { errLine, fromEditor, line, longText, UsageError } from './run.js';
 import type { Io } from './run.js';
 
 /**
- * `nook decision <init|new|show|...>` 的 argv → DecisionLog → render → exit
+ * `nook decision <new|show|...>` 的 argv → DecisionLog → render → exit
  * code —— 同 `dispatchWorkspace` 的先例（`cli/workspace.ts`）：`run.ts` 只留
  * 一個 `case 'decision': return dispatchDecision(rest, io)`。
  *
- * 這一批（票 01）只接 `init`/`new`/`show`——`list`/`set`/`history` 屬於票
+ * 這一批（票 01）只接 `new`/`show`——`list`/`set`/`history` 屬於票
  * 02/03/04，它們對這個檔案的擴充是一條誠實的全序鏈（spec.md 的批次表），
- * 不是刻意製造的序列化。
+ * 不是刻意製造的序列化。`init` 曾經是這裡的子指令，票 01 把它整個移除（改成
+ * `nook init` 唯一入口），見下面 `dispatch()` 的 `case 'init'`。
  *
  * **這個函式自己把全部使用者錯誤接成 exit 1，從不把它們丟出去**——不倚賴
  * `run.ts` 的 `USER_ERRORS`。那份清單活在這張票的寫入範圍之外（`run.ts`
@@ -72,10 +63,6 @@ export async function dispatchDecision(argv: readonly string[], io: Io): Promise
 function decisionUserErrors() {
   return [
     UsageError,
-    // gitattributes 的既有型別（`initDecisionRoot` 內部沿用）——訊息與語意
-    // 逐字同 Issue 側的 `initBoard`，見 `core/gitattributes.ts`。
-    ConflictingGitAttributes,
-    NestedBoard,
     DecisionLogNotInitialized,
     DecisionNotFound,
     AmbiguousDecisionRef,
@@ -88,7 +75,13 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
 
   switch (sub) {
     case 'init':
-      return cmdInit(parseDecisionArgs(rest, NO_FLAGS, NO_FLAGS), io);
+      // 票 01：`nook decision init` 整個移除，沒有相容別名——同 Issue 側
+      // `dispatchIssue` 的 `case 'init'`，沿用 `LEGACY_ISSUE_COMMANDS` 那套
+      // 「明確報錯指向新路徑」做法。
+      throw new UsageError(
+        '`nook decision init` was removed — run `nook init` instead ' +
+          '(it creates both the decision log and the issue board, under .gitnook/)',
+      );
     case 'new':
       return cmdNew(parseDecisionArgs(rest, NEW_FLAGS, NEW_FLAGS), io);
     case 'list':
@@ -102,7 +95,7 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
   }
 
   throw new UsageError(
-    `unknown decision subcommand: ${sub ?? ''} (available: init, new, list, show, set, history)`,
+    `unknown decision subcommand: ${sub ?? ''} (available: new, list, show, set, history)`,
   );
 }
 
@@ -157,40 +150,6 @@ const SHOW_FLAGS: ReadonlySet<string> = new Set(['--json']);
 const LIST_VALUED_FLAGS: ReadonlySet<string> = new Set(['--disposition']);
 const LIST_FLAGS: ReadonlySet<string> = new Set(['--disposition', '--json']);
 const SET_FLAGS: ReadonlySet<string> = new Set(['--editor']);
-
-/**
- * `.gitattributes` 的那一行這次發生了什麼事，講成一行字 —— 同 `run.ts` 的
- * `guaranteeLine`（那個函式沒有 export，且改它同樣落在「只准加一個 case」
- * 的限制之外，所以這裡另起一份，換上 Decision 專屬的訊息與樣本路徑）。
- */
-function guaranteeLine(dir: string): (io: Io) => void {
-  const guarded = inspectMergeGuarantee(dir, DECISION_LOG_SAMPLE).kind === 'union';
-  const existed = existsSync(join(dir, '.gitattributes'));
-  return (target) => {
-    if (guarded) return;
-    line(target, `${existed ? 'Added  ' : 'Created'}  .gitattributes  ${DECISION_MERGE_RULE}`);
-  };
-}
-
-/**
- * `nook decision init`：建立 `.decisions/decisions/` 與 `merge=union` 那一行。
- * 已存在衝突規則時 `initDecisionRoot` 拋 `ConflictingGitAttributes`，往外丟
- * 給 `run()` 的既有 `USER_ERRORS` 處理——那個型別已經在清單上，不必在這裡
- * 重複接。`NestedBoard` 同理。
- */
-function cmdInit(_args: DecisionArgs, io: Io): number {
-  const enclosing = findDecisionRoot(io.cwd);
-  const logExisted = enclosing.found && enclosing.root === io.cwd;
-  const guarded = inspectMergeGuarantee(io.cwd, DECISION_LOG_SAMPLE).kind === 'union';
-  const sayGuarantee = guaranteeLine(io.cwd);
-
-  initDecisionRoot(io.cwd);
-
-  if (!logExisted) line(io, 'Created  .decisions/decisions/');
-  sayGuarantee(io);
-  if (logExisted && guarded) line(io, 'Unchanged  this is already a decision log; nothing was created');
-  return 0;
-}
 
 /**
  * `nook decision new --title <t> [--body <b>] [--disposition <d>]`：印出完整

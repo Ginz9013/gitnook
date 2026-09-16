@@ -7,6 +7,7 @@ import {
   renderDecisionTable,
   renderDecisionDetail,
   renderDecisionSetOps,
+  renderWorkspaceDecisionList,
 } from '../../src/render/table.js';
 import { renderJson } from '../../src/render/json.js';
 import { displayWidth } from '../../src/render/width.js';
@@ -14,7 +15,7 @@ import { resolvePrefix, SHORT_ID_MIN } from '../../src/core/ids.js';
 import type { Issue } from '../../src/core/types.js';
 import type { Decision } from '../../src/core/decisionTypes.js';
 import type { DecisionSetOp } from '../../src/core/decisionOps.js';
-import type { WorkspaceGroup } from '../../src/render/table.js';
+import type { WorkspaceGroup, WorkspaceDecisionGroup } from '../../src/render/table.js';
 
 const golden = (name: string): string =>
   readFileSync(join(import.meta.dirname, '__golden__', name), 'utf8');
@@ -517,5 +518,59 @@ describe('renderWorkspaceList', () => {
 
   it('沒有任何成員（空 workspace）時同樣印彙整版的「沒有 issue」', () => {
     expect(renderWorkspaceList([])).toBe('no issues');
+  });
+});
+
+/**
+ * 票 05：對稱於 `renderWorkspaceList`，但分組的是 Decision——組合既有
+ * `renderDecisionTable`，不重新發明表格版面（spec.md「Design contract」）。
+ */
+describe('renderWorkspaceDecisionList', () => {
+  const decision = (over: Partial<Decision> & Pick<Decision, 'id' | 'title'>): Decision => ({
+    body: '',
+    disposition: 'proposed',
+    ...over,
+  });
+
+  const group = (path: string, decisions: readonly Decision[]): WorkspaceDecisionGroup => ({
+    path,
+    decisions,
+    shortIdLen: SHORT_ID_MIN,
+  });
+
+  it('每組印一行路徑標頭 + renderDecisionTable 的內容，組間空一行', () => {
+    const a = decision({ id: '01JBX7AAAAAAAAAAAAAAAAAAAA', title: 'a', disposition: 'accepted' });
+    const b = decision({ id: '01JBX8BBBBBBBBBBBBBBBBBBBB', title: 'b', disposition: 'proposed' });
+
+    const rendered = renderWorkspaceDecisionList([group('pkgs/a', [a]), group('pkgs/b', [b])]);
+
+    expect(rendered).toBe(
+      [
+        'pkgs/a',
+        renderDecisionTable([a], SHORT_ID_MIN),
+        '',
+        'pkgs/b',
+        renderDecisionTable([b], SHORT_ID_MIN),
+      ].join('\n'),
+    );
+  });
+
+  it('篩選後一筆都沒有的成員，整組不列出（不印空表頭）', () => {
+    const a = decision({ id: '01JBX7AAAAAAAAAAAAAAAAAAAA', title: 'a' });
+
+    const rendered = renderWorkspaceDecisionList([group('pkgs/a', [a]), group('pkgs/empty', [])]);
+
+    expect(rendered).not.toContain('pkgs/empty');
+    expect(rendered).toBe(['pkgs/a', renderDecisionTable([a], SHORT_ID_MIN)].join('\n'));
+  });
+
+  it('全部成員篩選後都是空的，印一句彙整版的「沒有 decision」，不是逐組重複', () => {
+    const rendered = renderWorkspaceDecisionList([group('pkgs/a', []), group('pkgs/b', [])]);
+
+    expect(rendered).toBe('no decisions');
+  });
+
+  it('沒有任何成員（空 workspace）時同樣印彙整版的「沒有 decision」', () => {
+    expect(renderWorkspaceDecisionList([])).toBe('no decisions');
   });
 });

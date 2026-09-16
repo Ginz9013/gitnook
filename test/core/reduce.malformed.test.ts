@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 const ISSUE = '01JBX7A9Q3';
-const LOG = `.issues/issues/${ISSUE}.ndjson`;
+const LOG = `.gitnook/issues/${ISSUE}.ndjson`;
 
 /** 手工鋪一個 op-log，一行一個 op —— 呼叫端給什麼就寫什麼，包括不合法的形狀。 */
 function writeLog(...lines: string[]): void {

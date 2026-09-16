@@ -3,16 +3,21 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openBoard, initBoard } from '../../src/index.js';
-import { dispatchWorkspace } from '../../src/cli/workspace.js';
+import { openBoard, openDecisionLog, initBoard } from '../../src/index.js';
+import { initDecisionRoot } from '../../src/core/gitattributes.js';
+import { dispatchWorkspace, dispatchWorkspaceDecision } from '../../src/cli/workspace.js';
 import {
+  IncompleteRef,
   InvalidStatus,
   IssueDeleted,
   NotAWorkspaceMember,
   RefNotFoundInWorkspace,
 } from '../../src/core/types.js';
+import { DecisionRefNotFoundInWorkspace } from '../../src/core/decisionTypes.js';
+import { UsageError } from '../../src/cli/run.js';
 import type { Io } from '../../src/cli/run.js';
 import type { CreateInput, IdSource, Issue } from '../../src/index.js';
+import type { CreateDecisionInput, Decision } from '../../src/core/decisionTypes.js';
 
 // ADR-0004：真實檔案系統，每個測試用例一棵獨立的 mkdtemp 樹。
 // Io 沿用 test/cli/run.test.ts 的 capture adapter 手法 —— CLI 測試不得 spawn 子行程。
@@ -94,7 +99,7 @@ function writeGluedOpLog(memberDir: string, id: string): void {
   const label = '{"id":"a3","t":3,"a":"k3f9","op":"label.add","v":"bug"}';
   // 第 2 行是黏合行（缺 trailing newline 造成的兩個 op 黏一起）。
   writeFileSync(
-    join(memberDir, '.issues', 'issues', `${id}.ndjson`),
+    join(memberDir, '.gitnook', 'issues', `${id}.ndjson`),
     `${create}\n${setOp}${label}\n`,
     'utf8',
   );
@@ -102,6 +107,19 @@ function writeGluedOpLog(memberDir: string, id: string): void {
 
 const createIn = (dir: string, prefix: string, input: CreateInput): Issue =>
   openBoard({ dir, actor: 'test', ids: seeded(fullId(prefix)) }).create(input);
+
+/**
+ * `initBoard`／`initDecisionRoot` 各自 init 各自的模組（既有規則，見
+ * `src/core/gitattributes.ts`）——`member()` 只建了 issue 側，decision 相關
+ * 測試需要另外呼叫這個把同一個成員目錄也補上 decision log。
+ */
+function withDecisions(memberDir: string): string {
+  initDecisionRoot(memberDir);
+  return memberDir;
+}
+
+const createDecisionIn = (dir: string, prefix: string, input: CreateDecisionInput): Decision =>
+  openDecisionLog({ dir, actor: 'test', ids: seeded(fullId(prefix)) }).create(input);
 
 describe('dispatchWorkspace list — 依子專案分組', () => {
   it('兩個子專案各自有 issue，印出兩段，各自標著相對於 workspace 根目錄的路徑', async () => {
@@ -914,5 +932,348 @@ describe('dispatchWorkspace studio — 開 landing server、收到關閉信號�
     stop.abort();
     expect(await finished).toBe(0);
     await expect(fetch(`${url}/`)).rejects.toThrow();
+  });
+});
+
+describe('dispatchWorkspaceDecision list — 依成員分組', () => {
+  it('兩個子專案各自有 decision，印出兩段，各自標著相對於 workspace 根目錄的路徑', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    const b = withDecisions(member('pkgs', 'b'));
+    createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', { title: 'a 的決策' });
+    createDecisionIn(b, '01JBX8BBBBBBBBBBBBBBBBBBBB', { title: 'b 的決策' });
+
+    const io = capture();
+    const code = await dispatchWorkspaceDecision(['list'], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toContain('pkgs/a');
+    expect(io.out).toContain('pkgs/b');
+    expect(io.out).toContain('a 的決策');
+    expect(io.out).toContain('b 的決策');
+    expect(io.err).toBe('');
+  });
+});
+
+describe('dispatchWorkspaceDecision list — 空 workspace', () => {
+  it('完全掃不到任何成員時仍然 exit 0，印出彙整訊息而非報錯', async () => {
+    const io = capture();
+
+    const code = await dispatchWorkspaceDecision(['list'], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toBe('no decisions\n');
+    expect(io.err).toBe('');
+  });
+});
+
+describe('dispatchWorkspaceDecision list — decision log 尚未初始化的成員', () => {
+  it('視為零 decision 略過，不是錯誤、不中止整個指令', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    member('pkgs', 'b'); // 只 init issue 側，decision log 從未初始化
+    createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', { title: 'a 的決策' });
+
+    const io = capture();
+    const code = await dispatchWorkspaceDecision(['list'], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toContain('a 的決策');
+    expect(io.out).not.toContain('pkgs/b');
+    expect(io.err).toBe('');
+  });
+});
+
+describe('dispatchWorkspaceDecision list — --disposition 篩選套用到每個成員', () => {
+  it('只留下指定的 disposition', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: '已接受',
+      disposition: 'accepted',
+    });
+    createDecisionIn(a, '01JBX7CCCCCCCCCCCCCCCCCCCC', { title: '還在提案', disposition: 'proposed' });
+
+    const io = capture();
+    await dispatchWorkspaceDecision(['list', '--disposition', 'accepted'], io);
+
+    expect(io.out).toContain('已接受');
+    expect(io.out).not.toContain('還在提案');
+  });
+});
+
+describe('dispatchWorkspaceDecision list — 篩選後整組為空時的呈現', () => {
+  it('某個成員篩選後一筆都不剩時，那一組整組不列出', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    const b = withDecisions(member('pkgs', 'b'));
+    createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', { title: 'a 有東西', disposition: 'proposed' });
+    createDecisionIn(b, '01JBX7BBBBBBBBBBBBBBBBBBBB', { title: 'b 已接受', disposition: 'accepted' });
+
+    const io = capture();
+    await dispatchWorkspaceDecision(['list', '--disposition', 'proposed'], io);
+
+    expect(io.out).toContain('pkgs/a');
+    expect(io.out).not.toContain('pkgs/b');
+  });
+
+  it('全部成員篩選後都是空的，印一句彙整訊息，不是逐組重複', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', { title: 'a 已接受', disposition: 'accepted' });
+
+    const io = capture();
+    const code = await dispatchWorkspaceDecision(['list', '--disposition', 'proposed'], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toBe('no decisions\n');
+  });
+});
+
+describe('dispatchWorkspaceDecision list — --json', () => {
+  it('輸出可被解析，且看得出哪些 decision 屬於哪個成員路徑', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    const b = withDecisions(member('pkgs', 'b'));
+    createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', { title: 'a 的決策' });
+    createDecisionIn(b, '01JBX7BBBBBBBBBBBBBBBBBBBB', { title: 'b 的決策' });
+
+    const io = capture();
+    const code = await dispatchWorkspaceDecision(['list', '--json'], io);
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(io.out) as Array<{ path: string; decisions: Decision[] }>;
+    const byPath = new Map(parsed.map((g) => [g.path, g.decisions.map((d) => d.title)]));
+    expect(byPath.get('pkgs/a')).toEqual(['a 的決策']);
+    expect(byPath.get('pkgs/b')).toEqual(['b 的決策']);
+  });
+});
+
+describe('dispatchWorkspaceDecision new — 缺少 --in', () => {
+  it('拋出 UsageError，訊息講清楚用法', async () => {
+    withDecisions(member('pkgs', 'a'));
+    const io = capture();
+
+    await expect(
+      dispatchWorkspaceDecision(['new', '--title', 'Adopt ULIDs'], io),
+    ).rejects.toThrow(/--in/);
+  });
+});
+
+describe('dispatchWorkspaceDecision new — 缺少 --title', () => {
+  it('拋出 UsageError', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    const io = capture();
+
+    await expect(dispatchWorkspaceDecision(['new', '--in', a], io)).rejects.toThrow(UsageError);
+  });
+});
+
+describe('dispatchWorkspaceDecision new — 成功建立在正確的成員底下', () => {
+  it('印出完整 26 碼 ULID，且只有目標成員的 decision log 有變化', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    const b = withDecisions(member('pkgs', 'b'));
+    const io = capture();
+
+    const code = await dispatchWorkspaceDecision(
+      ['new', '--title', 'Adopt ULIDs', '--body', 'sortable', '--in', a],
+      io,
+    );
+
+    expect(code).toBe(0);
+    const ref = io.out.trim();
+    expect(ref).toHaveLength(26);
+    const created = openDecisionLog({ dir: a }).get(ref);
+    expect(created.title).toBe('Adopt ULIDs');
+    expect(created.body).toBe('sortable');
+    expect(openDecisionLog({ dir: b }).list()).toEqual([]);
+    expect(io.err).toBe('');
+  });
+});
+
+describe('dispatchWorkspaceDecision set — 完整 ULID 對到正確的成員', () => {
+  it('該欄位被正確更新，其餘成員完全不受影響，回印更新後那一行且不帶成員路徑裝飾', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    const b = withDecisions(member('pkgs', 'b'));
+    const decision = createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', { title: '原本標題' });
+    createDecisionIn(b, '01JBX7BBBBBBBBBBBBBBBBBBBB', { title: 'b 的決策' });
+
+    const io = capture();
+    const code = await dispatchWorkspaceDecision(['set', decision.id, 'title', '新標題'], io);
+
+    expect(code).toBe(0);
+    expect(openDecisionLog({ dir: a }).get(decision.id).title).toBe('新標題');
+    expect(openDecisionLog({ dir: b }).get('01JBX7BBBBBBBBBBBBBBBBBBBB').title).toBe('b 的決策');
+    expect(io.out).toContain('新標題');
+    expect(io.out).not.toContain('pkgs/a');
+    expect(io.err).toBe('');
+  });
+});
+
+describe('dispatchWorkspaceDecision set — 短前綴拒絕', () => {
+  it('即使在該成員裡其實無歧義，也拒絕並清楚說明跨 board 操作需要完整 ULID', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    const decision = createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', { title: '原本標題' });
+    const shortRef = decision.id.slice(0, 8);
+
+    const io = capture();
+
+    await expect(
+      dispatchWorkspaceDecision(['set', shortRef, 'title', '新標題'], io),
+    ).rejects.toThrow(IncompleteRef);
+    expect(openDecisionLog({ dir: a }).get(decision.id).title).toBe('原本標題');
+  });
+});
+
+describe('dispatchWorkspaceDecision set — 沒有成員擁有這個 ref', () => {
+  it('拋出 DecisionRefNotFoundInWorkspace', async () => {
+    withDecisions(member('pkgs', 'a'));
+    withDecisions(member('pkgs', 'b'));
+    const io = capture();
+
+    await expect(
+      dispatchWorkspaceDecision(['set', 'ZZZZZZZZZZZZZZZZZZZZZZZZZZ', 'title', '新標題'], io),
+    ).rejects.toThrow(DecisionRefNotFoundInWorkspace);
+  });
+});
+
+describe('dispatchWorkspaceDecision set — 非法欄位', () => {
+  it('拋出跟單一 Board 版本一致的錯誤訊息', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    const decision = createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', { title: '原本標題' });
+
+    const io = capture();
+
+    await expect(
+      dispatchWorkspaceDecision(['set', decision.id, 'legacyRef', 'x'], io),
+    ).rejects.toThrow(
+      'not a writable field: legacyRef (available: title, body, disposition, supersededBy)',
+    );
+  });
+});
+
+describe('dispatchWorkspaceDecision set — --editor 語意同單一 Board', () => {
+  it('非 TTY 時報錯，不留下半個更動', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    const decision = createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', { title: '原本標題' });
+
+    const io = capture();
+
+    await expect(
+      dispatchWorkspaceDecision(['set', decision.id, 'body', 'ignored', '--editor'], io),
+    ).rejects.toThrow(/--editor/);
+    expect(openDecisionLog({ dir: a }).get(decision.id).body).toBe('');
+  });
+});
+
+describe('dispatchWorkspaceDecision show', () => {
+  it('對存在的完整 ref 印出 detail 版面', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    const decision = createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', {
+      title: 'Adopt ULIDs',
+      body: 'because sortable',
+      disposition: 'accepted',
+    });
+
+    const io = capture();
+    const code = await dispatchWorkspaceDecision(['show', decision.id], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toContain('Adopt ULIDs');
+    expect(io.out).toContain('because sortable');
+    expect(io.out).toContain('accepted');
+    expect(io.err).toBe('');
+  });
+
+  it('--json 給結構化輸出', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    const decision = createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', { title: 'Adopt ULIDs' });
+
+    const io = capture();
+    const code = await dispatchWorkspaceDecision(['show', decision.id, '--json'], io);
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(io.out) as { id: string; title: string };
+    expect(parsed.id).toBe(decision.id);
+    expect(parsed.title).toBe('Adopt ULIDs');
+  });
+
+  it('ref 不完整丟 IncompleteRef', async () => {
+    withDecisions(member('pkgs', 'a'));
+    const io = capture();
+
+    await expect(dispatchWorkspaceDecision(['show', '01JBX7AA'], io)).rejects.toThrow(
+      IncompleteRef,
+    );
+  });
+
+  it('找不到的 ref 丟 DecisionRefNotFoundInWorkspace', async () => {
+    withDecisions(member('pkgs', 'a'));
+    const io = capture();
+
+    await expect(
+      dispatchWorkspaceDecision(['show', 'ZZZZZZZZZZZZZZZZZZZZZZZZZZ'], io),
+    ).rejects.toThrow(DecisionRefNotFoundInWorkspace);
+  });
+});
+
+describe('dispatchWorkspaceDecision history', () => {
+  it('對存在的完整 ref 印出既有的 op 歷史', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    const decision = createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', { title: '原本標題' });
+    openDecisionLog({ dir: a }).apply(decision.id, { title: '新標題' });
+
+    const io = capture();
+    const code = await dispatchWorkspaceDecision(['history', decision.id, 'title'], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toContain('原本標題');
+    expect(io.out).toContain('新標題');
+    expect(io.err).toBe('');
+  });
+
+  it('ref 不完整丟 IncompleteRef', async () => {
+    withDecisions(member('pkgs', 'a'));
+    const io = capture();
+
+    await expect(dispatchWorkspaceDecision(['history', '01JBX7AA'], io)).rejects.toThrow(
+      IncompleteRef,
+    );
+  });
+
+  it('找不到的 ref 丟 DecisionRefNotFoundInWorkspace', async () => {
+    withDecisions(member('pkgs', 'a'));
+    const io = capture();
+
+    await expect(
+      dispatchWorkspaceDecision(['history', 'ZZZZZZZZZZZZZZZZZZZZZZZZZZ'], io),
+    ).rejects.toThrow(DecisionRefNotFoundInWorkspace);
+  });
+
+  it('不合法的欄位丟 UsageError', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    const decision = createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', { title: '原本標題' });
+    const io = capture();
+
+    await expect(
+      dispatchWorkspaceDecision(['history', decision.id, 'nope'], io),
+    ).rejects.toThrow(UsageError);
+  });
+});
+
+describe('dispatchWorkspaceDecision — 未知子指令', () => {
+  it('丟出清楚列出可用清單的 UsageError', async () => {
+    const io = capture();
+
+    await expect(dispatchWorkspaceDecision(['bogus'], io)).rejects.toThrow(
+      'unknown workspace decision subcommand: bogus (available: list, new, set, show, history)',
+    );
+  });
+});
+
+describe('dispatchWorkspace decision — 透過 dispatchWorkspace 路由', () => {
+  it('`nook workspace decision list` 接到 dispatchWorkspaceDecision', async () => {
+    const a = withDecisions(member('pkgs', 'a'));
+    createDecisionIn(a, '01JBX7AAAAAAAAAAAAAAAAAAAA', { title: '透過 workspace 路由的決策' });
+
+    const io = capture();
+    const code = await dispatchWorkspace(['decision', 'list'], io);
+
+    expect(code).toBe(0);
+    expect(io.out).toContain('透過 workspace 路由的決策');
   });
 });

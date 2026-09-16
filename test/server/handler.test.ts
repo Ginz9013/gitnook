@@ -23,7 +23,7 @@ let assets: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nook-handler-'));
-  mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
+  mkdirSync(join(dir, '.gitnook', 'issues'), { recursive: true });
   assets = mkdtempSync(join(tmpdir(), 'nook-assets-'));
 });
 
@@ -166,7 +166,7 @@ describe('路徑穿越', () => {
    */
   it('board 目錄之外的 .ndjson 讀不到 —— 這才是曾經存在的那條穿越路徑', () => {
     createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
-    // .issues/issues/../../OUTSIDE.ndjson 即 <dir>/OUTSIDE.ndjson。
+    // .gitnook/issues/../../OUTSIDE.ndjson 即 <dir>/OUTSIDE.ndjson。
     writeFileSync(
       join(dir, 'OUTSIDE.ndjson'),
       JSON.stringify({ id: fullId('01JBXZ'), t: 1, a: 'attacker', op: 'create', title: 'LEAKED FROM OUTSIDE' }) + '\n',
@@ -351,7 +351,7 @@ const post = (url: string, body: unknown) =>
 
 /** 磁碟上那一份 op-log 的每一行。回應說寫成功了不算數，檔案裡有才算。 */
 const opsOnDisk = (id: string): Record<string, unknown>[] =>
-  readFileSync(join(dir, '.issues', 'issues', `${id}.ndjson`), 'utf8')
+  readFileSync(join(dir, '.gitnook', 'issues', `${id}.ndjson`), 'utf8')
     .split('\n')
     .filter((l) => l !== '')
     .map((l) => JSON.parse(l) as Record<string, unknown>);
@@ -931,7 +931,7 @@ describe('/api/board 不含已刪的 Issue', () => {
     expect(issues.map((i) => i.title)).not.toContain('Fix login redirect');
 
     // 永不 unlink（ADR-0009）：檔案還在，refs() 因此仍然是兩張，短 Ref 要 7 碼。
-    expect(existsSync(join(dir, '.issues', 'issues', `${removed}.ndjson`))).toBe(true);
+    expect(existsSync(join(dir, '.gitnook', 'issues', `${removed}.ndjson`))).toBe(true);
     expect(issues[0]!.shortId).toBe('01JBXAB');
   });
 });
@@ -1123,7 +1123,7 @@ describe('未預期的例外', () => {
     // 先確認這塊 board 本來是好的 —— 否則下面的 500 證明不了是「中途消失」。
     expect(alive.list({ all: true })).toHaveLength(1);
 
-    rmSync(join(dir, '.issues'), { recursive: true, force: true });
+    rmSync(join(dir, '.gitnook'), { recursive: true, force: true });
 
     const res = handleRequest(alive, decisionLog(), { method: 'GET', url: '/api/board' }, { assetsDir: assets });
 
@@ -1137,7 +1137,7 @@ describe('未預期的例外', () => {
   it('500 的內文不得外洩堆疊追蹤', () => {
     createWith(fullId('01JBXA'), { title: 'Fix login redirect' });
     const alive = board();
-    rmSync(join(dir, '.issues'), { recursive: true, force: true });
+    rmSync(join(dir, '.gitnook'), { recursive: true, force: true });
 
     const res = handleRequest(alive, decisionLog(), { method: 'GET', url: '/api/board' }, { assetsDir: assets });
 
@@ -1157,7 +1157,7 @@ describe('未預期的例外', () => {
     const invalid = handleRequest(alive, decisionLog(), { method: 'POST', url: `/i/${id}`, body: '{"status":"nope"}' });
     expect(invalid.status).toBe(400);
 
-    rmSync(join(dir, '.issues'), { recursive: true, force: true });
+    rmSync(join(dir, '.gitnook'), { recursive: true, force: true });
 
     // board 消失不是「找不到這張 issue」（404），也不是請求的錯（400）。
     const gone = handleRequest(alive, decisionLog(), { method: 'POST', url: `/i/${id}`, body: '{"status":"queued"}' });
@@ -1258,7 +1258,7 @@ describe('/api/board-info 的 diagnostics', () => {
   });
 
   it('保證在的時候就不再回報它 —— 不是寫死的一條訊息', () => {
-    writeFileSync(join(dir, '.gitattributes'), '.issues/issues/*.ndjson merge=union\n', 'utf8');
+    writeFileSync(join(dir, '.gitattributes'), '.gitnook/issues/*.ndjson merge=union\n', 'utf8');
 
     expect(kinds().map((d) => d.kind)).not.toContain('MissingMergeDriver');
   });
@@ -1324,7 +1324,7 @@ describe('/api/board-info 的 fromWorkspace', () => {
  * 的目錄在那裡會指到別的地方去，而畫面上那一行看起來完全正常（票 B8）。
  */
 describe('/api/board-info 的 root 就是這個 Board 的根', () => {
-  it('board 從子目錄開起來時，回的仍然是含 .issues/ 的那一層', () => {
+  it('board 從子目錄開起來時，回的仍然是含 .gitnook/ 的那一層', () => {
     gitRepo('studio-gui-v2');
     const deep = join(dir, 'src', 'deep');
     mkdirSync(deep, { recursive: true });
@@ -1543,14 +1543,14 @@ describe('GET /api/history/ 沒有 ref', () => {
  * 票 01：Studio 開始知道 Decision 存在。第一片是唯讀 —— 兩條 GET 端點，
  * 鏡射 Issue 的 `/api/board`／`/hash`。
  *
- * **每個用例自己 `mkdir .decisions/decisions`，不是共用的 `beforeEach`** ——
+ * **每個用例自己 `mkdir .gitnook/decisions`，不是共用的 `beforeEach`** ——
  * 這個目錄一存在，既有的 `board.health()` 就會連帶檢查 Decision 那份
  * merge=union 保證（`diagnose()` 已泛化成掃描已知實體清單），把它放進全域
  * `beforeEach` 會讓 `/api/board-info 的 diagnostics` 那組既有測試多一條
  * 不相干的 `MissingMergeDriver`。
  */
 function initDecisionLog(): void {
-  mkdirSync(join(dir, '.decisions', 'decisions'), { recursive: true });
+  mkdirSync(join(dir, '.gitnook', 'decisions'), { recursive: true });
 }
 
 const createDecisionWith = (decisionId: string, title: string, over: { body?: string; disposition?: string } = {}) => {
@@ -1772,7 +1772,7 @@ function createHashOfDecisions(decisions: unknown): string {
 
 /** 磁碟上那一份 Decision op-log 的每一行 —— 同 `opsOnDisk` 之於 Issue。 */
 const decisionOpsOnDisk = (id: string): Record<string, unknown>[] =>
-  readFileSync(join(dir, '.decisions', 'decisions', `${id}.ndjson`), 'utf8')
+  readFileSync(join(dir, '.gitnook', 'decisions', `${id}.ndjson`), 'utf8')
     .split('\n')
     .filter((l) => l !== '')
     .map((l) => JSON.parse(l) as Record<string, unknown>);

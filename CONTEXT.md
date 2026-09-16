@@ -28,17 +28,20 @@ _Avoid_: project, workspace（`workspace` 是彙整多個 Board 的觀察角度�
 _Avoid_: Board（見上）, archive, registry, ADR log
 
 **Workspace**:
-從一個根目錄往下遞迴掃描找到的一組 Board，供跨 Board 檢視（列表、篩選、健康檢查）之用。純粹是觀察的角度——不建立任何新的儲存或狀態，不合併任何 Op-log，每個成員 Board 完全維持自己的獨立性（各自的 Op-log、Actor、Sharing）。探測只問某個子目錄底下有沒有 `.issues/issues/`，找到就不再往它底下更深處找。
+從一個根目錄往下遞迴掃描找到的一組 Board，供跨 Board 檢視（列表、篩選、健康檢查）之用。純粹是觀察的角度——不建立任何新的儲存或狀態，不合併任何 Op-log，每個成員 Board 完全維持自己的獨立性（各自的 Op-log、Actor、Sharing）。探測預設仍是純檔案系統掃描：只問某個子目錄底下有沒有 `.gitnook/`，找到就不再往它底下更深處找，不需要讀任何設定檔。但一個 Board 可以透過 `.gitnook/config.json` 的 `workspace: true` 主動宣告自己也是一個 workspace 節點，此時掃描會繼續往它底下鑽，子目錄裡遇到的 Board 遞迴套用同一條規則——這是對 ADR-0012「不讀設定檔」立場的一次重新打開，取捨記在 `nook decision show 01M2NF1YPK3D5WPX9KWZTX0AH7`（取代 ADR-0012）。
 _Avoid_: monorepo（那是使用者資料夾佈局的慣例，Workspace 是 nook 對任何佈局的一種觀察方式，兩者正交——沒有 monorepo 佈局也能有 Workspace，例如母資料夾底下並排幾個不相干的 repo）, fleet, federation, group, collection（太泛用，沒有指名「一起被看的是哪些 Board」這件事）
 
 **Sharing（共享狀態）**:
-一塊 Board 的 Op-log 是否交給 git 追蹤。兩個值：**shared** 是預設，Op-log 被 commit，`merge=union` 是它的零衝突保證；**private** 的 Op-log 被 `$GIT_DIR/info/exclude` 排除，只存在於這一個工作目錄（ADR-0011）。
+一個 `.gitnook/` 容器是否交給 git 追蹤——**以整個容器為單位，不分模組**：Board 的 Op-log 與 Decision Log 的 Op-log 是各自獨立的兩份檔案（各自的資料格式、marker 子目錄、`merge=union` 規則），但一條 exclude 規則蓋住整個 `.gitnook/`，兩者永遠一起 shared 或一起 private，沒有「Issue shared、Decision private」這種混搭。兩個值：**shared** 是預設，Op-log 被 commit，`merge=union` 是它的零衝突保證；**private** 的 Op-log 被 `$GIT_DIR/info/exclude` 排除，只存在於這一個工作目錄（ADR-0011）。
 _Avoid_: mode, local, offline, visibility（`visibility` 已經被 `archived` 佔用 —— 那是「先不要看到」，與「要不要交給 git」是兩件事）
 
 > 三條語意，講這個詞的時候要一起帶著：
 >
-> 1. **Sharing 是推導出來的，不是儲存的。** 沒有 config 檔、也沒有 marker 檔
->    （ADR-0002：`.issues/` 底下零本機狀態）。
+> 1. **Sharing 是推導出來的，不是儲存的。** 沒有專門記錄 Sharing 狀態的 config
+>    檔或 marker 檔，永遠問 git 本身（op-log 有沒有被追蹤）。`.gitnook/config.json`
+>    是這個容器底下**唯一**的本機設定檔，但它記的是 Workspace 的
+>    continue-scanning 旗標（見 **Workspace** 詞條），不記 Sharing——兩者是完全
+>    不同的兩件事，讀錯一個不會讓另一個跟著算錯。
 > 2. **private 是被測的那一側，其餘一律算 shared。** 剛 init 還沒 commit 的
 >    Board 是 shared —— 它的意圖是共享，只是還沒送出去。
 > 3. **零衝突保證在 private Board 上是「不需要」，不是「缺少」**（保證本身見下面

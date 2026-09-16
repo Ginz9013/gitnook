@@ -103,42 +103,53 @@ function seeded(issueId: string): IdSource {
 const createWith = (prefix: string, input: CreateInput): Issue =>
   openBoard({ dir, actor: 'test', ids: seeded(fullId(prefix)) }).create(input);
 
-describe('init', () => {
-  it('建立 .issues/issues/ 與 .gitattributes 的 merge=union 那一行，exit 0', async () => {
+/**
+ * 票 01：`nook init` 是唯一的初始化入口，一次把 issue board 與 decision log
+ * 都準備好（`nook issue init`／`nook decision init` 已經整個移除，見本檔案
+ * 底下「issue init 已移除」那組測試）。這裡沿用既有 `init` 描述文字風格
+ * （建了什麼、動詞 + 兩個空白 + 對象），只是現在一次講兩個模組。
+ */
+describe('nook init 是唯一的初始化入口', () => {
+  it('同時建立 .gitnook/issues/ 與 .gitnook/decisions/，各自一條 merge=union 規則，exit 0', async () => {
     const io = capture();
 
-    const code = await run(['issue', 'init'], io);
+    const code = await run(['init'], io);
 
     expect(code).toBe(0);
-    expect(existsSync(join(dir, '.issues', 'issues'))).toBe(true);
+    expect(existsSync(join(dir, '.gitnook', 'issues'))).toBe(true);
+    expect(existsSync(join(dir, '.gitnook', 'decisions'))).toBe(true);
     expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toContain(
-      '.issues/issues/*.ndjson merge=union',
+      '.gitnook/issues/*.ndjson merge=union',
+    );
+    expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toContain(
+      '.gitnook/decisions/*.ndjson merge=union',
     );
     expect(io.err).toBe('');
   });
 
-  it('第一次 init 印出建立了哪些東西 —— 目錄與那條 merge=union', async () => {
+  it('第一次 init 印出建立了哪些東西 —— 兩個目錄與各自的 merge=union', async () => {
     const io = capture();
 
-    expect(await run(['issue', 'init'], io)).toBe(0);
+    expect(await run(['init'], io)).toBe(0);
 
     // init 一輩子只跑一次且不在 ADR-0005 的 40 票量測情境內，所以說得清楚比省 byte 重要。
-    // 欄位形狀沿用 doctor 的「動詞 + 兩個空白 + 對象」。
     expect(io.out).toBe(
-      'Created  .issues/issues/\n' +
-        'Created  .gitattributes  .issues/issues/*.ndjson merge=union\n',
+      'Created  .gitnook/issues/\n' +
+        'Created  .gitnook/decisions/\n' +
+        'Created  .gitattributes  .gitnook/issues/*.ndjson merge=union\n' +
+        'Created  .gitattributes  .gitnook/decisions/*.ndjson merge=union\n',
     );
     expect(io.err).toBe('');
   });
 
   it('第二次 init 說出這次什麼都沒做，長得與第一次不同，exit 仍是 0', async () => {
     const first = capture();
-    await run(['issue', 'init'], first);
+    await run(['init'], first);
 
     const again = capture();
 
     // 已經初始化過不是錯誤 —— 是 no-op，所以 exit 0 而不是 1。
-    expect(await run(['issue', 'init'], again)).toBe(0);
+    expect(await run(['init'], again)).toBe(0);
 
     expect(again.out).toBe('Unchanged  this is already a board; nothing was created\n');
     // 「這次是不是 no-op」是使用者唯一問的問題：兩次輸出一樣就等於沒回答。
@@ -146,37 +157,82 @@ describe('init', () => {
     expect(again.err).toBe('');
   });
 
-  it('.gitattributes 在但缺 merge=union：說它補上了那一行，不是建檔也不是 no-op', async () => {
+  it('只有 issues 的舊 board 重新 init：補齊缺的 decisions 那一半，不重報 issues 已經在了', async () => {
+    // 舊佈局（票 01 之前）：只跑過 issue 側的 init。
+    await run(['init'], capture());
+    rmSync(join(dir, '.gitnook', 'decisions'), { recursive: true, force: true });
+    const attrsBefore = readFileSync(join(dir, '.gitattributes'), 'utf8');
+    const decisionsRule = '.gitnook/decisions/*.ndjson merge=union';
+    writeFileSync(
+      join(dir, '.gitattributes'),
+      attrsBefore.split('\n').filter((l) => l !== decisionsRule).join('\n'),
+      'utf8',
+    );
+
+    const io = capture();
+    expect(await run(['init'], io)).toBe(0);
+
+    expect(io.out).toBe(
+      'Created  .gitnook/decisions/\n' + `Added    .gitattributes  ${decisionsRule}\n`,
+    );
+    expect(existsSync(join(dir, '.gitnook', 'decisions'))).toBe(true);
+  });
+
+  it('.gitattributes 在但缺兩條 merge=union：說補上了兩條，不是建檔也不是 no-op', async () => {
     // 第三種結果。那一行是整個零衝突保證的單點失效（ADR-0001），被補回來
     // 是使用者最需要被告知的一件事 —— 不能混進前兩種裡。
     writeFileSync(join(dir, '.gitattributes'), '*.png binary\n', 'utf8');
     const fresh = capture();
 
-    expect(await run(['issue', 'init'], fresh)).toBe(0);
+    expect(await run(['init'], fresh)).toBe(0);
 
     expect(fresh.out).toBe(
-      'Created  .issues/issues/\n' +
-        'Added    .gitattributes  .issues/issues/*.ndjson merge=union\n',
+      'Created  .gitnook/issues/\n' +
+        'Created  .gitnook/decisions/\n' +
+        'Added    .gitattributes  .gitnook/issues/*.ndjson merge=union\n' +
+        'Added    .gitattributes  .gitnook/decisions/*.ndjson merge=union\n',
     );
     // 補行不得動到使用者原本的規則。
     expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toBe(
-      '*.png binary\n.issues/issues/*.ndjson merge=union\n',
+      '*.png binary\n.gitnook/issues/*.ndjson merge=union\n.gitnook/decisions/*.ndjson merge=union\n',
     );
 
-    // 那一行事後被誤刪、board 已經在了 —— warnIfUnguarded 叫使用者跑的正是這個。
+    // 兩行事後被誤刪、board 已經在了 —— warnIfUnguarded 叫使用者跑的正是這個。
     writeFileSync(join(dir, '.gitattributes'), '*.png binary\n', 'utf8');
     const refill = capture();
 
-    expect(await run(['issue', 'init'], refill)).toBe(0);
+    expect(await run(['init'], refill)).toBe(0);
 
-    expect(refill.out).toBe('Added    .gitattributes  .issues/issues/*.ndjson merge=union\n');
+    expect(refill.out).toBe(
+      'Added    .gitattributes  .gitnook/issues/*.ndjson merge=union\n' +
+        'Added    .gitattributes  .gitnook/decisions/*.ndjson merge=union\n',
+    );
     expect(refill.err).toBe('');
+  });
+
+  it('--workspace 寫入 .gitnook/config.json 的 workspace: true，重跑不會清掉已經是 true 的值', async () => {
+    const io = capture();
+
+    expect(await run(['init', '--workspace'], io)).toBe(0);
+
+    expect(io.out).toContain('Enabled  .gitnook/config.json  workspace: true');
+    expect(JSON.parse(readFileSync(join(dir, '.gitnook', 'config.json'), 'utf8'))).toEqual({
+      workspace: true,
+    });
+
+    const again = capture();
+    expect(await run(['init'], again)).toBe(0);
+
+    expect(again.out).not.toContain('Enabled');
+    expect(JSON.parse(readFileSync(join(dir, '.gitnook', 'config.json'), 'utf8'))).toEqual({
+      workspace: true,
+    });
   });
 });
 
 describe('new', () => {
   it('建立 Issue 並印出可直接當 ref 用的識別碼', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
 
     const first = capture();
     expect(await run(['issue', 'new', 'Fix login redirect'], first)).toBe(0);
@@ -198,7 +254,7 @@ describe('new', () => {
 
 describe('new 交付的 ref 永久有效', () => {
   it('印出完整的 26 碼 ULID —— 之後再開幾張，第一張的 ref 仍然解析得到', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
 
     const io = capture();
     expect(await run(['issue', 'new', 'Fix login redirect'], io)).toBe(0);
@@ -220,7 +276,7 @@ describe('new 交付的 ref 永久有效', () => {
 
 describe('list', () => {
   it('印出緊湊表格到 stdout，且套用預設檢視（隱藏 done）', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect', status: 'queued', labels: ['bug'] });
     createWith('01JBXB', { title: 'Add dark mode' });
     createWith('01JBXC', { title: 'Write the spike findings', status: 'done' });
@@ -242,7 +298,7 @@ const listed = (out: string): string[] =>
 
 describe('list 的旗標', () => {
   it('--all / --status / --label 翻譯成 Filter，label 可重複且為 AND', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect', status: 'queued', labels: ['bug', 'p1'] });
     createWith('01JBXB', { title: 'Add dark mode', status: 'queued', labels: ['bug'] });
     createWith('01JBXC', { title: 'Write the spike findings', status: 'done' });
@@ -265,7 +321,7 @@ describe('list 的旗標', () => {
 
 describe('show', () => {
   it('印出詳情：標頭、description、Comment 時間軸', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', {
       title: 'Fix login redirect',
       status: 'queued',
@@ -291,7 +347,7 @@ describe('show', () => {
 
 describe('--json', () => {
   it('list 與 show 改用 renderJson —— 僅供程式化串接（ADR-0005）', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect', status: 'queued', labels: ['bug'] });
     const asList = capture();
     const asOne = capture();
@@ -318,7 +374,7 @@ describe('--json', () => {
 
 describe('set', () => {
   it('更新 title / description / status / archived，並回印更新後那一行', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect', status: 'queued' });
     const io = capture();
 
@@ -342,7 +398,7 @@ describe('set', () => {
 
 describe('mv', () => {
   it('是狀態流轉的捷徑，接受無歧義的 status 前綴，並回印更新後那一行', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect', status: 'queued' });
     const io = capture();
 
@@ -356,7 +412,7 @@ describe('mv', () => {
 
 describe('comment', () => {
   it('新增一則 Comment，並回印更新後那一行', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect', status: 'queued' });
     const io = capture();
 
@@ -387,7 +443,7 @@ describe('顯示用短 ID 一律對整個 Board 算', () => {
   const printedRef = (out: string): string => out.split('\n')[0]!.split('  ')[0]!;
 
   it('list 與 mv 在同一塊 Board 上印出等長的短 ID', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     importBatch();
 
     const all = capture();
@@ -401,7 +457,7 @@ describe('顯示用短 ID 一律對整個 Board 算', () => {
   // show 不在這裡：它只讀被點名的那一個 op-log（票 13），拿不到整塊 Board。
   // 理由與代價寫在 src/cli/run.ts 的 cmdShow 上。
   it('set / mv / comment / label 印出的 ref 都解析得回同一張 Issue', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     importBatch();
 
     const runs: ReadonlyArray<readonly [string, readonly string[]]> = [
@@ -426,7 +482,7 @@ const LONG = 'Union merge glues two lines together.\nThe reducer must detect the
 
 describe('長文輸入：-', () => {
   it('`-` 從 stdin 讀，set description / comment / new --description 三處皆可', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect', status: 'queued' });
     // 檔案結尾的換行是檔案的事，不該變成內容的一部分。
     const io = capture({ stdin: `${LONG}\n` });
@@ -445,7 +501,7 @@ describe('長文輸入：-', () => {
 
 describe('長文輸入：--editor', () => {
   it('非 TTY 或沒有 $EDITOR 時報錯而不是卡住，且不留下半個更動', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect', status: 'queued' });
     // agent 的實際情境就是非 TTY —— 這裡卡住等於整條管線掛死。
     const headless = capture({ isTty: false, env: { EDITOR: 'vi' } });
@@ -464,7 +520,7 @@ describe('長文輸入：--editor', () => {
 
 describe('AmbiguousRef', () => {
   it('訊息列出足以彼此區分的候選短 ID，exit 1', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA1', { title: 'Fix login redirect' });
     createWith('01JBXA2', { title: 'Add dark mode' });
     const io = capture();
@@ -480,7 +536,7 @@ describe('AmbiguousRef', () => {
 
 describe('.gitattributes 是唯一的單點失效', () => {
   it('缺失時 list / show 印一行警告到 stderr，但仍正常輸出並 exit 0', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
 
     const healthy = capture();
@@ -505,7 +561,7 @@ describe('.gitattributes 是唯一的單點失效', () => {
 
 describe('ref 是使用者輸入', () => {
   it('形狀不合法的 ref 由 CLI 擋下並如實說明，合法的則大小寫不敏感', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
 
     const traversal = capture();
@@ -531,7 +587,7 @@ describe('ref 是使用者輸入', () => {
  */
 describe('blocked 是一個普通的 Status', () => {
   it('轉成 blocked 而 Issue 上沒有任何 Comment，也不多印一句話', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect', status: 'in_progress' });
     createWith('01JBXB', { title: 'Add dark mode', status: 'in_progress' });
     openBoard({ dir, actor: 'test' }).apply('01JBXB', { comment: '等 upstream 修 #123' });
@@ -563,7 +619,7 @@ describe('尚未 init 的目錄', () => {
 
 describe('label', () => {
   it('一次加上與移除多個 Label，並回印更新後那一行', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect', status: 'queued', labels: ['bug', 'ui'] });
     const io = capture();
 
@@ -580,7 +636,7 @@ describe('label', () => {
 
 describe('label 的 token 形狀', () => {
   it('沒有 + / - 前綴、或空的 label 一律報錯，不猜測意圖', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect', labels: ['bug'] });
 
     const bare = capture();
@@ -601,7 +657,7 @@ describe('label 的 token 形狀', () => {
 
 describe('new --label', () => {
   it('建立時就掛上 Label，且旗標可重複', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     const io = capture();
 
     // 優先級用 Label 表達，所以「開票時就標好 p1」是常態而不是後續補救。
@@ -614,11 +670,11 @@ describe('new --label', () => {
 
 describe('單點失效的監看不該把整個 Board 掃一遍', () => {
   it('show 只讀它要的那一張 —— 另一張的 op-log 讀不得也不影響', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     // 讀不得的 op-log。全量診斷會在這裡炸開；只問「零衝突保證還在不在」
     // 則只讀 .gitattributes，碰都不會碰到它。
-    mkdirSync(join(dir, '.issues', 'issues', `${fullId('01JBXB')}.ndjson`));
+    mkdirSync(join(dir, '.gitnook', 'issues', `${fullId('01JBXB')}.ndjson`));
 
     const io = capture();
     // 完整識別碼直達檔案，get() 因此只讀這一個檔。
@@ -637,7 +693,7 @@ describe('單點失效的監看不該把整個 Board 掃一遍', () => {
  */
 describe('list 不再為了一行警告跑一次全量診斷', () => {
   it('list 不 spawn git rev-parse；doctor 才會', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
 
     const shim = join(dir, 'shim');
@@ -680,7 +736,7 @@ describe('list 不再為了一行警告跑一次全量診斷', () => {
  */
 describe('單點失效的警告問的是 board 根目錄', () => {
   it('根目錄的 merge=union 還在時，子目錄的 list / show 不發警告', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     const deep = join(dir, 'src', 'deep');
     mkdirSync(deep, { recursive: true });
@@ -698,7 +754,7 @@ describe('單點失效的警告問的是 board 根目錄', () => {
   });
 
   it('探針是活的：根目錄那一行真的被刪掉時，子目錄仍然要警告', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     const deep = join(dir, 'src', 'deep');
     mkdirSync(deep, { recursive: true });
@@ -720,20 +776,20 @@ describe('單點失效的警告問的是 board 根目錄', () => {
  */
 describe('在 board 底下再 init', () => {
   it('是使用者修得好的錯誤：exit 1，訊息不帶內部型別名前綴', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     const deep = join(dir, 'src', 'deep');
     mkdirSync(deep, { recursive: true });
 
     const io = capture({ cwd: deep });
 
-    expect(await run(['issue', 'init'], io)).toBe(1);
+    expect(await run(['init'], io)).toBe(1);
     // 錯誤名只有在「這是 nook 的 bug，請回報」時才有意義。
     expect(io.err).not.toContain('NestedBoard:');
     // 訊息本身必須說清楚為什麼被擋下，以及那塊 board 在哪。
     expect(io.err).toContain(dir);
     expect(io.err).toContain('split the board in two');
     // 被擋下就是什麼都不做。
-    expect(existsSync(join(deep, '.issues'))).toBe(false);
+    expect(existsSync(join(deep, '.gitnook'))).toBe(false);
     expect(io.out).toBe('');
   });
 });
@@ -751,7 +807,7 @@ describe('短 ID 的長度對整塊 Board 算', () => {
   const refOf = (out: string): string => out.split('\n')[0]!.split('  ')[0]!;
 
   it('list 印出的 ref 解析得回同一張 —— 被預設隱藏的 Issue 也是候選', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBX7A9Q3ZA', { title: 'Fix login redirect' });
     // done 不出現在預設檢視裡，但它在 board.get() 的候選集合內。
     createWith('01JBX7A9Q3ZB', { title: 'Choose NDJSON layout', status: 'done' });
@@ -764,7 +820,7 @@ describe('短 ID 的長度對整塊 Board 算', () => {
   });
 
   it('list 與 show 印出等長的短 ID', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     // 批次匯入的真實形狀：同一毫秒建立的 Issue 前綴一路相同（ADR-0006）。
     createWith('01JBX7A9Q3ZA', { title: 'Fix login redirect' });
     createWith('01JBX7A9Q3ZB', { title: 'Add dark mode' });
@@ -807,7 +863,7 @@ describe('history', () => {
     openBoard({ dir, actor, ids: seeded(fullId(seed)) });
 
   it('列出全部 set op，帶 lamport t 與 Actor，並依 core 的全序由舊到新', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
     asActor('bob', '01ZZZA').apply('01JBXA', { description: 'bob 蓋掉的版本' });
 
@@ -826,7 +882,7 @@ describe('history', () => {
   });
 
   it('多行的值原封不動印出來 —— 撈得回來才是這個指令存在的理由', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({
       title: 'Fix login redirect',
       description: 'Repro:\n1. 開啟 /login\n2. 轉圈',
@@ -851,7 +907,7 @@ describe('history', () => {
   });
 
   it('帶欄位時只列那個欄位的 set op', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({
       title: 'Fix login redirect',
       status: 'queued',
@@ -867,7 +923,7 @@ describe('history', () => {
   });
 
   it('打錯欄位名直接報錯 —— 靜默回一份空清單會讓人以為那個欄位從沒被寫過', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
 
     const io = capture();
@@ -879,7 +935,7 @@ describe('history', () => {
   });
 
   it('缺 merge=union 時照樣警告 —— 正在撈舊值的人最不該忽略那條保證', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
     rmSync(join(dir, '.gitattributes'));
 
@@ -899,10 +955,10 @@ describe('history', () => {
    * 寫回去，那是另一個決定。這條是那個邊界的守門，因此一開始就是綠的。
    */
   it('唯讀：跑完之後 op-log 一個 byte 都沒變', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
     asActor('bob', '01ZZZA').apply('01JBXA', { description: 'bob 蓋掉的版本' });
-    const log = join(dir, '.issues', 'issues', `${fullId('01JBXA')}.ndjson`);
+    const log = join(dir, '.gitnook', 'issues', `${fullId('01JBXA')}.ndjson`);
     const before = readFileSync(log, 'utf8');
 
     expect(await run(['issue', 'history', '01JBXA'], capture())).toBe(0);
@@ -913,7 +969,7 @@ describe('history', () => {
 
   /** renderList 的空清單訊息已有前例，本條與它同批寫成，因此一開始就是綠的。 */
   it('一次都沒被寫過的欄位說得清楚，而不是印一個空表頭', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({ title: 'Fix login redirect' });
 
     const io = capture();
@@ -937,7 +993,7 @@ describe('history 與 create op 寫下的標題', () => {
     openBoard({ dir, actor, ids: seeded(fullId(seed)) });
 
   it('nook new 之後直接 history <ref> —— create 那次寫下的標題列得出來', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({ title: '標題只在 create op 裡' });
 
     const io = capture();
@@ -950,7 +1006,7 @@ describe('history 與 create op 寫下的標題', () => {
   });
 
   it('history <ref> title 對一張從沒 set 過 title 的 Issue —— 不是一份空清單', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
 
     const io = capture();
@@ -963,7 +1019,7 @@ describe('history 與 create op 寫下的標題', () => {
   });
 
   it('create 之後又改過標題 —— 兩筆都在，create 那筆在前（t 較小）', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({ title: 'Fix login redirect' });
     asActor('bob', '01ZZZA').apply('01JBXA', { title: 'Fix login redirect on Safari' });
 
@@ -978,7 +1034,7 @@ describe('history 與 create op 寫下的標題', () => {
   });
 
   it('history <ref> status 不受影響 —— create 不寫 status，清單不該多出東西', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     // --status 產生的是一筆真的 set，它本來就在；create 那一筆不該混進來。
     asActor('alice', '01JBXA').create({ title: 'Fix login redirect', status: 'queued' });
     asActor('bob', '01ZZZA').apply('01JBXA', { status: 'in_progress' });
@@ -991,7 +1047,7 @@ describe('history 與 create op 寫下的標題', () => {
   });
 
   it('沒寫過 status 的 Issue：history <ref> status 仍然是空的 —— create 不是一次 status 寫入', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({ title: 'Fix login redirect' });
 
     const io = capture();
@@ -1002,7 +1058,7 @@ describe('history 與 create op 寫下的標題', () => {
   });
 
   it('history <ref> deleted 對一張被刪的 Issue —— 仍然只有那一筆刪除', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({ title: '標題只在 create op 裡' });
     await run(['issue', 'rm', '01JBXA', '--yes'], capture());
 
@@ -1017,7 +1073,7 @@ describe('history 與 create op 寫下的標題', () => {
 
   /** 票面那份重現：刪掉一張從沒改過標題的 Issue，然後撈得回它叫什麼。 */
   it('刪掉之後 history <ref> 撈得回它叫什麼 —— rm 與 show 指著這個指令說的那句話', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({ title: '標題只在 create op 裡' });
     await run(['issue', 'rm', '01JBXA', '--yes'], capture());
 
@@ -1038,7 +1094,7 @@ describe('history 與 create op 寫下的標題', () => {
  */
 describe('rm', () => {
   it('--yes 直接刪除：list --all 不再列它，但檔案還在（墓碑，不 unlink）', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     const io = capture();
 
@@ -1050,14 +1106,14 @@ describe('rm', () => {
     expect(board.out).not.toContain('Fix login redirect');
     // 真的清掉位元組留給日後的 gc（spec D2）：modify/delete 是 merge=union
     // 不涵蓋的固有衝突，而「並行分支合併時不衝突」是這個工具的第一句話。
-    expect(existsSync(join(dir, '.issues', 'issues', `${fullId('01JBXA')}.ndjson`))).toBe(true);
+    expect(existsSync(join(dir, '.gitnook', 'issues', `${fullId('01JBXA')}.ndjson`))).toBe(true);
     expect(io.err).toBe('');
   });
 });
 
 describe('rm 的確認是預設而不是選項', () => {
   it('非 TTY 且沒有 --yes 時拒絕：exit 1、訊息說得出要加 --yes，且什麼都沒刪', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     // agent 的管線正是非 TTY。掛在一個等不到輸入的確認上等於整條管線掛死，
     // 所以這裡是拒絕而不是等待 —— 同 --editor 的既有守門。
@@ -1074,7 +1130,7 @@ describe('rm 的確認是預設而不是選項', () => {
 
 describe('set 的 deleted 欄位', () => {
   it('true / false 兩向都成立 —— 復原就是 set deleted false，沒有第二條路徑', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     const io = capture();
 
@@ -1091,9 +1147,9 @@ describe('set 的 deleted 欄位', () => {
   });
 
   it('非 true/false 的值直接報錯，且不寫入任何東西 —— 同 archived 的既有守衛', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
-    const log = join(dir, '.issues', 'issues', `${fullId('01JBXA')}.ndjson`);
+    const log = join(dir, '.gitnook', 'issues', `${fullId('01JBXA')}.ndjson`);
     const before = readFileSync(log, 'utf8');
     const io = capture();
 
@@ -1108,7 +1164,7 @@ describe('set 的 deleted 欄位', () => {
 
 describe('show 對一張已刪的 Issue', () => {
   it('說得出「已被刪除」並指向 nook history，exit 1，stdout 不留任何內容', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect', description: 'Only on Safari 17.' });
     await run(['issue', 'rm', '01JBXA', '--yes'], capture());
     const io = capture();
@@ -1136,7 +1192,7 @@ describe('history 對一張已刪的 Issue', () => {
     openBoard({ dir, actor, ids: seeded(fullId(seed)) });
 
   it('照常列得出 op，exit 0 —— 刪除不擋讀取', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
     await run(['issue', 'rm', '01JBXA', '--yes'], capture());
 
@@ -1150,7 +1206,7 @@ describe('history 對一張已刪的 Issue', () => {
   });
 
   it('history <ref> deleted 只列 deleted 的寫入 —— deleted 進了 SETTABLE 就免費', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     asActor('alice', '01JBXA').create({ title: 'Fix login redirect', description: 'alice 的原稿' });
     await run(['issue', 'rm', '01JBXA', '--yes'], capture());
     await run(['issue', 'set', '01JBXA', 'deleted', 'false'], capture());
@@ -1170,7 +1226,7 @@ describe('history 對一張已刪的 Issue', () => {
 
 describe('對一張已刪的 Issue 寫入', () => {
   it('comment / mv / label 一律 exit 1 並轉述 IssueDeleted —— 不是 exit 2 的內部錯誤', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     await run(['issue', 'rm', '01JBXA', '--yes'], capture());
 
@@ -1196,7 +1252,7 @@ describe('對一張已刪的 Issue 寫入', () => {
 
 describe('rm 的互動確認', () => {
   it('TTY 上先問哪一張再刪：y 才刪，其他答案一律不刪並 exit 1', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
 
     const declined = { ...capture({ isTty: true }), readLine: () => 'n' };
@@ -1226,7 +1282,7 @@ describe('rm 的互動確認', () => {
  */
 describe('rm 對一張已刪的 Issue', () => {
   it('直接說「已被刪除」並 exit 1，不先問一次不可能落地的確認', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     await run(['issue', 'rm', '01JBXA', '--yes'], capture());
 
@@ -1259,7 +1315,7 @@ describe('rm 對一張已刪的 Issue', () => {
  */
 describe('rm 的確認在兩種擋法上各說各的話', () => {
   it('是 TTY 但這個 Io 讀不到一行時，不會被告知它不是 TTY', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
 
     const io = capture({ isTty: true });
@@ -1280,17 +1336,18 @@ describe('rm 的確認在兩種擋法上各說各的話', () => {
  * 足跡為零** —— 團隊裡只有一個人想用時，不必先跟全隊解釋這是什麼。
  */
 describe('init --private', () => {
-  it('建出 board、規則寫進 info/exclude、不碰 .gitattributes，且 git 看不到任何東西', async () => {
+  it('建出 board（issues 與 decisions）、規則寫進 info/exclude、不碰 .gitattributes，且 git 看不到任何東西', async () => {
     gitInit();
     const io = capture();
 
-    expect(await run(['issue', 'init', '--private'], io)).toBe(0);
+    expect(await run(['init', '--private'], io)).toBe(0);
 
-    expect(existsSync(join(dir, '.issues', 'issues'))).toBe(true);
+    expect(existsSync(join(dir, '.gitnook', 'issues'))).toBe(true);
+    expect(existsSync(join(dir, '.gitnook', 'decisions'))).toBe(true);
     // private 模式完全不碰 .gitattributes：被 ignore 的 op-log 永遠不會 merge。
     expect(existsSync(join(dir, '.gitattributes'))).toBe(false);
     expect(readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8').split('\n')).toContain(
-      '/.issues/',
+      '/.gitnook/',
     );
     // zero committed bytes —— 這整個模式存在的理由。
     expect(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' })).toBe('');
@@ -1298,8 +1355,9 @@ describe('init --private', () => {
     // init 說話（與 doctor 沉默相對）：建了什麼、規則寫在哪，以及那條必須被
     // 講出來的代價 —— private board 是一份沒有備份的資料。
     expect(io.out).toBe(
-      'Created  .issues/issues/\n' +
-        'Ignored  .issues/  $GIT_DIR/info/exclude (this board will not be committed)\n' +
+      'Created  .gitnook/issues/\n' +
+        'Created  .gitnook/decisions/\n' +
+        'Ignored  .gitnook/  $GIT_DIR/info/exclude (this board will not be committed)\n' +
         'Note  git clean -xdf deletes the whole board, and there is no backup\n',
     );
     expect(io.err).toBe('');
@@ -1309,12 +1367,12 @@ describe('init --private', () => {
   it('重跑說出這次什麼都沒做，長得與第一次不同，規則也沒被寫成第二行', async () => {
     gitInit();
     const first = capture();
-    await run(['issue', 'init', '--private'], first);
+    await run(['init', '--private'], first);
 
     const again = capture();
 
     // 已經初始化過不是錯誤 —— 是 no-op，所以 exit 0 而不是 1。
-    expect(await run(['issue', 'init', '--private'], again)).toBe(0);
+    expect(await run(['init', '--private'], again)).toBe(0);
 
     expect(again.out).toBe(
       'Unchanged  this is already a private board; nothing was created\n' +
@@ -1324,7 +1382,7 @@ describe('init --private', () => {
     expect(again.out).not.toBe(first.out);
     expect(again.err).toBe('');
     const exclude = readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8');
-    expect(exclude.split('\n').filter((l) => l === '/.issues/')).toHaveLength(1);
+    expect(exclude.split('\n').filter((l) => l === '/.gitnook/')).toHaveLength(1);
   });
 
   /**
@@ -1334,13 +1392,13 @@ describe('init --private', () => {
    */
   it('既有的 board 改成 private 時只說排除那一件事，不重報建立', async () => {
     gitInit();
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     const io = capture();
 
-    expect(await run(['issue', 'init', '--private'], io)).toBe(0);
+    expect(await run(['init', '--private'], io)).toBe(0);
 
     expect(io.out).toBe(
-      'Ignored  .issues/  $GIT_DIR/info/exclude (this board will not be committed)\n' +
+      'Ignored  .gitnook/  $GIT_DIR/info/exclude (this board will not be committed)\n' +
         'Note  git clean -xdf deletes the whole board, and there is no backup\n',
     );
     // 第一次 init 寫的 .gitattributes 留在原地 —— private 不碰它，也不拿它報錯。
@@ -1350,7 +1408,7 @@ describe('init --private', () => {
 
   it('new 與 list 在這塊 board 上照常工作，而 git 仍然什麼都看不到', async () => {
     gitInit();
-    await run(['issue', 'init', '--private'], capture());
+    await run(['init', '--private'], capture());
 
     const created = capture();
     expect(await run(['issue', 'new', 'Fix login redirect'], created)).toBe(0);
@@ -1360,9 +1418,27 @@ describe('init --private', () => {
 
     expect(listed.out).toContain('Fix login redirect');
     expect(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' })).toBe('');
-    expect(execFileSync('git', ['ls-files', '.issues'], { cwd: dir, encoding: 'utf8' })).toBe('');
+    expect(execFileSync('git', ['ls-files', '.gitnook'], { cwd: dir, encoding: 'utf8' })).toBe('');
     // listed.err 歸「private board 上讀取指令閉嘴」那一段（同一個檔案，往下幾行）
     // 管 —— 這一條問的是 git 看不看得到，不是 stderr。
+  });
+
+  /**
+   * `opLogsTracked` 現在 OR 兩個模組（`sharing.ts`）——即使只有 decisions 那一
+   * 側被 commit 過，issues 完全沒被追蹤，`init --private` 仍然要拒絕：那塊
+   * board 已經共享出去了（只是共享的是 decisions 那一半）。
+   */
+  it('只有 decisions 側被 git 追蹤時，init --private 一樣拒絕', async () => {
+    gitInit();
+    await run(['init'], capture());
+    writeFileSync(join(dir, '.gitnook', 'decisions', `${fullId('01JBXA')}.ndjson`), '', 'utf8');
+    execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-qm', 'share decisions only'], { cwd: dir, stdio: 'ignore' });
+    const io = capture();
+
+    expect(await run(['init', '--private'], io)).toBe(1);
+
+    expect(io.err).toContain('git rm -r --cached');
   });
 });
 
@@ -1375,7 +1451,7 @@ describe('init --private', () => {
 describe('private board 上讀取指令閉嘴', () => {
   it('list 與 show 的 stderr 是空的，資料照常走 stdout', async () => {
     gitInit();
-    await run(['issue', 'init', '--private'], capture());
+    await run(['init', '--private'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
 
     const listed = capture();
@@ -1397,7 +1473,7 @@ describe('private board 上讀取指令閉嘴', () => {
    */
   it('在子目錄執行時答案一樣', async () => {
     gitInit();
-    await run(['issue', 'init', '--private'], capture());
+    await run(['init', '--private'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     const deep = join(dir, 'src', 'deep');
     mkdirSync(deep, { recursive: true });
@@ -1417,7 +1493,7 @@ describe('private board 上讀取指令閉嘴', () => {
    */
   it('history 也一起安靜 —— 那條保證對每一個讀取的人都不適用', async () => {
     gitInit();
-    await run(['issue', 'init', '--private'], capture());
+    await run(['init', '--private'], capture());
     const created = capture();
     await run(['issue', 'new', 'Fix login redirect'], created);
     const ref = created.out.trim();
@@ -1441,7 +1517,7 @@ describe('private board 上讀取指令閉嘴', () => {
    */
   it('連 .gitattributes 都不讀 —— 那個保證在這裡是不需要，不是缺少', async () => {
     gitInit();
-    await run(['issue', 'init', '--private'], capture());
+    await run(['init', '--private'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     mkdirSync(join(dir, '.gitattributes'));
 
@@ -1465,7 +1541,7 @@ describe('private board 上讀取指令閉嘴', () => {
    */
   it('判斷不 spawn 任何子行程；doctor 才會', async () => {
     gitInit();
-    await run(['issue', 'init', '--private'], capture());
+    await run(['init', '--private'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
 
     const shim = join(dir, 'shim');
@@ -1508,7 +1584,7 @@ describe('private board 上讀取指令閉嘴', () => {
 describe('shared board 上那句警告一字不變', () => {
   it('規則在就沉默，規則被刪就照噴原句', async () => {
     gitInit();
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
 
     const healthy = capture();
@@ -1536,11 +1612,11 @@ describe('init 的旗標打錯時不靜默退回 shared', () => {
     gitInit();
     const io = capture();
 
-    expect(await run(['issue', 'init', '--privte'], io)).toBe(1);
+    expect(await run(['init', '--privte'], io)).toBe(1);
 
     expect(io.err).toContain('--privte');
     expect(io.out).toBe('');
-    expect(existsSync(join(dir, '.issues'))).toBe(false);
+    expect(existsSync(join(dir, '.gitnook'))).toBe(false);
     expect(existsSync(join(dir, '.gitattributes'))).toBe(false);
   });
 });
@@ -1553,7 +1629,7 @@ describe('init 的旗標打錯時不靜默退回 shared', () => {
 describe('share：private → shared', () => {
   it('移除排除規則、補上 merge=union，印出使用者自己要跑的指令，exit 0', async () => {
     gitInit();
-    await run(['issue', 'init', '--private'], capture());
+    await run(['init', '--private'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     const io = capture();
 
@@ -1561,22 +1637,22 @@ describe('share：private → shared', () => {
 
     // 規則真的不見了，其餘的 info/exclude 不是這一條在管（見 private-mode.test.ts）。
     expect(readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8').split('\n')).not.toContain(
-      '/.issues/',
+      '/.gitnook/',
     );
     expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toContain(
-      '.issues/issues/*.ndjson merge=union',
+      '.gitnook/issues/*.ndjson merge=union',
     );
     // 升級買到的就是這個：git 從現在起看得到這塊 board（先前它一個字都看不到）。
     expect(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' })).toBe(
-      '?? .gitattributes\n?? .issues/\n',
+      '?? .gitattributes\n?? .gitnook/\n',
     );
 
     // 說話的三分法同 init：動了什麼、以及**使用者自己**要跑的那兩行。
     expect(io.out).toBe(
-      'Shared  .issues/  removed from $GIT_DIR/info/exclude (this board will enter git from now on)\n' +
-        'Created  .gitattributes  .issues/issues/*.ndjson merge=union\n' +
+      'Shared  .gitnook/  removed from $GIT_DIR/info/exclude (this board will enter git from now on)\n' +
+        'Created  .gitattributes  .gitnook/issues/*.ndjson merge=union\n' +
         'Next  nook runs no git command that writes; run these yourself:\n' +
-        `  git add "${dir}/.issues" "${dir}/.gitattributes"\n` +
+        `  git add "${dir}/.gitnook" "${dir}/.gitattributes"\n` +
         '  git commit -m "Share the nook board"\n',
     );
     expect(io.err).toBe('');
@@ -1589,7 +1665,7 @@ describe('share：private → shared', () => {
    */
   it('意圖共享但還沒 commit 的 board 上是 no-op，但 git add 那一步仍然要講', async () => {
     gitInit();
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     const io = capture();
 
@@ -1598,7 +1674,7 @@ describe('share：private → shared', () => {
     expect(io.out).toBe(
       'Unchanged  this board is already shared; nothing was touched\n' +
         'Next  nook runs no git command that writes; run these yourself:\n' +
-        `  git add "${dir}/.issues" "${dir}/.gitattributes"\n` +
+        `  git add "${dir}/.gitnook" "${dir}/.gitattributes"\n` +
         '  git commit -m "Share the nook board"\n',
     );
     expect(io.err).toBe('');
@@ -1613,7 +1689,7 @@ describe('share：private → shared', () => {
    */
   it('op-log 早就 commit 出去的 board 上不印那兩行 git 指令', async () => {
     gitInit();
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
     execFileSync('git', ['commit', '-qm', 'share the board'], { cwd: dir, stdio: 'ignore' });
@@ -1633,7 +1709,7 @@ describe('share：private → shared', () => {
    */
   it('share 不收參數 —— 多餘的位置引數是打錯，不是被忽略', async () => {
     gitInit();
-    await run(['issue', 'init', '--private'], capture());
+    await run(['init', '--private'], capture());
     const io = capture();
 
     expect(await run(['issue', 'share', '01JBXA'], io)).toBe(1);
@@ -1642,7 +1718,7 @@ describe('share：private → shared', () => {
     expect(io.out).toBe('');
     // 什麼都沒動：那條排除規則還在。
     expect(readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8').split('\n')).toContain(
-      '/.issues/',
+      '/.gitnook/',
     );
   });
 
@@ -1652,39 +1728,39 @@ describe('share：private → shared', () => {
    */
   it('.gitattributes 已存在但缺那一行時，說的是 Added 而不是 Created', async () => {
     gitInit();
-    await run(['issue', 'init', '--private'], capture());
+    await run(['init', '--private'], capture());
     writeFileSync(join(dir, '.gitattributes'), '*.png binary\n', 'utf8');
     const io = capture();
 
     expect(await run(['issue', 'share'], io)).toBe(0);
 
-    expect(io.out).toContain('Added    .gitattributes  .issues/issues/*.ndjson merge=union');
+    expect(io.out).toContain('Added    .gitattributes  .gitnook/issues/*.ndjson merge=union');
     // 使用者原本那一行留在原地。
     expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toContain('*.png binary');
   });
 
   /**
    * 指令貼得上去才算講出了下一步。board 可能不在 repo 根目錄
-   * （`/services/api/.issues/` 是支援且被測試的形狀），而幾乎沒有人是站在 board
+   * （`/services/api/.gitnook/` 是支援且被測試的形狀），而幾乎沒有人是站在 board
    * 根目錄打指令的 —— 兩者都指向同一件事：路徑一律是**board 根目錄的完整路徑**，
-   * 不是 io.cwd，也不是相對的 `.issues`（同 AlreadySharedBoard 訊息的理由）。
+   * 不是 io.cwd，也不是相對的 `.gitnook`（同 AlreadySharedBoard 訊息的理由）。
    */
   it('board 不在 repo 根目錄、又在子目錄下指令時，印出的路徑仍然貼得上去', async () => {
     gitInit();
     const board = join(dir, 'services', 'api');
     mkdirSync(board, { recursive: true });
-    await run(['issue', 'init', '--private'], capture({ cwd: board }));
+    await run(['init', '--private'], capture({ cwd: board }));
     const deep = join(board, 'src', 'deep');
     mkdirSync(deep, { recursive: true });
     const io = capture({ cwd: deep });
 
     expect(await run(['issue', 'share'], io)).toBe(0);
 
-    expect(io.out).toContain(`  git add "${dir}/services/api/.issues" "${dir}/services/api/.gitattributes"\n`);
+    expect(io.out).toContain(`  git add "${dir}/services/api/.gitnook" "${dir}/services/api/.gitattributes"\n`);
     // 拿掉的是那一塊自己的規則，而 .gitattributes 寫在 board 根目錄 —— 不是
     // io.cwd（那會在 src/deep 生出一個沒有人看的檔案），也不是 repo 根目錄。
     expect(readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8').split('\n')).not.toContain(
-      '/services/api/.issues/',
+      '/services/api/.gitnook/',
     );
     expect(existsSync(join(board, '.gitattributes'))).toBe(true);
     expect(existsSync(join(deep, '.gitattributes'))).toBe(false);
@@ -1701,7 +1777,7 @@ describe('share：private → shared', () => {
    */
   it('git 說 ignore 卻指不出是哪一條時，照樣說「還被 ignore」', async () => {
     gitInit();
-    await run(['issue', 'init', '--private'], capture());
+    await run(['init', '--private'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
 
     const shim = join(dir, 'shim');
@@ -1738,8 +1814,8 @@ describe('share：private → shared', () => {
    */
   it('.gitattributes 有衝突規則時 exit 1，而排除規則還在 —— 拒絕不留痕跡', async () => {
     gitInit();
-    await run(['issue', 'init', '--private'], capture());
-    const existing = '*.png binary\n.issues/issues/*.ndjson merge=ours\n';
+    await run(['init', '--private'], capture());
+    const existing = '*.png binary\n.gitnook/issues/*.ndjson merge=ours\n';
     writeFileSync(join(dir, '.gitattributes'), existing, 'utf8');
     const io = capture();
 
@@ -1751,7 +1827,7 @@ describe('share：private → shared', () => {
     expect(io.out).toBe('');
     // 這塊 board 還是 private，而且他的 .gitattributes 一個 byte 都沒被動過。
     expect(readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8').split('\n')).toContain(
-      '/.issues/',
+      '/.gitnook/',
     );
     expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toBe(existing);
   });
@@ -1769,14 +1845,14 @@ describe('share：private → shared', () => {
 
     expect(io.err).toContain('not a Nook board');
     expect(io.out).toBe('');
-    expect(existsSync(join(dir, '.issues'))).toBe(false);
+    expect(existsSync(join(dir, '.gitnook'))).toBe(false);
     expect(existsSync(join(dir, '.gitattributes'))).toBe(false);
   });
 });
 
 describe('issue 的旗標打錯時直接報錯', () => {
   it('未知旗標不被靜默吃掉 —— 同票 05 之前的既有行為，只是換了個路徑', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     const io = capture();
 
     expect(await run(['issue', 'list', '--stat', 'done'], io)).toBe(1);
@@ -1801,6 +1877,25 @@ describe('issue 子指令打錯字', () => {
     expect(io.err).toContain('lst');
     // 藏起一個存在的指令與教一個不存在的指令是同一種錯 —— 清單裡就看得到 list。
     expect(io.err).toContain('list');
+    expect(io.out).toBe('');
+  });
+});
+
+/**
+ * 票 01：`nook issue init` 整個移除，沒有相容別名——沿用
+ * `LEGACY_ISSUE_COMMANDS` 那套「明確報錯指向新路徑」做法（`test/cli/run.test.ts`
+ * 的「舊的扁平指令改成明確的重新導向」），而不是落回模糊的
+ * unknown subcommand（那句話只會讓人以為自己打錯字）。
+ */
+describe('issue init 已移除', () => {
+  it('清楚指向 nook init，不靜默建出任何東西，exit 1', async () => {
+    const io = capture();
+
+    expect(await run(['issue', 'init'], io)).toBe(1);
+
+    expect(io.err).toContain('nook init');
+    expect(io.err).toContain('nook issue init');
+    expect(existsSync(join(dir, '.gitnook'))).toBe(false);
     expect(io.out).toBe('');
   });
 });

@@ -1,4 +1,7 @@
 import type { Op } from './ops.js';
+import { legacyMoveHint } from './gitattributes.js';
+import type { LegacyLayout } from './gitattributes.js';
+import type { DecisionLog } from './decisionTypes.js';
 
 /** 八個固定 Status。不可自訂 —— 見 decision legacyRef 0003（`nook decision show 0003`）。 */
 export const STATUSES = [
@@ -85,7 +88,9 @@ export type DiagnosticKind =
   | 'NotAGitRepo'
   | 'GluedLine'
   | 'UnparsableLine'
-  | 'UnknownOp';
+  | 'UnknownOp'
+  /** `.gitnook/config.json` 存在但無法解析（不是合法 JSON，或不是物件）。 */
+  | 'InvalidNookConfig';
 
 export interface Diagnostic {
   readonly kind: DiagnosticKind;
@@ -148,13 +153,20 @@ export class BoardNotInitialized extends Error {
   /**
    * `ceiling` 是向上尋根搜尋到的終點。訊息刻意保持單行 —— CLI 把它整條
    * 寫到 stderr，換行會被讀成「有兩個問題要修」。
+   *
+   * `legacy`（票 03）：尋根落空時沿路看到的舊版佈局 marker（`.issues/issues/`／
+   * `.decisions/decisions/`）。有的話，訊息附上可直接複製貼上的 `git mv` 指令
+   * ——不自動搬移，nook 從不執行任何會寫入的 git 指令（`AlreadySharedBoard`/
+   * `NoGitDir` 的既有原則）。`undefined` 時（真的從來沒 init 過）訊息維持既有
+   * 措辭，不附加任何東西。
    */
-  constructor(dir: string, ceiling?: string) {
+  constructor(dir: string, ceiling?: string, legacy?: LegacyLayout) {
     super(
       ceiling === undefined
         ? `not a Nook board: ${dir} (run nook init first)`
         : `not a Nook board: ${dir}` +
-          ` (searched up to ${ceiling} without finding .issues/issues/; run nook init at the project root)`,
+          ` (searched up to ${ceiling} without finding .gitnook/issues/; run nook init at the project root)` +
+          legacyMoveHint(legacy),
     );
     this.name = 'BoardNotInitialized';
   }
@@ -233,6 +245,13 @@ export interface WorkspaceMember {
   readonly path: string;
   /** `openBoard({ dir: path })` 的產物。 */
   readonly board: Board;
+  /**
+   * `lazyDecisionLog(board)`（`core/decisionLog.ts`）的產物 —— 惰性、每次呼叫
+   * 才問 `board.root()`，不快取。跟 `board` 一樣完全獨立的一份儲存（見
+   * CONTEXT.md 的 Workspace 詞條），不代表這個成員一定已經 init 過 decision
+   * log；沒有時方法呼叫會照常拋 `DecisionLogNotInitialized`。
+   */
+  readonly decisionLog: DecisionLog;
 }
 
 /**

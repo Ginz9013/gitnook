@@ -7,7 +7,7 @@ import type { IdSource } from '../../src/index.js';
 
 // ADR-0004：打真實檔案系統與暫存目錄，不使用 in-memory fake。
 let dir: string;
-const issuesDir = () => join(dir, '.issues', 'issues');
+const issuesDir = () => join(dir, '.gitnook', 'issues');
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nook-'));
@@ -79,10 +79,10 @@ describe('種子化 IdSource', () => {
   const runOnce = () => {
     const d = mkdtempSync(join(tmpdir(), 'nook-seed-'));
     try {
-      mkdirSync(join(d, '.issues', 'issues'), { recursive: true });
+      mkdirSync(join(d, '.gitnook', 'issues'), { recursive: true });
       openBoard({ dir: d, actor: 'test', ids: seeded() }).create({ title: 'Fix login redirect' });
-      const file = readdirSync(join(d, '.issues', 'issues'))[0]!;
-      return { file, raw: readFileSync(join(d, '.issues', 'issues', file), 'utf8') };
+      const file = readdirSync(join(d, '.gitnook', 'issues'))[0]!;
+      return { file, raw: readFileSync(join(d, '.gitnook', 'issues', file), 'utf8') };
     } finally {
       rmSync(d, { recursive: true, force: true });
     }

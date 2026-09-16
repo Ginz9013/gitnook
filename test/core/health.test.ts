@@ -7,6 +7,7 @@ import { initBoard, initDecisionRoot, DECISION_MERGE_RULE } from '../../src/core
 import { diagnose, repair } from '../../src/core/health.js';
 import { inspectSharing } from '../../src/core/sharing.js';
 import { openBoard } from '../../src/core/board.js';
+import { writeNookConfig } from '../../src/core/nookConfig.js';
 
 // ADR-0004：真實檔案系統、真實 git、獨立的暫存目錄，不使用 fake。
 let dir: string;
@@ -70,7 +71,7 @@ describe('不是 git repo', () => {
 });
 
 const opLog = (id: string, lines: readonly string[]): void => {
-  writeFileSync(join(dir, '.issues', 'issues', `${id}.ndjson`), lines.map((l) => `${l}\n`).join(''), 'utf8');
+  writeFileSync(join(dir, '.gitnook', 'issues', `${id}.ndjson`), lines.map((l) => `${l}\n`).join(''), 'utf8');
 };
 
 describe('無法解析的行', () => {
@@ -87,7 +88,7 @@ describe('無法解析的行', () => {
 
     expect(found).toHaveLength(1);
     expect(found[0]!.kind).toBe('UnparsableLine');
-    expect(found[0]!.file).toBe('.issues/issues/01SEED00000000000000000001.ndjson');
+    expect(found[0]!.file).toBe('.gitnook/issues/01SEED00000000000000000001.ndjson');
     expect(found[0]!.line).toBe(2);
   });
 
@@ -102,8 +103,8 @@ describe('無法解析的行', () => {
 
     expect(found.map((d) => [d.kind, d.file, d.line])).toEqual([
       ['MissingMergeDriver', '.gitattributes', undefined],
-      ['UnparsableLine', '.issues/issues/01SEED00000000000000000001.ndjson', 1],
-      ['UnparsableLine', '.issues/issues/01SEED00000000000000000002.ndjson', 2],
+      ['UnparsableLine', '.gitnook/issues/01SEED00000000000000000001.ndjson', 1],
+      ['UnparsableLine', '.gitnook/issues/01SEED00000000000000000002.ndjson', 2],
     ]);
   });
 });
@@ -112,7 +113,7 @@ describe('.gitattributes 含衝突規則', () => {
   it('同樣回報 MissingMergeDriver，並指出是哪一行把保證蓋掉', () => {
     gitInit();
     initBoard(dir);
-    writeFileSync(join(dir, '.gitattributes'), '.issues/issues/*.ndjson merge=union\n* -merge\n', 'utf8');
+    writeFileSync(join(dir, '.gitattributes'), '.gitnook/issues/*.ndjson merge=union\n* -merge\n', 'utf8');
 
     const found = diagnose(dir);
 
@@ -172,12 +173,12 @@ describe('private board 上的零衝突保證', () => {
     initBoard(dir, { sharing: 'private' });
     opLog('01SEED00000000000000000004', ['{"id":"a1","t":1,"a":"k3f9","op":"create","title":"a"}']);
     // ignore 中的路徑不加 -f 會被 git 擋下 —— 進到這個狀態要一次刻意的動作。
-    git('add', '-f', '.issues');
+    git('add', '-f', '.gitnook');
     git('commit', '-q', '-m', 'add -f an ignored board');
 
     // 兩個前提：nook 的那一行還在（fs 說 private），而 index 說它已經共享出去了。
     expect(inspectSharing(dir)).toBe('private');
-    expect(execFileSync('git', ['ls-files', '.issues'], { cwd: dir, encoding: 'utf8' })).not.toBe('');
+    expect(execFileSync('git', ['ls-files', '.gitnook'], { cwd: dir, encoding: 'utf8' })).not.toBe('');
 
     // toContain 而不是整份比對：票 05 會在這個狀態上再加一條 SharingMismatch。
     expect(diagnose(dir).map((d) => d.kind)).toContain('MissingMergeDriver');
@@ -221,7 +222,7 @@ describe('fs 與 git 不一致的那兩種狀態', () => {
     gitInit();
     initBoard(dir, { sharing: 'private' });
     opLog('01SEED00000000000000000005', ['{"id":"a1","t":1,"a":"k3f9","op":"create","title":"a"}']);
-    git('add', '-f', '.issues');
+    git('add', '-f', '.gitnook');
     git('commit', '-q', '-m', 'add -f an ignored board');
   };
 
@@ -247,13 +248,13 @@ describe('fs 與 git 不一致的那兩種狀態', () => {
 
   /**
    * 狀態 2：nook 沒有寫任何排除規則（fs 說 shared），git 卻說 op-log 被 ignore
-   * —— 例如 monorepo 的 committed `.gitignore` 有一條廣泛規則吃到了 `.issues/`。
+   * —— 例如 monorepo 的 committed `.gitignore` 有一條廣泛規則吃到了 `.gitnook/`。
    * board 看起來是共享的，同事 clone 下來卻是空的。
    */
   const ignoredByABroadRule = (): void => {
     gitInit();
     initBoard(dir); // 一塊普通的 shared board：info/exclude 一個字都沒動。
-    writeFileSync(join(dir, '.gitignore'), '.issues/\n', 'utf8');
+    writeFileSync(join(dir, '.gitignore'), '.gitnook/\n', 'utf8');
     git('add', '.gitignore');
     git('commit', '-q', '-m', 'a broad ignore rule');
   };
@@ -269,13 +270,13 @@ describe('fs 與 git 不一致的那兩種狀態', () => {
     const found = diagnose(dir);
 
     expect(found.map((d) => d.kind)).toEqual(['SharingMismatch']);
-    expect(found[0]!.message).toContain('.gitignore:1:.issues/');
+    expect(found[0]!.message).toContain('.gitignore:1:.gitnook/');
   });
 
   /**
    * 同一個狀態的另一種形狀，而它正是「問目錄」漏掉的那一格：規則吃的是 op-log
    * **檔案**（`*.ndjson`）而不是那個目錄。實測（git 2.x）：這時問
-   * `.issues/issues` 沒命中、問一個真的存在的 op-log 才命中 —— 而同事 clone
+   * `.gitnook/issues` 沒命中、問一個真的存在的 op-log 才命中 —— 而同事 clone
    * 下來一樣是空的，所以漏報就是漏報。
    */
   it('規則吃的是 op-log 檔而不是目錄時，也要報得出來', () => {
@@ -290,9 +291,9 @@ describe('fs 與 git 不一致的那兩種狀態', () => {
     // 前提一：fs 這一側看不出異狀。前提二：git 真的在 ignore 那些 op-log
     // （`git status` 看不到它們），但**問目錄是問不出來的**。
     expect(inspectSharing(dir)).toBe('shared');
-    // 針對 .issues/ 問：git 連「有個沒加入的檔案」都不會提，所以同事的 clone
+    // 針對 .gitnook/ 問：git 連「有個沒加入的檔案」都不會提，所以同事的 clone
     // 會是空的，而這裡什麼都不會提示。
-    expect(gitOut('status', '--porcelain', '--', '.issues')).toBe('');
+    expect(gitOut('status', '--porcelain', '--', '.gitnook')).toBe('');
 
     const found = diagnose(dir);
 
@@ -310,13 +311,13 @@ describe('fs 與 git 不一致的那兩種狀態', () => {
     initBoard(dir);
     const board = openBoard({ dir });
     board.create({ title: '已經共享出去的那一張' });
-    writeFileSync(join(dir, '.gitignore'), '.issues/\n', 'utf8');
+    writeFileSync(join(dir, '.gitignore'), '.gitnook/\n', 'utf8');
     git('add', '.gitignore');
-    git('add', '-f', '.issues');
+    git('add', '-f', '.gitnook');
     git('commit', '-q', '-m', 'shared anyway');
 
     // 前提：規則在、但那些 op-log 確實在 index 裡。
-    expect(gitOut('ls-files', '.issues/issues')).not.toBe('');
+    expect(gitOut('ls-files', '.gitnook/issues')).not.toBe('');
 
     // 這塊 board 的 merge=union 在（initBoard 寫的），op-log 也乾淨，所以
     // 一條都不該有 —— 尤其不能有 SharingMismatch。
@@ -374,14 +375,14 @@ describe('fs 與 git 不一致的那兩種狀態', () => {
 describe('fs 說 private、git 卻說沒 ignore', () => {
   /**
    * 進到這個狀態的一種真實走法：committed 的 `.gitignore` 用一條否定規則把
-   * `.issues/` 收回來了。`.gitignore` 的優先序高過 `$GIT_DIR/info/exclude`，
+   * `.gitnook/` 收回來了。`.gitignore` 的優先序高過 `$GIT_DIR/info/exclude`，
    * 所以 nook 那一行還在、卻完全沒有效果。
    */
   const privateButNotIgnored = (): void => {
     gitInit();
     initBoard(dir, { sharing: 'private' });
     openBoard({ dir, actor: 'k3f9' }).create({ title: '以為只存在於這台機器' });
-    writeFileSync(join(dir, '.gitignore'), '!.issues/\n', 'utf8');
+    writeFileSync(join(dir, '.gitignore'), '!.gitnook/\n', 'utf8');
     git('add', '.gitignore');
     git('commit', '-q', '-m', 'un-ignore the nook board');
   };
@@ -393,7 +394,7 @@ describe('fs 說 private、git 卻說沒 ignore', () => {
     // 前提一：fs 這一側看不出任何異狀（nook 的那一行在，所以答 private）。
     expect(inspectSharing(dir)).toBe('private');
     // 前提二：git 眼裡這塊 board 就是一堆 untracked 檔案 —— 規則沒有效果。
-    expect(gitOut('status', '--porcelain')).toContain('.issues/');
+    expect(gitOut('status', '--porcelain')).toContain('.gitnook/');
 
     const found = diagnose(dir);
 
@@ -413,7 +414,7 @@ describe('fs 說 private、git 卻說沒 ignore', () => {
     const mismatch = diagnose(dir).find((d) => d.kind === 'SharingMismatch');
 
     // git 自己指出的那一行，原封不動 —— 檔名與行號是這一層編不出來的東西。
-    expect(mismatch?.message).toContain('.gitignore:1:!.issues/');
+    expect(mismatch?.message).toContain('.gitignore:1:!.gitnook/');
     // 而且**不得**建議那個必然 unchanged 的指令。
     expect(mismatch?.message).not.toContain('nook init --private');
   });
@@ -426,7 +427,7 @@ describe('fs 說 private、git 卻說沒 ignore', () => {
 
 /**
  * ticket 06：`diagnose()` 泛化成掃描一份已知實體 pattern 清單，Decision 是第二項
- * （票 01 的 `.decisions/decisions/*.ndjson merge=union`）。與 Issue 不同的地方
+ * （票 01 的 `.gitnook/decisions/*.ndjson merge=union`）。與 Issue 不同的地方
  * 是 Decision 沒有 private 模式（票 01 只支援 shared），所以它的閘門不是問
  * sharing，而是問 marker 目錄在不在 —— `.decisions/` 不存在時這個診斷在這個
  * repo 裡「不存在」，不是被壓掉的真問題（同 private-mode 的既有哲學）。
@@ -440,7 +441,7 @@ describe('Decision 的零衝突保證', () => {
     initBoard(dir);
     initDecisionRoot(dir);
     // 只留 Issue 那一行，把 Decision 剛寫入的那一行拿掉——模擬那一行被誤刪。
-    writeFileSync(join(dir, '.gitattributes'), '.issues/issues/*.ndjson merge=union\n', 'utf8');
+    writeFileSync(join(dir, '.gitattributes'), '.gitnook/issues/*.ndjson merge=union\n', 'utf8');
 
     const found = diagnose(dir);
 
@@ -448,7 +449,8 @@ describe('Decision 的零衝突保證', () => {
     expect(found[0]!.kind).toBe('MissingMergeDriver');
     expect(found[0]!.file).toBe('.gitattributes');
     expect(found[0]!.message).toContain(DECISION_MERGE_RULE);
-    expect(found[0]!.message).toContain('nook decision init');
+    // 票 02：`nook decision init` 已經被票 01 移除，initHint 改指向 `nook init`。
+    expect(found[0]!.message).toContain('nook init');
   });
 
   it('.decisions/ 的 .gitattributes 含衝突規則時，指出是哪一行把保證蓋掉', () => {
@@ -459,9 +461,9 @@ describe('Decision 的零衝突保證', () => {
     // 不同）——這樣才能確認回報的正是 Decision 那一條，不是 Issue 的。
     writeFileSync(
       join(dir, '.gitattributes'),
-      '.issues/issues/*.ndjson merge=union\n' +
-        '.decisions/decisions/*.ndjson merge=union\n' +
-        '.decisions/decisions/*.ndjson -merge\n',
+      '.gitnook/issues/*.ndjson merge=union\n' +
+        '.gitnook/decisions/*.ndjson merge=union\n' +
+        '.gitnook/decisions/*.ndjson -merge\n',
       'utf8',
     );
 
@@ -470,13 +472,13 @@ describe('Decision 的零衝突保證', () => {
     expect(found).toHaveLength(1);
     expect(found[0]!.kind).toBe('MissingMergeDriver');
     expect(found[0]!.line).toBe(3);
-    expect(found[0]!.message).toContain('.decisions/decisions/*.ndjson -merge');
+    expect(found[0]!.message).toContain('.gitnook/decisions/*.ndjson -merge');
   });
 
   it('.decisions/ 目錄不存在時完全沉默，不回報任何 Decision 相關 Diagnostic', () => {
     gitInit();
     initBoard(dir);
-    expect(existsSync(join(dir, '.decisions'))).toBe(false);
+    expect(existsSync(join(dir, '.gitnook', 'decisions'))).toBe(false);
 
     expect(diagnose(dir)).toEqual([]);
   });
@@ -487,5 +489,56 @@ describe('Decision 的零衝突保證', () => {
     initDecisionRoot(dir);
 
     expect(diagnose(dir)).toEqual([]);
+  });
+});
+
+/**
+ * 票 02：`.gitnook/config.json` 存在但不是合法 JSON（或不是物件）時，workspace
+ * 掃描（`workspace.ts` 的 `scan()`，票 04）會在這個目錄停住——`readNookConfig`
+ * 安全失敗成 `{}`，跟「這個 board 沒開 workspace」長得一模一樣，使用者看不出
+ * 掃描其實是被一個壞掉的檔案擋住，而不是他沒開那個旗標。`doctor` 因此要把這個
+ * 狀態單獨報出來、exit 非 0。
+ *
+ * 「檔案不存在」不是壞掉，是還沒設定過 workspace——這條診斷不得對它開口。
+ */
+describe('.gitnook/config.json 格式錯誤', () => {
+  it('.gitnook/config.json 不存在時不產生 InvalidNookConfig', () => {
+    gitInit();
+    initBoard(dir);
+
+    expect(diagnose(dir)).toEqual([]);
+  });
+
+  it('.gitnook/config.json 是合法 { workspace: boolean } 時不產生 InvalidNookConfig', () => {
+    gitInit();
+    initBoard(dir);
+    writeNookConfig(dir, { workspace: true });
+
+    expect(diagnose(dir)).toEqual([]);
+  });
+
+  it('.gitnook/config.json 不是合法 JSON 時產生 InvalidNookConfig，file/message 講得出是哪個檔案', () => {
+    gitInit();
+    initBoard(dir);
+    writeFileSync(join(dir, '.gitnook', 'config.json'), '{not json', 'utf8');
+
+    const found = diagnose(dir);
+
+    expect(found).toHaveLength(1);
+    expect(found[0]!.kind).toBe('InvalidNookConfig');
+    expect(found[0]!.file).toBe('.gitnook/config.json');
+    expect(found[0]!.message).not.toBe('');
+  });
+
+  // 合法 JSON 但不是物件（陣列、字串、數字）—— 不是「合法設定值裡沒有 workspace
+  // 欄位」那種情況，同 nookConfig.ts 的 inspectNookConfig 對 malformed 的定義。
+  it('.gitnook/config.json 是合法 JSON 但不是物件時同樣產生 InvalidNookConfig', () => {
+    gitInit();
+    initBoard(dir);
+    writeFileSync(join(dir, '.gitnook', 'config.json'), '"hello"', 'utf8');
+
+    const found = diagnose(dir);
+
+    expect(found.map((d) => d.kind)).toEqual(['InvalidNookConfig']);
   });
 });

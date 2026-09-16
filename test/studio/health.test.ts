@@ -137,6 +137,52 @@ describe('boardAlerts —— 唯一的單點失效排在最前面', () => {
   });
 });
 
+describe('boardAlerts —— .gitnook/config.json 壞掉是它自己一種問題', () => {
+  // 票 02：不是資料層那一句（op-log 的資料好得很），也不是共享狀態的問題 ——
+  // 是設定檔本身壞了，workspace 掃描會被它擋住。
+  const invalidConfig: Diagnostic = {
+    kind: 'InvalidNookConfig',
+    file: '.gitnook/config.json',
+    message: ".gitnook/config.json is not valid JSON: workspace scanning will stop at this directory",
+  };
+
+  it('產生一條警示', () => {
+    expect(boardAlerts([invalidConfig])).toHaveLength(1);
+  });
+
+  it('引用 diagnose() 的原話', () => {
+    expect(boardAlerts([invalidConfig])[0]?.said).toBe(invalidConfig.message);
+  });
+
+  it('說得出是哪個檔案', () => {
+    expect(boardAlerts([invalidConfig])[0]?.where).toBe('.gitnook/config.json');
+  });
+
+  // 不是資料層那一句——`--fix` 只拆黏合行，對一個解析不出來的 JSON 檔案毫無
+  // 作用。這裡沒有自動修復可言（壞掉的 JSON 要人手動修），所以下一步指向
+  // `nook doctor`，同 SharingMismatch 那種「有兩條可能路要人自己選」的既有做法。
+  it('不是資料層那一句，下一步是 nook doctor 而不是 doctor --fix', () => {
+    const alert = boardAlerts([invalidConfig])[0]!;
+
+    expect(alert.headline).not.toBe(
+      "There is data on the op-log the reducer can't read — those lines don't count right now",
+    );
+    expect(alert.headline.length).toBeGreaterThan(0);
+    expect(alert.fix).toBe('nook doctor');
+  });
+
+  // 不需要特殊排序——只有 MissingMergeDriver 排第一是既有規則，這一種跟其餘
+  // 診斷一樣維持 diagnose() 給的原始順序。
+  it('不搶在 MissingMergeDriver 前面', () => {
+    const alerts = boardAlerts([
+      invalidConfig,
+      { kind: 'MissingMergeDriver', file: '.gitattributes', message: '缺少零衝突保證' },
+    ]);
+
+    expect(alerts.map((a) => a.kind)).toEqual(['MissingMergeDriver', 'InvalidNookConfig']);
+  });
+});
+
 describe('boardAlerts —— 共享狀態不一致是它自己一種問題', () => {
   // fs 與 git 對「這塊 board 共享了嗎」給出不同答案。看板上的警示列是唯一會
   // 講話的地方，而預設那一句（「op-log 上有 reducer 讀不動的資料」＋

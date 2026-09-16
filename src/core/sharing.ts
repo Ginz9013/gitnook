@@ -17,7 +17,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
  * - `private`：op-log 被 `$GIT_DIR/info/exclude` 排除，只存在於這一個工作目錄。
  *
  * **Sharing 是推導出來的，不是儲存的** —— 沒有 config 檔、沒有 marker 檔
- * （ADR-0002：`.issues/` 底下零本機狀態）。
+ * （ADR-0002：`.gitnook/` 底下零本機狀態）。
  */
 export type Sharing = 'shared' | 'private';
 
@@ -41,10 +41,10 @@ export class AlreadySharedBoard extends Error {
       `${dir}'s op-log is already tracked by git: this board is already shared.\n` +
         `A tracked path beats an ignore rule (git check-ignore checks the index), ` +
         `so writing an exclude rule would have no effect — it would only make you think it worked.\n` +
-        // 指令帶上完整路徑而不是相對的 `.issues`：board 可能不在 repo 根目錄
-        // （`/services/api/.issues/` 是支援且被測試的形狀），那時貼上一條相對
+        // 指令帶上完整路徑而不是相對的 `.gitnook`：board 可能不在 repo 根目錄
+        // （`/services/api/.gitnook/` 是支援且被測試的形狀），那時貼上一條相對
         // 指令的人會在錯的目錄下執行它，而 git 只會說 pathspec 沒命中。
-        `To downgrade to private, run git rm -r --cached "${dir}/.issues" and commit it yourself; ` +
+        `To downgrade to private, run git rm -r --cached "${dir}/.gitnook" and commit it yourself; ` +
         `that would delete this board from your colleagues' clones, so nook runs no git command that writes.`,
     );
     this.name = 'AlreadySharedBoard';
@@ -71,33 +71,41 @@ export class NoGitDir extends Error {
 }
 
 /**
- * op-log 那個目錄，作為 git pathspec（一律 `/`，不吃平台的分隔符號）。
+ * Issue op-log 那個目錄，作為 git pathspec（一律 `/`，不吃平台的分隔符號）。
  * 「這塊 board 共享了嗎」問的就是這裡有沒有東西進 index。
  */
-export const OP_LOG_DIR = '.issues/issues';
+export const OP_LOG_DIR = '.gitnook/issues';
 
 /**
- * board 目錄本身，作為 git pathspec。**不帶尾斜線** —— 否定規則是在目錄那一層
- * 生效的，而 `git check-ignore` 對 `.issues/` 這種帶斜線的問法答不出東西
- * （見 `overridingRule` 的實測）。
+ * Decision op-log 那個目錄 —— `OP_LOG_DIR` 的 Decision 版，兩者各自窄探測後
+ * OR 起來（見 `opLogsTracked`/`ignoredByGit`）。不 export：呼叫端只問得到
+ * `.gitnook/` 整體共享與否，不需要知道底下拆成兩個模組。
  */
-const ISSUES_DIR = '.issues';
+const DECISION_LOG_DIR = '.gitnook/decisions';
+
+/**
+ * `.gitnook/` 容器目錄本身，作為 git pathspec。**不帶尾斜線** —— 否定規則是在
+ * 目錄那一層生效的，而 `git check-ignore` 對 `.gitnook/` 這種帶斜線的問法答
+ * 不出東西（見 `overridingRule` 的實測）。
+ */
+const GITNOOK_DIR = '.gitnook';
 
 /** op-log 的副檔名。`health.ts` 也在掃同一批檔案，兩邊認的必須是同一件事。 */
 const LOG_SUFFIX = '.ndjson';
 
 /**
- * nook 自己寫進 `info/exclude` 的那一行，`/<board 相對於 work tree 頂端的路徑>/.issues/`。
- * board 在 repo 根目錄時就是 `/.issues/`。
+ * nook 自己寫進 `info/exclude` 的那一行，`/<board 相對於 work tree 頂端的路徑>/.gitnook/`。
+ * board 在 repo 根目錄時就是 `/.gitnook/`。
  *
- * 排除的是整個 `.issues/` 而不只是 op-log：private board 的**權威資料本身**
- * 不進 git，所以索引、附帶檔案、日後新增的任何東西都一併在外。
+ * 排除的是整個 `.gitnook/` 而不只是 op-log：private board 的**權威資料本身**
+ * 不進 git，所以索引、附帶檔案（issues 與 decisions 兩個模組）、日後新增的任何
+ * 東西都一併在外 —— 一條規則涵蓋兩個模組。
  */
 function boardPattern(top: string, root: string): string {
   const rel = relative(top, resolve(root));
   // Windows 的 path.relative 給的是反斜線，而 gitignore 的 pattern 只認 `/`。
   const prefix = rel === '' ? '' : `${rel.split(sep).map(escapeSegment).join('/')}/`;
-  return `/${prefix}.issues/`;
+  return `/${prefix}.gitnook/`;
 }
 
 /**
@@ -105,21 +113,21 @@ function boardPattern(top: string, root: string): string {
  *
  * board 的路徑是一條**字面路徑**，而 `info/exclude` 收的是 pattern 語言 ——
  * 不轉義寫出去的就是一條別的規則。實測（git 2.50.1，`apps/[id]/` 是 Next.js
- * 動態路由那種目錄名）：`/apps/[id]/.issues/` **不**比對 `apps/[id]/`（`[id]`
+ * 動態路由那種目錄名）：`/apps/[id]/.gitnook/` **不**比對 `apps/[id]/`（`[id]`
  * 是一個字元類別），卻會比對 `apps/i/`。那個狀態下 board 整塊進得了 git，而
  * 使用者剛剛才被告知它是 private 的。
  *
  * 轉義的形狀不是這一層發明的：`git check-ignore -v` 自己回寫的就是
- * `/apps/\[id\]/.issues/`。
+ * `/apps/\[id\]/.gitnook/`。
  *
  * **`#` 與 `!` 不在這一組裡**：那兩個字元只在**行首**有特殊意義，而這一行永遠
- * 以 `/` 開頭。實測確認過推論（`/#hash/.issues/` 命中），所以不多轉義一個字元
+ * 以 `/` 開頭。實測確認過推論（`/#hash/.gitnook/` 命中），所以不多轉義一個字元
  * —— 每多轉一個，寫出去的與 `matchesExcludeRule` 讀回來的就多一次錯開的機會。
  *
  * **尾端空白另外處理**：它不是 pattern 的 metacharacter，而是 gitignore 唯一一種
  * 會**改寫我們寫出去的那一行**的規則（未轉義的尾端空白被 git 吃掉）。票 01 的
  * 不變式是「寫出去的與讀回來的必須是同一條規則」，所以帶尾端空白的那一段一律
- * 轉義 —— 今天這一行以 `.issues/` 結尾、那條規則咬不到它，但那個「今天」不是契約。
+ * 轉義 —— 今天這一行以 `.gitnook/` 結尾、那條規則咬不到它，但那個「今天」不是契約。
  */
 const escapeSegment = (segment: string): string =>
   segment.replace(/[\\*?[\]]/g, '\\$&').replace(/ (?= *$)/g, '\\ ');
@@ -183,9 +191,9 @@ const excludeFileOf = (layout: GitLayout): string => join(layout.commonDir, 'inf
  * 熱路徑不能 spawn git。手寫成別的形狀的 ignore 規則因此不算 private：那是
  * 保守的失敗（照舊警告、照舊回報），不是靜默的失敗。
  *
- * **右側照 git 的規則收，左側一個字元都不收。** 實測（git 2.x）：`/.issues/   `
- * 與 `/.issues/\r` 照樣生效（尾端空白與 CR 被 git 忽略），而 ` /.issues/` 與
- * `\t/.issues/` **不生效** —— 前導空白是 pattern 的一部分。拿 trim() 比對會把
+ * **右側照 git 的規則收，左側一個字元都不收。** 實測（git 2.x）：`/.gitnook/   `
+ * 與 `/.gitnook/\r` 照樣生效（尾端空白與 CR 被 git 忽略），而 ` /.gitnook/` 與
+ * `\t/.gitnook/` **不生效** —— 前導空白是 pattern 的一部分。拿 trim() 比對會把
  * 後兩種當成 nook 的那一行：`inspectSharing` 回答 private，`excludeBoard` 回答
  * unchanged，於是使用者永遠等不到一條生效的規則，而 list / show 還順手停止
  * 警告。那正是這個不變式要避開的靜默失敗，所以左側必須逐字比。
@@ -229,7 +237,7 @@ export function inspectSharing(root: string): Sharing {
 export function excludeBoard(root: string): ExcludeOutcome {
   const layout = gitLayout(root);
   // 不在 git work tree 內就沒有 info/exclude 可寫。**排在任何寫入之前** ——
-  // 反過來的話，呼叫端會留下一個 git 看得見的 .issues/（見 `initBoard`）。
+  // 反過來的話，呼叫端會留下一個 git 看得見的 .gitnook/（見 `initBoard`）。
   if (layout === null) throw new NoGitDir(resolve(root));
 
   const pattern = boardPattern(layout.top, root);
@@ -259,8 +267,8 @@ export function excludeBoard(root: string): ExcludeOutcome {
  *
  * 認的是 `matchesExcludeRule` —— 與 `inspectSharing` / `excludeBoard` **同一個**判斷，包含
  * 它左右不對稱的那一面（尾端空白與 CR 收、前導空白不收）。兩邊各寫一套比對會
- * 長出兩種不一致：寬的一邊（trim）會刪掉使用者自己寫的 ` /.issues/`，窄的一邊
- * 會留下一條 git 仍然承認的 `/.issues/   ` —— 那時 `inspectSharing` 照樣回答
+ * 長出兩種不一致：寬的一邊（trim）會刪掉使用者自己寫的 ` /.gitnook/`，窄的一邊
+ * 會留下一條 git 仍然承認的 `/.gitnook/   ` —— 那時 `inspectSharing` 照樣回答
  * private，於是 `share` 報告成功、board 卻還被 ignore。
  *
  * 不在 git work tree 內時回 `unchanged` 而不是丟 `NoGitDir`（`excludeBoard` 丟是
@@ -298,7 +306,7 @@ export function unexcludeBoard(root: string): UnexcludeOutcome {
  * | 狀態 | 問目錄 | 問存在的 op-log | 問不存在的檔名 |
  * |---|---|---|---|
  * | `.gitignore` 是 `*.ndjson`、op-log 未 tracked | 沒命中 ← **漏報** | 命中 ✓ | 命中 |
- * | `.gitignore` 是 `.issues/`、op-log 已 tracked | 沒命中 | 沒命中 ✓ | 命中 ← **假警報** |
+ * | `.gitignore` 是 `.gitnook/`、op-log 已 tracked | 沒命中 | 沒命中 ✓ | 命中 ← **假警報** |
  *
  * 也就是：只有「存在的檔案」兩邊都對。tracked 勝過 ignore 規則這件事要靠 index
  * 查得到那條路徑才成立，所以路徑必須真的在 index 的視野裡。
@@ -333,13 +341,23 @@ export function ignoredByGit(root: string): { readonly ignored: boolean; readonl
   return { ignored: true, source: tab > 0 ? line.slice(0, tab) : null };
 }
 
-/** 拿去問 git 的那條路徑。見 `ignoredByGit` 的表格。 */
+/**
+ * 拿去問 git 的那條路徑。見 `ignoredByGit` 的表格。**依序嘗試 issues op-log
+ * 目錄底下的檔案、decisions op-log 目錄底下的檔案**，都沒有時退回
+ * `OP_LOG_DIR` 這個目錄路徑本身（保守）——兩個模組共用同一份「保守退回」邏輯，
+ * 只是候選來源從一個變兩個。
+ */
 function ignoreProbe(root: string): string {
-  const dir = join(resolve(root), ...OP_LOG_DIR.split('/'));
-  if (!existsSync(dir)) return OP_LOG_DIR;
+  return firstOpLogFile(root, OP_LOG_DIR) ?? firstOpLogFile(root, DECISION_LOG_DIR) ?? OP_LOG_DIR;
+}
+
+/** 某個 op-log 目錄底下排序後第一個 `.ndjson` 檔的路徑，沒有則 null。 */
+function firstOpLogFile(root: string, opLogDir: string): string | null {
+  const dir = join(resolve(root), ...opLogDir.split('/'));
+  if (!existsSync(dir)) return null;
   // 排序讓答案穩定，不隨檔案系統的回傳順序漂移（同 health.ts 的 opLogNames）。
   const first = readdirSync(dir).filter((n) => n.endsWith(LOG_SUFFIX)).sort()[0];
-  return first === undefined ? OP_LOG_DIR : `${OP_LOG_DIR}/${first}`;
+  return first === undefined ? null : `${opLogDir}/${first}`;
 }
 
 /**
@@ -352,9 +370,9 @@ function ignoreProbe(root: string): string {
  *
  * 兩個實測出來、缺一不可的細節（git 2.50.1）：
  *
- * - **要問 board 目錄本身，而且不能帶尾斜線。** committed 的 `!.issues/` 壓過
- *   `info/exclude` 時：問 `.issues` 得到 `.gitignore:1:!.issues/`（exit 0）、
- *   問 `.issues/` 或 `.issues/issues` 都只得到 `::`（exit 1，什麼都沒比對到）。
+ * - **要問 board 目錄本身，而且不能帶尾斜線。** committed 的 `!.gitnook/` 壓過
+ *   `info/exclude` 時：問 `.gitnook` 得到 `.gitignore:1:!.gitnook/`（exit 0）、
+ *   問 `.gitnook/` 或 `.gitnook/issues` 都只得到 `::`（exit 1，什麼都沒比對到）。
  *   否定規則是在**目錄**那一層生效的，所以問檔案問不出來。
  * - **要 `--non-matching`。** 沒有它，一條把路徑排除在外的否定規則就是「沒命中」，
  *   git 不會印出來 —— 而我們要的正是那一條。
@@ -362,7 +380,7 @@ function ignoreProbe(root: string): string {
 export function overridingRule(root: string): string | null {
   let out: string;
   try {
-    out = execFileSync('git', ['check-ignore', '-v', '--non-matching', '--', ISSUES_DIR], {
+    out = execFileSync('git', ['check-ignore', '-v', '--non-matching', '--', GITNOOK_DIR], {
       cwd: resolve(root),
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -396,14 +414,19 @@ export function overridingRule(root: string): string | null {
  * 完全沒有效果的動作，而使用者會以為成功了。那是靜默失敗，所以 init 寧可拒絕
  * （`AlreadySharedBoard`）。
  *
- * **問的是 op-log 那個目錄，不是整個 `.issues/`。** 這個函式有兩個消費者，而寬
+ * **問的是 op-log 那個目錄，不是整個 `.gitnook/`。** 這個函式有兩個消費者，而寬
  * 一格對它們不是同一個答案：對 init 的拒絕，多拒是保守的；但 doctor 拿它當否決權
  * （答 true 就是「不要壓掉 `MissingMergeDriver`」），寬一格就變成假陽性 ——
  * 一塊 private board 底下有個被 commit 過的 `.gitkeep` 或 `README`，op-log 本身
  * 仍然沒被追蹤（git 不會走進被排除的目錄），board 其實是 private，doctor 卻會
  * 吐出診斷並 exit 1。實測（git 2.x）：只有 `.gitkeep` 進 index 時，問
- * `.issues` 得到 exit 0（算 tracked），問 `.issues/issues` 得到 exit 1。
+ * `.gitnook` 得到 exit 0（算 tracked），問 `.gitnook/issues` 得到 exit 1。
  * 共享狀態問的是 op-log 有沒有出去，所以窄的那一個才是兩邊都對的答案。
+ *
+ * **兩個模組各自窄探測後 OR 起來**——issues、decisions 各自的 op-log 目錄各問
+ * 一次 `git ls-files --error-unmatch`，任一個被追蹤就算 `true`。**不**探測
+ * `.gitnook/config.json`：一個被 commit 過的 config.json 不該讓「已共享」誤判
+ * 成立，同上面對 `.gitkeep`／README 的假陽性防護邏輯。
  *
  * **答案全在 exit code，不讀輸出。** `--error-unmatch` 讓 git 在 pathspec 一個都
  * 沒命中時以非 0 結束，所以這裡不必把檔案清單收進 buffer —— 一塊兩萬張 issue 的
@@ -414,12 +437,18 @@ export function overridingRule(root: string): string | null {
  * 讀不動這類失敗一律往外丟：那時我們**不知道**這塊 board 是否已共享，而「不知道」
  * 絕不能被當成「沒共享」—— 那會讓 init 在一塊真的已共享的 board 上寫下一條無效
  * 規則。不在 git work tree 內走的也是這條非 0（git 自己回 128），而它不是
- * 「有東西被追蹤」，所以回 false；那條拒絕是呼叫端的事，見 `NoGitDir`。
+ * 「有東西被追蹤」，所以回 false；那條拒絕是呼叫端的事，見 `NoGitDir`。第一個
+ * 探測若真的答不出來（非 status 的失敗）就直接往外丟，不繼續問第二個。
  */
 export function opLogsTracked(root: string): boolean {
+  return isTracked(root, OP_LOG_DIR) || isTracked(root, DECISION_LOG_DIR);
+}
+
+/** 單一 op-log 目錄是否已被 git 追蹤——`opLogsTracked` 對 issues、decisions 各問一次。 */
+function isTracked(root: string, opLogDir: string): boolean {
   try {
     // 路徑相對於 cwd，所以問到的只會是這一塊 board —— 不是上層那一塊。
-    execFileSync('git', ['ls-files', '--error-unmatch', '--', OP_LOG_DIR], {
+    execFileSync('git', ['ls-files', '--error-unmatch', '--', opLogDir], {
       cwd: resolve(root),
       stdio: 'ignore',
     });

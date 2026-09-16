@@ -7,7 +7,7 @@ import type { CreateInput, IdSource, Issue } from '../../src/index.js';
 
 // ADR-0004：真實檔案系統 + 每個測試用例獨立 mkdtemp，不使用 in-memory fake。
 let dir: string;
-const issuesDir = () => join(dir, '.issues', 'issues');
+const issuesDir = () => join(dir, '.gitnook', 'issues');
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nook-list-'));
@@ -203,7 +203,7 @@ describe('ref 前綴解析', () => {
   it('ref 只接受 Crockford base32，路徑穿越不得讀到 board 以外的檔案', () => {
     // CLI（票 10）與 studio server 的 /i/<ref>（票 09）都會把使用者輸入
     // 直接餵進 get()。完整識別碼的快路徑原本用 existsSync(pathOf(ref))，
-    // 而 join() 會把 ../ 正規化到 .issues/issues/ 之外。
+    // 而 join() 會把 ../ 正規化到 .gitnook/issues/ 之外。
     const outside = join(dir, 'outside.ndjson');
     writeFileSync(outside, '{"id":"X","t":1,"a":"z","op":"create","title":"OUTSIDE"}\n', 'utf8');
 

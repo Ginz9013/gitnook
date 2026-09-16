@@ -1,0 +1,8 @@
+{"id":"01M2MV1R4TCR2WMYTEF2PY62TE","t":1,"a":"83a1","op":"create","title":"nook workspace decision list/new/set/show/history"}
+{"id":"01M2MV1R54XWE8Q5ZVHNEBZFVH","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：.scratch/gitnook-unify/05-workspace-decision-commands.md（spec 同目錄 spec.md）\n\nnook workspace decision <list|new|set|show|history>，比照既有 nook workspace <list|new|set>（issue 版）。list/new/set 對稱既有指令；show/history 是新形狀（issue 側 workspace 指令沒有這兩個可以照抄），直接對稱單一 board 的 nook decision show/history，改用 locateDecisionInWorkspace() 解析 ref。\n\nWrite ownership：src/cli/workspace.ts、src/render/table.ts、AGENT.md，及對應測試。\n\nBlocked by：04。"}
+{"id":"01M2MV1R54PDKEJWXH286N8XSV","t":3,"a":"83a1","op":"label.add","v":"gitnook-unify"}
+{"id":"01M2MV1R54P1M2VCG9YEK4SF7W","t":4,"a":"83a1","op":"label.add","v":"cli"}
+{"id":"01M2MV1R54C9Z5QQNAB8DP3GF8","t":5,"a":"83a1","op":"label.add","v":"render"}
+{"id":"01M2MV4FFBT7ZHEBXJMG9Y9B1D","t":6,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M2N0K1WFG5RJT025RTG0WD1H","t":7,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M2NEB9B73V1KSK9PMPE89KYC","t":8,"a":"83a1","op":"set","k":"status","v":"done"}

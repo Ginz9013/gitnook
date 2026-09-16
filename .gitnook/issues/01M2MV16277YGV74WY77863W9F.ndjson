@@ -1,0 +1,8 @@
+{"id":"01M2MV1627JR2FH3A3T4GDDWY6","t":1,"a":"83a1","op":"create","title":"doctor 適配 .gitnook/ 佈局 + InvalidNookConfig 診斷"}
+{"id":"01M2MV162JTNZE3H9WC0AD8WCZ","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：.scratch/gitnook-unify/02-health-gitnook-and-invalid-config.md（spec 同目錄 spec.md）\n\nboard.health() 既有六種診斷改指向 .gitnook/issues、.gitnook/decisions，行為不變。新增 .gitnook/config.json 格式錯誤時的 InvalidNookConfig 診斷，exit 非 0。studio 前端的 ADVICE 對照表（src/studio/board/health.ts）要補上這個新 kind，否則 tsc 直接型別錯誤。\n\nWrite ownership：src/core/health.ts、src/core/types.ts（僅 DiagnosticKind）、src/core/nookConfig.ts、src/studio/board/health.ts，及對應測試。\n\nBlocked by：01（.gitnook/ 佈局與 nookConfig.ts 要先存在）。"}
+{"id":"01M2MV162JG9C3GCA97VG9D7F1","t":3,"a":"83a1","op":"label.add","v":"gitnook-unify"}
+{"id":"01M2MV162JWBD7JW6RS2YCM3BC","t":4,"a":"83a1","op":"label.add","v":"core"}
+{"id":"01M2MV162JBCSXV5G3X6THPQSS","t":5,"a":"83a1","op":"label.add","v":"studio"}
+{"id":"01M2MV4FBZWJV8YCB0QQQVMQ0D","t":6,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M2MXM9R9X6SRDEYF3RS8NVCF","t":7,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M2MYG225HNSGW5C9EH2BZ3ZA","t":8,"a":"83a1","op":"set","k":"status","v":"done"}

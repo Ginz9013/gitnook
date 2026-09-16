@@ -1,10 +1,24 @@
 import { relative } from 'node:path';
-import { isFullRef } from '../core/ids.js';
+import { isFullRef, shortIdLength } from '../core/ids.js';
 import { IncompleteRef, IssueDeleted } from '../core/types.js';
-import { locateInWorkspace, memberAt, openWorkspace } from '../core/workspace.js';
+import {
+  locateDecisionInWorkspace,
+  locateInWorkspace,
+  memberAt,
+  openWorkspace,
+} from '../core/workspace.js';
 import { repair } from '../core/health.js';
-import { renderTable, renderWorkspaceList } from '../render/table.js';
+import {
+  renderDecisionDetail,
+  renderDecisionSetOps,
+  renderDecisionTable,
+  renderTable,
+  renderWorkspaceDecisionList,
+  renderWorkspaceList,
+} from '../render/table.js';
 import { serveWorkspace } from '../server/serveWorkspace.js';
+import { decisionFieldWrites } from '../core/decisionReduce.js';
+import { DecisionLogNotInitialized } from '../core/decisionTypes.js';
 import {
   asChange,
   assembleCreateInput,
@@ -26,7 +40,15 @@ import {
   type Io,
 } from './run.js';
 import type { Filter } from '../core/types.js';
-import type { WorkspaceGroup } from '../render/table.js';
+import type { WorkspaceDecisionGroup, WorkspaceGroup } from '../render/table.js';
+import type {
+  CreateDecisionInput,
+  Decision,
+  DecisionChange,
+  DecisionFilter,
+  DecisionLog,
+} from '../core/decisionTypes.js';
+import type { DecisionSetKey } from '../core/decisionOps.js';
 
 /**
  * `nook workspace <list|doctor|...>` 的 argv → Workspace → render → exit code。
@@ -58,12 +80,14 @@ export async function dispatchWorkspace(argv: readonly string[], io: Io): Promis
       return cmdLabel(parseArgs(rest, NO_FLAGS), io);
     case 'rm':
       return cmdRm(parseArgs(rest, RM_FLAGS), io);
+    case 'decision':
+      return dispatchWorkspaceDecision(rest, io);
   }
 
   // 同 `run.ts` 的 `unknownCommand`：使用者錯誤只走 UsageError 這一條路徑，
   // 不在這裡另開一份手寫的 errLine + return 1。
   throw new UsageError(
-    `unknown workspace subcommand: ${sub ?? ''} (available: list, doctor, studio, new, set, mv, comment, label, rm)`,
+    `unknown workspace subcommand: ${sub ?? ''} (available: list, doctor, studio, new, set, mv, comment, label, rm, decision)`,
   );
 }
 
@@ -413,6 +437,316 @@ function cmdRm(args: Args, io: Io): number {
   // cmdRm（印 target.id），ref 大小寫不敏感，使用者輸入的大小寫不一定是
   // 正規化後的樣子。
   line(io, `Deleted  ${relPath}  ${issue.id.slice(0, displayLength(member.board))}  ${issue.title}`);
+  return 0;
+}
+
+/**
+ * `nook workspace decision <list|new|set|show|history>`：對稱於 `dispatchWorkspace`
+ * 對 Issue 的既有模式（票 05），差別只在目標從 `member.board` 換成
+ * `member.decisionLog`（票 04 已建構好、未經修改直接重用）。
+ *
+ * **這裡跟 `dispatchWorkspace`（issue 版）一樣，不自己接住已知的使用者
+ * 錯誤**——已知的錯誤原樣往外丟，交給呼叫端（`run.ts` 的 `run()`）接住。
+ * `UsageError`／`IncompleteRef` 已經在 `run.ts` 既有的 `USER_ERRORS` 清單上；
+ * 新增的 `DecisionRefNotFoundInWorkspace`／`AmbiguousDecisionWorkspaceRef`
+ * 目前不在那份清單上（`run.ts` 不在這張票的寫入範圍），全 CLI 路徑上會退化
+ * 成 exit 2 的內部錯誤訊息——這是留給下一張能動 `run.ts` 的票補上的接線缺口，
+ * 不影響這裡對外的行為契約（`dispatchWorkspaceDecision(argv, io)` 本身仍然
+ * 正確地丟出這兩個型別）。
+ *
+ * 跟 `dispatchDecision`（單一 Board 版，`cli/decision.ts`）不同的是**不**重用
+ * `run.ts` 模組層級的 `parseArgs`／`VALUED`——那份 `VALUED` 沒有
+ * `--title`/`--body`/`--disposition`，而 `run.ts` 不在寫入範圍。跟
+ * `dispatchDecision` 一樣自己維護一份小型 argv 解析器（`parseWorkspaceDecisionArgs`），
+ * 範圍只限這裡的五個子指令。
+ */
+export async function dispatchWorkspaceDecision(argv: readonly string[], io: Io): Promise<number> {
+  const [sub, ...rest] = argv;
+
+  switch (sub) {
+    case 'list':
+      return cmdDecisionList(
+        parseWorkspaceDecisionArgs(rest, DECISION_LIST_VALUED, DECISION_LIST_FLAGS),
+        io,
+      );
+    case 'new':
+      return cmdDecisionNew(
+        parseWorkspaceDecisionArgs(rest, DECISION_NEW_FLAGS, DECISION_NEW_FLAGS),
+        io,
+      );
+    case 'set':
+      return cmdDecisionSet(
+        parseWorkspaceDecisionArgs(rest, DECISION_NO_FLAGS, DECISION_SET_FLAGS),
+        io,
+      );
+    case 'show':
+      return cmdDecisionShow(
+        parseWorkspaceDecisionArgs(rest, DECISION_NO_FLAGS, DECISION_SHOW_FLAGS),
+        io,
+      );
+    case 'history':
+      return cmdDecisionHistory(
+        parseWorkspaceDecisionArgs(rest, DECISION_NO_FLAGS, DECISION_NO_FLAGS),
+        io,
+      );
+  }
+
+  throw new UsageError(
+    `unknown workspace decision subcommand: ${sub ?? ''} (available: list, new, set, show, history)`,
+  );
+}
+
+/** 對稱於 `cli/decision.ts` 的 `DecisionArgs`／`parseDecisionArgs`——不重用（`decision.ts`
+ * 不在這張票的寫入範圍，且那兩者本來就是模組私有，不是可以 import 的公開介面）。 */
+interface WorkspaceDecisionArgs {
+  readonly positional: readonly string[];
+  has(flag: string): boolean;
+  one(flag: string): string | undefined;
+}
+
+function parseWorkspaceDecisionArgs(
+  args: readonly string[],
+  valued: ReadonlySet<string>,
+  allowed: ReadonlySet<string>,
+): WorkspaceDecisionArgs {
+  const positional: string[] = [];
+  const switches = new Set<string>();
+  const values = new Map<string, string>();
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (!arg.startsWith('--')) {
+      positional.push(arg);
+      continue;
+    }
+    if (!allowed.has(arg)) throw new UsageError(`unrecognized flag ${arg} (see nook --help)`);
+    if (!valued.has(arg)) {
+      switches.add(arg);
+      continue;
+    }
+    const value = args[++i];
+    if (value === undefined) throw new UsageError(`${arg} is missing a value`);
+    values.set(arg, value);
+  }
+
+  return {
+    positional,
+    has: (flag) => switches.has(flag),
+    one: (flag) => values.get(flag),
+  };
+}
+
+const DECISION_NO_FLAGS: ReadonlySet<string> = new Set();
+const DECISION_NEW_FLAGS: ReadonlySet<string> = new Set(['--title', '--body', '--disposition', '--in']);
+const DECISION_LIST_VALUED: ReadonlySet<string> = new Set(['--disposition']);
+const DECISION_LIST_FLAGS: ReadonlySet<string> = new Set(['--disposition', '--json']);
+const DECISION_SET_FLAGS: ReadonlySet<string> = new Set(['--editor']);
+const DECISION_SHOW_FLAGS: ReadonlySet<string> = new Set(['--json']);
+
+/**
+ * `member.decisionLog.list()`／`.refs()` 對尚未初始化的成員（legacy 過渡期、
+ * 或只 init 過 issue 側）丟 `DecisionLogNotInitialized`——`list` 要把這種成員
+ * 當「零 decision」略過，不是錯誤、不中止整個指令（spec.md 的 Acceptance
+ * criteria）。其餘例外原樣拋出，不吞。
+ */
+function safeDecisionList(log: DecisionLog, filter: DecisionFilter): Decision[] {
+  try {
+    return log.list(filter);
+  } catch (err) {
+    if (err instanceof DecisionLogNotInitialized) return [];
+    throw err;
+  }
+}
+
+function safeDecisionRefs(log: DecisionLog): readonly string[] {
+  try {
+    return log.refs();
+  } catch (err) {
+    if (err instanceof DecisionLogNotInitialized) return [];
+    throw err;
+  }
+}
+
+/**
+ * `list`：對稱於 issue 版的 `cmdList`——對每個成員各呼叫一次
+ * `member.decisionLog.list(filter)`，篩選語意（`--disposition`）與單一 board
+ * 的 `nook decision list` 一致，因為呼叫的是同一個 `DecisionLog.list()`。
+ * decision log 尚未初始化的成員視為零筆（`safeDecisionList`），空清單的成員
+ * 整組略過不印。
+ */
+function cmdDecisionList(args: WorkspaceDecisionArgs, io: Io): number {
+  const disposition = args.one('--disposition');
+  const filter: DecisionFilter = disposition === undefined ? {} : { disposition };
+
+  const workspace = openWorkspace({ dir: io.cwd });
+  const root = workspace.root();
+
+  const groups: WorkspaceDecisionGroup[] = workspace.members.map((member) => ({
+    path: relativeGroupPath(root, member.path),
+    decisions: safeDecisionList(member.decisionLog, filter),
+    shortIdLen: shortIdLength(safeDecisionRefs(member.decisionLog)),
+  }));
+
+  if (args.has('--json')) {
+    const nonEmpty = groups.filter((g) => g.decisions.length > 0);
+    line(io, JSON.stringify(nonEmpty.map((g) => ({ path: g.path, decisions: g.decisions }))));
+  } else {
+    line(io, renderWorkspaceDecisionList(groups));
+  }
+  return 0;
+}
+
+/**
+ * `new`：對稱於 issue 版的 `cmdNew`——`--in` 必填，沒有 fallback 到 cwd
+ * （spec.md Non-goals）。印出不帶成員路徑裝飾的純 ULID，同單一 Board `decision
+ * new` 的既有慣例。
+ */
+function cmdDecisionNew(args: WorkspaceDecisionArgs, io: Io): number {
+  const title = args.one('--title');
+  const usage = 'usage: nook workspace decision new --title <t> [--body <b>] [--disposition <d>] --in <path>';
+  if (title === undefined) throw new UsageError(usage);
+
+  const at = args.one('--in');
+  if (at === undefined) throw new UsageError(`${usage} (--in is required, no fallback to cwd)`);
+
+  const body = args.one('--body');
+  const disposition = args.one('--disposition');
+
+  const input: CreateDecisionInput = {
+    title,
+    ...(body === undefined ? {} : { body }),
+    ...(disposition === undefined ? {} : { disposition }),
+  };
+
+  const workspace = openWorkspace({ dir: io.cwd });
+  const target = memberAt(workspace, at);
+
+  const decision = target.decisionLog.create(input);
+  line(io, decision.id);
+  return 0;
+}
+
+/**
+ * `title`/`body`/`disposition`/`supersededBy`——同 `cli/decision.ts` 的
+ * `DECISION_SETTABLE`（`DecisionLog.apply()` 已經接受的四個 LWW 欄位）。不從
+ * 那個檔案 import：那份常數是模組私有，且 `decision.ts` 不在這張票的寫入範圍
+ * ——這裡另起一份同值的常數，兩邊改動時各自負責同步（同 `decision.ts` 上那份
+ * 常數自己的既有紀律）。
+ */
+const DECISION_SETTABLE = ['title', 'body', 'disposition', 'supersededBy'] as const;
+type WorkspaceDecisionField = (typeof DECISION_SETTABLE)[number];
+
+const isDecisionSettable = (value: string): value is WorkspaceDecisionField =>
+  (DECISION_SETTABLE as readonly string[]).includes(value);
+
+function decisionChangeFor(field: WorkspaceDecisionField, value: string): DecisionChange {
+  switch (field) {
+    case 'title':
+      return { title: value };
+    case 'body':
+      return { body: value };
+    case 'disposition':
+      return { disposition: value };
+    case 'supersededBy':
+      return { supersededBy: value };
+  }
+}
+
+/**
+ * `set`：對稱於 issue 版的 `cmdSet`——`requireFullRef()` + 既有、未經修改的
+ * `locateDecisionInWorkspace()` 找出擁有 `<ref>` 的成員，而不是對 `io.cwd`
+ * 開一塊 DecisionLog。回印更新後那一列走 `renderDecisionTable`（同單一 Board
+ * 版本 `cmdSet` 的既有慣例），不帶成員路徑裝飾。
+ */
+function cmdDecisionSet(args: WorkspaceDecisionArgs, io: Io): number {
+  const [ref, field, value] = args.positional;
+  const usage =
+    'usage: nook workspace decision set <ref> <title|body|disposition|supersededBy> <value|-> [--editor]';
+  if (ref === undefined || field === undefined) throw new UsageError(usage);
+  requireFullRef(ref);
+  if (!isDecisionSettable(field)) {
+    throw new UsageError(`not a writable field: ${field} (available: ${DECISION_SETTABLE.join(', ')})`);
+  }
+
+  const workspace = openWorkspace({ dir: io.cwd });
+  const { member, decision } = locateDecisionInWorkspace(workspace, ref);
+
+  let text: string;
+  if (args.has('--editor')) {
+    // 以現值開場——同單一 Board 版本，編輯既有的長文才是這條路的實際用途。
+    text = fromEditor(io, field === 'title' || field === 'body' ? decision[field] : '');
+  } else {
+    if (value === undefined) throw new UsageError(usage);
+    text = longText(value, io);
+  }
+
+  const updated = member.decisionLog.apply(ref, decisionChangeFor(field as WorkspaceDecisionField, text));
+  line(io, renderDecisionTable([updated], shortIdLength(member.decisionLog.refs())));
+  return 0;
+}
+
+/**
+ * `show`：issue 側 workspace 指令沒有這個可以照抄（spec.md 的 Outcome）——
+ * `locateDecisionInWorkspace()` 找到成員後委派給既有的 `renderDecisionDetail`，
+ * `--json` 走本檔自己一份 sortKeys + stringify（同 `cli/decision.ts` 的
+ * `renderDecisionJson`，同樣的理由：不重用 `render/json.ts`，它的簽章釘死在
+ * `Issue` 且不在這張票的寫入範圍）。
+ */
+function cmdDecisionShow(args: WorkspaceDecisionArgs, io: Io): number {
+  const [ref] = args.positional;
+  const usage = 'usage: nook workspace decision show <ref> [--json]';
+  if (ref === undefined) throw new UsageError(usage);
+  requireFullRef(ref);
+
+  const workspace = openWorkspace({ dir: io.cwd });
+  const { decision } = locateDecisionInWorkspace(workspace, ref);
+
+  line(io, args.has('--json') ? renderWorkspaceDecisionJson(decision) : renderDecisionDetail(decision));
+  return 0;
+}
+
+/** 鍵依字母排序——同 `cli/decision.ts` 的 `sortDecisionKeys`/`renderDecisionJson`，
+ * 這裡另起一份的理由同上：那兩個是模組私有，`decision.ts` 不在寫入範圍。 */
+function renderWorkspaceDecisionJson(decision: Decision): string {
+  const source = decision as unknown as Record<string, unknown>;
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(source).sort()) sorted[key] = source[key];
+  return JSON.stringify(sorted);
+}
+
+/**
+ * `history` 的可查欄位比 `set` 的可寫欄位多一個 `legacyRef`——同
+ * `cli/decision.ts` 的 `DECISION_HISTORY_FIELDS` 上那條註解：不給欄位時
+ * `decisionFieldWrites()` 本來就不篩欄位，`legacyRef` 一旦被寫過就會出現，
+ * 所以單欄位查詢也該放行。
+ */
+const DECISION_HISTORY_FIELDS = [...DECISION_SETTABLE, 'legacyRef'] as const;
+type WorkspaceDecisionHistoryField = (typeof DECISION_HISTORY_FIELDS)[number];
+
+const isDecisionHistoryField = (value: string): value is WorkspaceDecisionHistoryField =>
+  (DECISION_HISTORY_FIELDS as readonly string[]).includes(value);
+
+/**
+ * `history`：issue 側 workspace 指令沒有這個可以照抄（spec.md 的 Outcome）——
+ * `locateDecisionInWorkspace()` 找到成員後委派給既有的 `decisionFieldWrites()`
+ * （核心的摺疊與篩選邏輯）與 `renderDecisionSetOps()`（呈現）。**唯讀，不
+ * append 任何 Op**，同單一 Board 版本的 `cmdHistory`。
+ */
+function cmdDecisionHistory(args: WorkspaceDecisionArgs, io: Io): number {
+  const [ref, field] = args.positional;
+  const usage =
+    'usage: nook workspace decision history <ref> [<title|body|disposition|supersededBy|legacyRef>]';
+  if (ref === undefined) throw new UsageError(usage);
+  requireFullRef(ref);
+  if (field !== undefined && !isDecisionHistoryField(field)) {
+    throw new UsageError(`not a queryable field: ${field} (available: ${DECISION_HISTORY_FIELDS.join(', ')})`);
+  }
+
+  const workspace = openWorkspace({ dir: io.cwd });
+  const { member } = locateDecisionInWorkspace(workspace, ref);
+
+  const ops = decisionFieldWrites(member.decisionLog.opLog(ref), field as DecisionSetKey | undefined);
+  line(io, renderDecisionSetOps(ops));
   return 0;
 }
 

@@ -158,14 +158,14 @@ describe('打包產物', () => {
           encoding: 'utf8',
         });
 
-      nook('issue', 'init');
+      nook('init');
       nook('issue', 'new', 'Fix login redirect loop on Safari 17');
       const listed = nook('issue', 'list');
 
-      expect(existsSync(join(work, '.issues', 'issues'))).toBe(true);
+      expect(existsSync(join(work, '.gitnook', 'issues'))).toBe(true);
       // 唯一的單點失效（ADR-0001）：init 必須寫下這一行。
       expect(readFileSync(join(work, '.gitattributes'), 'utf8')).toContain(
-        '.issues/issues/*.ndjson merge=union',
+        '.gitnook/issues/*.ndjson merge=union',
       );
       // 緊湊表格：<short id>  <status>  <title>，新票預設落在人的車道起點。
       expect(listed).toMatch(/^[0-9A-Z]{6}  backlog  Fix login redirect loop on Safari 17\n$/);
@@ -174,7 +174,7 @@ describe('打包產物', () => {
     }
   }, 60_000);
 
-  it('乾淨的暫存目錄裡 decision init → new → show 全程走安裝後的 bin', () => {
+  it('乾淨的暫存目錄裡 init → decision new → decision list 全程走安裝後的 bin', () => {
     const work = mkdtempSync(join(tmpdir(), 'nook-decision-work-'));
     try {
       const git = (...args: string[]): void => {
@@ -191,13 +191,15 @@ describe('打包產物', () => {
           encoding: 'utf8',
         });
 
-      nook('decision', 'init');
+      // 票 01：`nook decision init` 已移除，`nook init` 一次把 issue 與
+      // decision 兩個模組都準備好。
+      nook('init');
       nook('decision', 'new', '--title', 'Use ULIDs');
       const listed = nook('decision', 'list');
 
-      expect(existsSync(join(work, '.decisions', 'decisions'))).toBe(true);
+      expect(existsSync(join(work, '.gitnook', 'decisions'))).toBe(true);
       expect(readFileSync(join(work, '.gitattributes'), 'utf8')).toContain(
-        '.decisions/decisions/*.ndjson merge=union',
+        '.gitnook/decisions/*.ndjson merge=union',
       );
       expect(listed).toMatch(/^[0-9A-Z]{6}  Use ULIDs  proposed\n$/);
     } finally {

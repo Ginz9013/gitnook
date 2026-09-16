@@ -1,6 +1,6 @@
 ---
 name: nook
-description: Operate the nook CLI — a git-native issue tracker whose issues are plain text files in the repo. Use when the working directory (or any parent) has a .issues/ directory, when the user asks to create, list, update, comment on, or close issues, when they mention a board, a ticket, or nook itself, or when a task should be recorded rather than only done. Covers every command, the queued authorization boundary, ref handling, and what nook deliberately refuses to do.
+description: Operate the nook CLI — a git-native issue tracker whose issues are plain text files in the repo. Use when the working directory (or any parent) has a .gitnook/ directory, when the user asks to create, list, update, comment on, or close issues, when they mention a board, a ticket, or nook itself, or when a task should be recorded rather than only done. Covers every command, the queued authorization boundary, ref handling, and what nook deliberately refuses to do.
 ---
 
 # nook — agent usage guide
@@ -14,13 +14,13 @@ Issues are plain text files in the repo. They travel with the branch, merge with
 
 ## Before anything
 
-`nook` finds the board by searching **upward** from the current directory, so any subdirectory of the repo works. If a command says `不是一個 Nook board`, the repo genuinely has no board — run `nook issue init` **at the repo root**, never in a subdirectory (it refuses there, but do not make it refuse).
+`nook` finds the board by searching **upward** from the current directory, so any subdirectory of the repo works. If a command says `不是一個 Nook board`, the repo genuinely has no board — run `nook init` **at the repo root**, never in a subdirectory (it refuses there, but do not make it refuse).
 
 ## Commands
 
 | | |
 |---|---|
-| `nook issue init` | create `.issues/` and the `.gitattributes` line |
+| `nook init [--private] [--workspace]` | create `.gitnook/issues/` and `.gitnook/decisions/` (both modules, one shot) plus their `.gitattributes` lines; `--private` = no committed bytes; `--workspace` marks this directory so recursive scans keep going past it |
 | `nook issue new <title> [--description <text\|->] [--label <l>] [--editor]` | create; prints the **full 26-char ref** |
 | `nook issue list [--all] [--status <s>] [--label <l>] [--json]` | one line per issue |
 | `nook issue show <ref> [--json]` | title, description, comments |
@@ -36,15 +36,18 @@ Issues are plain text files in the repo. They travel with the branch, merge with
 | `nook workspace list\|doctor\|studio` | cross-repo, read-only — see "workspace: writes route to a member" below |
 | `nook workspace new <title> --in <path> [--description <text\|->] [--label <l>] [--editor]` | create in the member at `<path>`; prints the full 26-char ref |
 | `nook workspace set\|mv\|comment\|label\|rm <ref> ...` | write to whichever member owns `<ref>` — **`<ref>` must be the full 26-char ULID**, no short prefix; see below |
-| `nook decision init` | create `.decisions/` and the `.gitattributes` line |
 | `nook decision new --title <t> [--body <b>] [--disposition <d>]` | create a decision (ADR); prints the **full 26-char ref** |
 | `nook decision show <ref> [--json]` | title, body, disposition, `supersededBy` (printed only when set) |
+| `nook workspace decision list [--disposition <d>] [--json]` | every member's decisions, grouped by path — same filter and empty-group semantics as `nook workspace list` |
+| `nook workspace decision new --title <t> [--body <b>] [--disposition <d>] --in <path>` | create in the member at `<path>`; `--in` is **required**, no fallback to cwd; prints the full 26-char ref |
+| `nook workspace decision set <ref> <title\|body\|disposition\|supersededBy> <value\|-> [--editor]` | write to whichever member owns `<ref>` — full 26-char ULID required, same as `nook workspace set` |
+| `nook workspace decision show\|history <ref> [<field>]` | detail view / op history for whichever member owns `<ref>` — `nook workspace` has no single-board equivalent for these two, they exist only under `decision` |
 
-**Every issue command lives under `nook issue`** — this is a breaking change from earlier gitNook releases, where `new`, `list` and `rm` (and the rest of the table above) were flat top-level commands instead. There is no compatibility alias: run `nook issue <verb>` from now on, and update anything (scripts, aliases, older skill files) that still calls the flat form.
+**Every issue command lives under `nook issue`** — this is a breaking change from earlier gitNook releases, where `new`, `list` and `rm` (and the rest of the table above) were flat top-level commands instead. There is no compatibility alias: run `nook issue <verb>` from now on, and update anything (scripts, aliases, older skill files) that still calls the flat form. **`nook issue init` and `nook decision init` no longer exist either** — `nook init` is the single entry point for both modules now; running either old form prints a clear message pointing at `nook init`.
 
-**`nook decision`** is a second, parallel op-log — Architecture Decision Records instead of issues, same append-only NDJSON-per-record shape, same `merge=union` guarantee, its own `.decisions/` directory. It does not share storage, refs or history with `nook issue`, and it is deliberately smaller: no labels, no comments, no archiving, no private mode. Use it to record *why*, not *what needs doing* — a Decision has a `disposition` (`proposed` / `accepted` / `superseded` / `rejected`), not a workflow `status`, and the two words are not interchangeable.
+**`nook decision`** is a second, parallel op-log — Architecture Decision Records instead of issues, same append-only NDJSON-per-record shape, same `merge=union` guarantee, living in `.gitnook/decisions/` alongside `.gitnook/issues/`. It does not share storage, refs or history with `nook issue`, and it is deliberately smaller: no labels, no comments, no archiving. Use it to record *why*, not *what needs doing* — a Decision has a `disposition` (`proposed` / `accepted` / `superseded` / `rejected`), not a workflow `status`, and the two words are not interchangeable.
 
-**Whether a board is shared or private is the human's decision, not yours.** `nook issue init --private` keeps a board out of git entirely — zero committed bytes, so nobody on the team has to be told about it yet — and `nook issue share` puts it back. Both change what everyone else can see, so never run either on your own initiative — the same rule as `queued`, though not the same shape: `queued` is a grant the human makes, while here there is no granting form at all, just the prohibition. If the human asks for one of them, run it and hand them what it prints, because nook runs no git command that writes. `share` exits 1 without printing any `git add` when a rule outside nook's control (a committed `.gitignore`, usually) still ignores the board — that message names the file and line, and removing it is the human's call too.
+**Whether a board is shared or private is the human's decision, not yours.** `nook init --private` keeps the whole `.gitnook/` (issues and decisions together) out of git entirely — zero committed bytes, so nobody on the team has to be told about it yet — and `nook issue share` puts it back. Both change what everyone else can see, so never run either on your own initiative — the same rule as `queued`, though not the same shape: `queued` is a grant the human makes, while here there is no granting form at all, just the prohibition. If the human asks for one of them, run it and hand them what it prints, because nook runs no git command that writes. `share` exits 1 without printing any `git add` when a rule outside nook's control (a committed `.gitignore`, usually) still ignores the board — that message names the file and line, and removing it is the human's call too.
 
 `<value>` and `<body>` accept `-` to read stdin — **use this for anything multi-line**. Shell-escaping a markdown body is a bug source; piping is not.
 
@@ -123,7 +126,7 @@ It binds loopback only. It has no authentication, so reachability *is* write acc
 
 ## workspace: writes route to a member
 
-`nook workspace <list|doctor|studio|new|set|mv|comment|label|rm>` operates across however many boards it finds under the current directory, not just the one `nook` would find by searching upward. Use it when you are asked to look across a monorepo's packages, or a parent folder with several repos side by side, instead of `cd`-ing into each one and running the single-board command yourself. It never creates, merges, or infers a board — only boards that already exist (`.issues/issues/` already on disk) show up, grouped by path.
+`nook workspace <list|doctor|studio|new|set|mv|comment|label|rm>` operates across however many boards it finds under the current directory, not just the one `nook` would find by searching upward. Use it when you are asked to look across a monorepo's packages, or a parent folder with several repos side by side, instead of `cd`-ing into each one and running the single-board command yourself. It never creates, merges, or infers a board — only boards that already exist (`.gitnook/issues/` already on disk) show up, grouped by path.
 
 - `nook workspace list [--all] [--status <s>] [--label <l>] [--json]` — every member's issues, grouped by path; the filter flags mean exactly what they mean for plain `list`, applied independently per member.
 - `nook workspace doctor [--fix]` — `nook doctor`'s health check run once per member, each line labelled with that member's path; any member unhealthy exits 1.
@@ -137,10 +140,12 @@ It binds loopback only. It has no authentication, so reachability *is* write acc
 
 **The `queued` boundary applies here exactly as it does to plain `nook issue mv`.** `nook workspace mv <ref> queued` is the same authorization grant as `nook issue mv <ref> queued` — do not move an issue into `queued` under `workspace` on your own initiative any more than you would in a single board. Nothing about routing through a member changes who is allowed to decide that. `doctor --fix` under `workspace` repairs file-level data integrity the same way `nook doctor --fix` does for one board — that is not the kind of write `queued` is about, and it needs no more asking than the single-board form does.
 
+**`nook workspace decision <list|new|set|show|history>`** is the same idea applied to decisions instead of issues — cross-repo, routed to whichever member owns the ref. `list` groups every member's decisions by path, same filter (`--disposition`) and empty-group semantics as `nook workspace list`. `new` requires `--in`, same as `nook workspace new`. `set`/`show`/`history` all require the full 26-character ULID and use `locateDecisionInWorkspace` internally — a short prefix is refused, not guessed at, same discipline as the issue side. `show` and `history` exist here even though plain `nook workspace` has no issue equivalent for them (there is no `nook workspace history`) — decisions get both because looking up one ADR by ref, or its write history, is a common cross-repo need that issues do not share the same way.
+
 ## When something is wrong
 
 `nook doctor` reports data health and exits non-zero when it finds anything. `--fix` repairs glued lines.
 
-The line `.issues/issues/*.ndjson merge=union` in `.gitattributes` is the **single point of failure** — without it, concurrent edits start conflicting silently. `doctor` checks it and `list`/`show` warn when it is missing. **On a shared board that warning is never noise**; `nook issue init` restores the line.
+The line `.gitnook/issues/*.ndjson merge=union` in `.gitattributes` is the **single point of failure** — without it, concurrent edits start conflicting silently. `doctor` checks it and `list`/`show` warn when it is missing. **On a shared board that warning is never noise**; `nook init` restores the line.
 
 It does not apply on a private board, and nook deliberately stays quiet there: a board excluded from git never merges, so there is nothing for `merge=union` to guarantee — the guarantee is *unneeded*, not *missing*. Silence from `list`/`show` and from `doctor` on such a board is the correct output, not a swallowed problem. `nook issue share` is what makes the guarantee relevant again, and it restores the line as it goes.

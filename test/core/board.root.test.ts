@@ -38,7 +38,7 @@ describe('由子目錄向上尋根', () => {
     const added = fromDeep.create({ title: 'Add dark mode' });
     // 子目錄的寫入必須落在同一塊 board。靜默切出第二塊時兩邊各自累積
     // Issue，而且沒有任何東西會提示 —— 這是資料完整性問題。
-    expect(existsSync(join(deep, '.issues'))).toBe(false);
+    expect(existsSync(join(deep, '.gitnook'))).toBe(false);
     expect(atRoot.list().map((i) => i.id).sort()).toEqual([created.id, added.id].sort());
     // 「完全相同」：同一塊 board 在兩處讀出的結果不該有任何差異。
     expect(fromDeep.list()).toEqual(atRoot.list());
@@ -55,7 +55,7 @@ describe('取最近的一塊 board', () => {
     // 巢狀 board 只能繞過 initBoard 造出來（它現在會拒絕），但在這次修正
     // 之前建立的樹裡真的有，尋根必須對它給出可預期的答案。
     const inner = under('src');
-    mkdirSync(join(inner, '.issues', 'issues'), { recursive: true });
+    mkdirSync(join(inner, '.gitnook', 'issues'), { recursive: true });
     const deep = under('src', 'deep');
     openBoard({ dir: root, actor: 'test' }).create({ title: 'Fix login redirect' });
 
@@ -63,7 +63,7 @@ describe('取最近的一塊 board', () => {
     const own = board.create({ title: 'Add dark mode' });
 
     expect(board.list().map((i) => i.title)).toEqual(['Add dark mode']);
-    expect(readdirSync(join(inner, '.issues', 'issues'))).toEqual([`${own.id}.ndjson`]);
+    expect(readdirSync(join(inner, '.gitnook', 'issues'))).toEqual([`${own.id}.ndjson`]);
   });
 });
 
@@ -100,7 +100,57 @@ describe('找不到 board 時的錯誤訊息', () => {
     expect(thrown).toBeInstanceOf(BoardNotInitialized);
     expect(thrown?.message).toContain(deep);
     expect(thrown?.message).toContain(`up to ${repo}`);
-    expect(thrown?.message).toContain('.issues/issues');
+    expect(thrown?.message).toContain('.gitnook/issues');
+    // 沒有舊版 marker 時不附加任何 git mv —— 這是「真的沒有 board」的正常情境。
+    expect(thrown?.message).not.toContain('git mv');
+  });
+});
+
+/**
+ * 票 03：找不到 `.gitnook/` 但沿路找到舊版佈局 marker 時，`BoardNotInitialized`
+ * 的訊息附上可直接複製貼上執行的 `git mv` 指令 —— 不自動搬移（nook 不執行任何
+ * 會寫入的 git 指令，既有原則），只是把指令組出來給使用者看。
+ */
+describe('找不到 board 但找到舊版佈局時的錯誤訊息', () => {
+  it('只有舊版 .issues/issues/：附上對應的 git mv 指令，路徑相對於實際找到 marker 的目錄', () => {
+    const repo = under('repo');
+    execFileSync('git', ['init', '-q', repo], { stdio: 'ignore' });
+    mkdirSync(join(repo, '.issues', 'issues'), { recursive: true });
+
+    let thrown: Error | undefined;
+    try {
+      openBoard({ dir: repo, actor: 'test' }).list();
+    } catch (e) {
+      thrown = e as Error;
+    }
+
+    expect(thrown).toBeInstanceOf(BoardNotInitialized);
+    expect(thrown?.message).toContain(
+      `git mv "${join(repo, '.issues', 'issues')}" "${join(repo, '.gitnook', 'issues')}"`,
+    );
+    // 只有 issues 的舊版本來就只用過 issue：不能憑空造一條 decisions 的指令。
+    expect(thrown?.message).not.toContain('.decisions');
+  });
+
+  it('同時有舊版 .issues/issues/ 與 .decisions/decisions/：兩條 git mv 指令都看得到', () => {
+    const repo = under('repo2');
+    execFileSync('git', ['init', '-q', repo], { stdio: 'ignore' });
+    mkdirSync(join(repo, '.issues', 'issues'), { recursive: true });
+    mkdirSync(join(repo, '.decisions', 'decisions'), { recursive: true });
+
+    let thrown: Error | undefined;
+    try {
+      openBoard({ dir: repo, actor: 'test' }).list();
+    } catch (e) {
+      thrown = e as Error;
+    }
+
+    expect(thrown?.message).toContain(
+      `git mv "${join(repo, '.issues', 'issues')}" "${join(repo, '.gitnook', 'issues')}"`,
+    );
+    expect(thrown?.message).toContain(
+      `git mv "${join(repo, '.decisions', 'decisions')}" "${join(repo, '.gitnook', 'decisions')}"`,
+    );
   });
 });
 
@@ -138,7 +188,7 @@ describe('refs() 只做目錄列舉', () => {
     const readable = board.create({ title: 'Fix login redirect' });
     // 與 op-log 同名的**目錄**：readFileSync 會 EISDIR，只列目錄則碰都不會碰到。
     const unreadable = '01SEED00000000000000000009';
-    mkdirSync(join(root, '.issues', 'issues', `${unreadable}.ndjson`));
+    mkdirSync(join(root, '.gitnook', 'issues', `${unreadable}.ndjson`));
 
     expect(board.refs()).toEqual([readable.id, unreadable].sort());
     // 探針必須是活的：會摺疊 Op-log 的 list() 一定要在這裡炸開。
@@ -154,7 +204,7 @@ describe('board 目錄在 Board 建立之後消失', () => {
 
     // 尋根的結果被快取（否則 list 的成本會乘上目錄深度），但快取不該把一個
     // 使用者修得好的錯誤變成看起來像 nook 的 bug 的內部錯誤。
-    rmSync(join(root, '.issues'), { recursive: true });
+    rmSync(join(root, '.gitnook'), { recursive: true });
 
     expect(() => board.list()).toThrow(BoardNotInitialized);
   });
@@ -181,7 +231,7 @@ describe('Board.root()', () => {
  * 理由：呼叫端拿 `dir` 當「board 在哪裡」用時，只有剛好從根目錄開才會對。
  */
 describe('Board.root() 從子目錄開', () => {
-  it('回的是含 .issues/ 的那一層，不是 openBoard 收到的子目錄', () => {
+  it('回的是含 .gitnook/ 的那一層，不是 openBoard 收到的子目錄', () => {
     initBoard(root);
     const deep = under('src', 'deep', 'nested');
 
@@ -199,7 +249,7 @@ describe('Board.root() 在 board 目錄消失之後', () => {
     // 先讓尋根的結果被 memoise —— 沒有快取的話這個測試證明不到東西。
     board.create({ title: 'Fix login redirect' });
 
-    rmSync(join(root, '.issues'), { recursive: true });
+    rmSync(join(root, '.gitnook'), { recursive: true });
 
     // 一個仍然指著已經不是 board 的目錄的路徑，會被 header 原樣畫出來，
     // 而使用者接著在那裡下的每一個判斷都是錯的。

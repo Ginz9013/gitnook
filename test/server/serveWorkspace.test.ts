@@ -28,7 +28,7 @@ afterEach(async () => {
 
 function member(...parts: string[]): string {
   const dir = join(root, ...parts);
-  mkdirSync(join(dir, '.issues', 'issues'), { recursive: true });
+  mkdirSync(join(dir, '.gitnook', 'issues'), { recursive: true });
   return dir;
 }
 

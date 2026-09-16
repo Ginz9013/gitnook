@@ -98,6 +98,13 @@ const ADVICE: Record<Exclude<DiagnosticKind, 'NotAGitRepo'>, { readonly headline
   GluedLine: DATA_LAYER,
   UnparsableLine: DATA_LAYER,
   UnknownOp: DATA_LAYER,
+  InvalidNookConfig: {
+    // 不是資料層那一句：op-log 的資料好得很，壞的是設定檔本身。
+    headline: '.gitnook/config.json is malformed — workspace scanning will stop at this directory until it is fixed',
+    // 沒有自動修復可言（壞掉的 JSON 要人手動修），同 SharingMismatch：指向
+    // doctor 而不是猜一個可能把事情弄得更糟的指令。
+    fix: 'nook doctor',
+  },
 };
 
 

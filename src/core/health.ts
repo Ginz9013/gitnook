@@ -2,9 +2,17 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Diagnostic } from './types.js';
-import { MERGE_RULE, inspectMergeGuarantee, DECISIONS_DIR, DECISION_MERGE_RULE, DECISION_LOG_SAMPLE } from './gitattributes.js';
+import {
+  MERGE_RULE,
+  inspectMergeGuarantee,
+  ISSUES_DIR as ISSUES_MARKER,
+  DECISIONS_DIR,
+  DECISION_MERGE_RULE,
+  DECISION_LOG_SAMPLE,
+} from './gitattributes.js';
 import { OP_KINDS, splitGluedLine } from './ops.js';
 import { ignoredByGit, inspectSharing, opLogsTracked, overridingRule } from './sharing.js';
+import { inspectNookConfig, CONFIG_FILE_RELATIVE } from './nookConfig.js';
 
 /**
  * 資料健康診斷。彙整成一份 Diagnostic 清單：merge=union 那條唯一支柱是否還在、
@@ -19,6 +27,23 @@ export function diagnose(dir: string): Diagnostic[] {
     found.push({
       kind: 'NotAGitRepo',
       message: `${dir} is not inside a git work tree: merge=union will not take effect`,
+    });
+  }
+
+  // 檔案不存在不是壞掉——是還沒設定過 workspace，`inspectNookConfig` 的
+  // `absent` 狀態在這裡跟 `valid` 一樣沉默。只有 `malformed`（不是合法 JSON，
+  // 或合法 JSON 但不是物件）要開口：`readNookConfig` 對外把這兩種狀態都安全
+  // 失敗成 `{}`，跟「沒開 workspace」長得一模一樣，`scan()`（票 04）因此會在
+  // 這個目錄靜默停下——doctor 必須把這個狀態單獨講出來，否則使用者看不出掃描
+  // 其實是被一個壞掉的檔案擋住的。
+  if (inspectNookConfig(dir).status === 'malformed') {
+    found.push({
+      kind: 'InvalidNookConfig',
+      file: CONFIG_FILE_RELATIVE,
+      message:
+        `${CONFIG_FILE_RELATIVE} is not valid JSON (or not a JSON object): workspace scanning will ` +
+        `stop at this directory until it's fixed by hand (nook writes no git command, and there is ` +
+        `nothing to auto-repair here — the file's shape has to be fixed by a human).`,
     });
   }
 
@@ -48,12 +73,14 @@ export function diagnose(dir: string): Diagnostic[] {
   const knownEntities: readonly MergeGuaranteeEntity[] = [
     // 唯一的單點失效：保證不在，資料就會靜默開始衝突（decision legacyRef 0001，`nook decision show 0001`）。
     { active: guaranteeMatters, rule: MERGE_RULE, initHint: 'nook init' },
-    // Decision 用同一套機制，這條規則對它同樣成立——只是換一組 rule/sample/init 指令。
+    // Decision 用同一套機制，這條規則對它同樣成立——只是換一組 rule/sample 常數。
+    // initHint 同 Issue 那一條：`nook decision init` 已經被票 01 移除，唯一的
+    // 初始化入口是 `nook init`（同時補齊 issues、decisions 兩個模組）。
     {
       active: existsSync(join(dir, ...DECISIONS_DIR)),
       sample: DECISION_LOG_SAMPLE,
       rule: DECISION_MERGE_RULE,
-      initHint: 'nook decision init',
+      initHint: 'nook init',
     },
   ];
   for (const entity of knownEntities) {
@@ -64,7 +91,7 @@ export function diagnose(dir: string): Diagnostic[] {
 
   for (const name of opLogNames(dir)) {
     const relative = `${ISSUES_DIR}/${name}`;
-    for (const [line, text] of numberedLines(readFileSync(join(dir, ISSUES_DIR, name), 'utf8'))) {
+    for (const [line, text] of numberedLines(readFileSync(join(dir, ...ISSUES_MARKER, name), 'utf8'))) {
       if (isParsable(text)) {
         // 向前相容是資料安全問題（ADR-0001 硬規則 2）：reducer 靜默忽略未知 op，
         // 所以 doctor 必須把它說出來，否則使用者只會看到欄位莫名其妙沒生效。
@@ -142,7 +169,7 @@ function sharingMismatches(
     if (ignoredByGit(dir).ignored) return [];
 
     // **下一步不能是「重跑 init --private」。** 這個狀態最常見的成因是一條優先序
-    // 更高的否定規則（committed 的 `!.issues/` 壓過 `$GIT_DIR/info/exclude`），
+    // 更高的否定規則（committed 的 `!.gitnook/` 壓過 `$GIT_DIR/info/exclude`），
     // 而那時我們那一行**已經在了** —— `init --private` 會回 unchanged、什麼都不動，
     // 使用者照做之後 doctor 再說一次同一句話，永遠。所以問 git 是誰壓過它，並把
     // 那一行指出來；指不出來時就說指不出來，同 `share` 的做法。
@@ -150,7 +177,7 @@ function sharingMismatches(
     const why =
       rule === null
         ? `and git cannot point at which rule overrides it — run ` +
-          `git check-ignore -v --non-matching "${dir}/.issues" yourself to find it.`
+          `git check-ignore -v --non-matching "${dir}/.gitnook" yourself to find it.`
         : `your line is being overridden by ${rule} — remove or adjust that rule (nook only ever ` +
           `touches its own line), then run nook doctor again to confirm.`;
     return [
@@ -238,7 +265,7 @@ export function repair(dir: string): Repair[] {
   const done: Repair[] = [];
 
   for (const name of opLogNames(dir)) {
-    const path = join(dir, ISSUES_DIR, name);
+    const path = join(dir, ...ISSUES_MARKER, name);
     const relative = `${ISSUES_DIR}/${name}`;
     const out: string[] = [];
     let changed = false;
@@ -261,10 +288,11 @@ export function repair(dir: string): Repair[] {
   return done;
 }
 
-const ISSUES_DIR = '.issues/issues';
+/** `.gitnook/issues` 的相對路徑字串——`Diagnostic.file` 一律用 `/` 拼，不隨平台分隔符漂移。 */
+const ISSUES_DIR = ISSUES_MARKER.join('/');
 
 function opLogNames(dir: string): string[] {
-  const path = join(dir, ISSUES_DIR);
+  const path = join(dir, ...ISSUES_MARKER);
   if (!existsSync(path)) return [];
   // 排序讓 doctor 的輸出穩定，不隨檔案系統的回傳順序漂移。
   return readdirSync(path).filter((name) => name.endsWith('.ndjson')).sort();

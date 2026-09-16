@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { dispatchDecision } from '../../src/cli/decision.js';
 import { openDecisionLog } from '../../src/index.js';
 import { deriveActor } from '../../src/core/actor.js';
+import { initNook } from '../../src/core/gitattributes.js';
 import type { Io } from '../../src/cli/run.js';
 
 // ADR-0004：真實檔案系統，每個測試用例獨立 mkdtemp 的 cwd。
@@ -47,43 +49,29 @@ function capture(
   };
 }
 
-describe('decision init', () => {
-  it('建立 .decisions/decisions/ 與 .gitattributes 的 merge=union 那一行，exit 0', async () => {
-    const io = capture();
-
-    const code = await dispatchDecision(['init'], io);
-
-    expect(code).toBe(0);
-    expect(existsSync(join(dir, '.decisions', 'decisions'))).toBe(true);
-    expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toContain(
-      '.decisions/decisions/*.ndjson merge=union',
-    );
-    expect(io.err).toBe('');
-  });
-
-  it('第二次 init 是 no-op，exit 仍是 0', async () => {
-    await dispatchDecision(['init'], capture());
-
-    const again = capture();
-    expect(await dispatchDecision(['init'], again)).toBe(0);
-    expect(again.err).toBe('');
-  });
-
-  it('已存在衝突規則時報錯停止，不靜默覆蓋', async () => {
-    writeFileSync(join(dir, '.gitattributes'), '* -merge\n', 'utf8');
+/**
+ * 票 01：`nook decision init` 整個移除，`nook init` 是唯一的初始化入口
+ * （見 `test/core/gitattributes.test.ts` 的 `initNook` 測試群、
+ * `test/cli/run.test.ts` 的 `nook init` 測試群）。這裡只釘住「打了會得到清楚
+ * 指向 nook init 的錯誤」這一半，不重複測 init 本身的行為。
+ */
+describe('decision init 已移除', () => {
+  it('清楚指向 nook init，不靜默建出任何東西，exit 1', async () => {
     const io = capture();
 
     const code = await dispatchDecision(['init'], io);
 
     expect(code).toBe(1);
-    expect(io.err).toContain('* -merge');
-    expect(existsSync(join(dir, '.decisions', 'decisions'))).toBe(false);
+    expect(io.err).toContain('nook init');
+    expect(io.err).toContain('nook decision init');
+    expect(existsSync(join(dir, '.gitnook'))).toBe(false);
+    expect(io.out).toBe('');
   });
 });
 
 describe('decision new', () => {
   it('建立 Decision 並印出完整 26 碼 ULID', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
 
     const io = capture();
     const code = await dispatchDecision(['new', '--title', 'Use ULIDs for decisions'], io);
@@ -96,7 +84,7 @@ describe('decision new', () => {
   });
 
   it('接受 --body 與 --disposition', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
 
     const io = capture();
     await dispatchDecision(
@@ -111,7 +99,7 @@ describe('decision new', () => {
   });
 
   it('缺少 --title 時是使用者錯誤，exit 1', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
 
     const io = capture();
     const code = await dispatchDecision(['new'], io);
@@ -126,13 +114,16 @@ describe('decision new', () => {
     const code = await dispatchDecision(['new', '--title', 'X'], io);
 
     expect(code).toBe(1);
-    expect(io.err).toContain('nook decision init');
+    // 票 03：DecisionLogNotInitialized 不再提 nook decision init（票 01 已移除
+    // 這個指令），改指向唯一的初始化入口 nook init。
+    expect(io.err).toContain('nook init');
+    expect(io.err).not.toContain('nook decision init');
   });
 });
 
 describe('decision show', () => {
   it('印出 compact header（shortId／disposition／title）＋body 區塊，同票 08 的 ADR-0005 版面', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X', '--body', 'why', '--disposition', 'accepted'], newIo);
     const ref = newIo.out.trim();
@@ -146,7 +137,7 @@ describe('decision show', () => {
   });
 
   it('body 為空時 header 一行就是全部輸出，不留空 body 區塊', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X'], newIo);
     const ref = newIo.out.trim();
@@ -158,7 +149,7 @@ describe('decision show', () => {
   });
 
   it('印 supersededBy 只在有值時', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X'], newIo);
     const ref = newIo.out.trim();
@@ -173,7 +164,7 @@ describe('decision show', () => {
   });
 
   it('--json 輸出可被解析回同一個 Decision', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X', '--body', 'why'], newIo);
     const ref = newIo.out.trim();
@@ -189,7 +180,7 @@ describe('decision show', () => {
   });
 
   it('找不到的 ref 是使用者錯誤，exit 1', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
 
     const io = capture();
     const code = await dispatchDecision(['show', '01DOESNOTEXIST00000000000'], io);
@@ -201,7 +192,7 @@ describe('decision show', () => {
 
 describe('decision list', () => {
   it('空的 Decision Log 印出空表格訊息，而非報錯', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
 
     const io = capture();
     const code = await dispatchDecision(['list'], io);
@@ -212,7 +203,7 @@ describe('decision list', () => {
   });
 
   it('印出全部 Decision 的 ref/title/disposition，可用 grep 找到特定決策', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const a = capture();
     await dispatchDecision(['new', '--title', 'Use ULIDs for decisions', '--disposition', 'accepted'], a);
     const refA = a.out.trim();
@@ -232,7 +223,7 @@ describe('decision list', () => {
   });
 
   it('--disposition 接受無歧義前綴，只回傳符合的 Decision', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     await dispatchDecision(
       ['new', '--title', 'Accepted one', '--disposition', 'accepted'],
       capture(),
@@ -248,7 +239,7 @@ describe('decision list', () => {
   });
 
   it('--disposition 給不合法值時是使用者錯誤，exit 1', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
 
     const io = capture();
     const code = await dispatchDecision(['list', '--disposition', 'bogus'], io);
@@ -258,7 +249,7 @@ describe('decision list', () => {
   });
 
   it('--json 輸出可被解析為陣列，鍵依字母排序', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     await dispatchDecision(['new', '--title', 'X', '--body', 'why'], capture());
 
     const io = capture();
@@ -276,7 +267,7 @@ describe('decision list', () => {
 
 describe('decision set', () => {
   it('title：更新後回印那一列，同 nook set 既有的回印風格', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'Old title'], newIo);
     const ref = newIo.out.trim();
@@ -291,7 +282,7 @@ describe('decision set', () => {
   });
 
   it('body：接受直接值與 stdin 的 -，語意同 nook set', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X'], newIo);
     const ref = newIo.out.trim();
@@ -306,7 +297,7 @@ describe('decision set', () => {
   });
 
   it('body --editor：非 TTY 時報錯，不留下半個更動', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X', '--body', 'original'], newIo);
     const ref = newIo.out.trim();
@@ -320,7 +311,7 @@ describe('decision set', () => {
   });
 
   it('disposition：接受無歧義前綴', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X'], newIo);
     const ref = newIo.out.trim();
@@ -333,7 +324,7 @@ describe('decision set', () => {
   });
 
   it('disposition：不合法值拋 InvalidDisposition，訊息列出四個合法值，exit 1', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X'], newIo);
     const ref = newIo.out.trim();
@@ -349,7 +340,7 @@ describe('decision set', () => {
   });
 
   it('supersededBy：只驗證 ref 形狀，不驗證目標存在', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X'], newIo);
     const ref = newIo.out.trim();
@@ -365,7 +356,7 @@ describe('decision set', () => {
   });
 
   it('不存在的欄位名（Issue 的 status 不是 Decision 的）→ UsageError，列出四個合法欄位名，exit 1', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X'], newIo);
     const ref = newIo.out.trim();
@@ -378,7 +369,7 @@ describe('decision set', () => {
   });
 
   it('不存在的 ref → DecisionNotFound，exit 1', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
 
     const io = capture();
     const code = await dispatchDecision(
@@ -391,7 +382,7 @@ describe('decision set', () => {
   });
 
   it('有歧義的前綴 → AmbiguousDecisionRef，exit 1', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const a = capture();
     await dispatchDecision(['new', '--title', 'A'], a);
     const b = capture();
@@ -412,7 +403,7 @@ describe('decision set', () => {
  */
 describe('decision history', () => {
   it('不帶欄位時列出全部欄位的寫入，create 折成 title 的第一筆', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'Use ULIDs'], newIo);
     const ref = newIo.out.trim();
@@ -433,7 +424,7 @@ describe('decision history', () => {
   });
 
   it('帶欄位時只列該欄位的寫入', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X'], newIo);
     const ref = newIo.out.trim();
@@ -449,7 +440,7 @@ describe('decision history', () => {
   });
 
   it('一次都沒被寫過的欄位印出簡短訊息，而不是空表頭', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X'], newIo);
     const ref = newIo.out.trim();
@@ -462,7 +453,7 @@ describe('decision history', () => {
   });
 
   it('打錯欄位名是使用者錯誤，exit 1，不靜默回空清單', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X'], newIo);
     const ref = newIo.out.trim();
@@ -476,7 +467,7 @@ describe('decision history', () => {
   });
 
   it('legacyRef 不是 set 可寫的欄位，但寫過之後 history 兩種查法都看得到（不一致是 bug）', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X'], newIo);
     const ref = newIo.out.trim();
@@ -496,11 +487,11 @@ describe('decision history', () => {
   });
 
   it('唯讀：跑完之後 op-log 一個 byte 都沒變', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
     const newIo = capture();
     await dispatchDecision(['new', '--title', 'X', '--body', 'y'], newIo);
     const ref = newIo.out.trim();
-    const log = join(dir, '.decisions', 'decisions', `${ref}.ndjson`);
+    const log = join(dir, '.gitnook', 'decisions', `${ref}.ndjson`);
     const before = readFileSync(log, 'utf8');
 
     expect(await dispatchDecision(['history', ref], capture())).toBe(0);
@@ -510,7 +501,7 @@ describe('decision history', () => {
   });
 
   it('不存在的 ref → DecisionNotFound，exit 1', async () => {
-    await dispatchDecision(['init'], capture());
+    initNook(dir);
 
     const io = capture();
     const code = await dispatchDecision(['history', '01DOESNOTEXIST00000000000'], io);
@@ -528,5 +519,25 @@ describe('未知子指令', () => {
 
     expect(code).toBe(1);
     expect(io.err).toContain('bogus');
+  });
+});
+
+/**
+ * 票 03：找不到 `.gitnook/` 但沿路找到舊版佈局 marker 時，錯誤訊息附上可直接
+ * 複製貼上執行的 `git mv` 指令 —— 同 `test/cli/run.test.ts` 的 issue 側版本，
+ * 這裡驗證的是 decision 側 dispatch 也拿得到同一份提示（對稱處理）。
+ */
+describe('舊版佈局偵測', () => {
+  it('只有舊版 .decisions/decisions/：decision list 的錯誤訊息附上對應的 git mv 指令', async () => {
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+    mkdirSync(join(dir, '.decisions', 'decisions'), { recursive: true });
+
+    const io = capture();
+    const code = await dispatchDecision(['list'], io);
+
+    expect(code).toBe(1);
+    expect(io.err).toContain(
+      `git mv "${join(dir, '.decisions', 'decisions')}" "${join(dir, '.gitnook', 'decisions')}"`,
+    );
   });
 });

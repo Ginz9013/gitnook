@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openDecisionLog } from '../../src/core/decisionLog.js';
+import { openDecisionLog, lazyDecisionLog } from '../../src/core/decisionLog.js';
 import { initDecisionRoot } from '../../src/core/gitattributes.js';
 import {
   DecisionLogNotInitialized,
@@ -10,10 +10,11 @@ import {
   AmbiguousDecisionRef,
   InvalidDisposition,
 } from '../../src/core/decisionTypes.js';
+import type { Board } from '../../src/core/types.js';
 
 // ADR-0004：真實檔案系統，每個測試用例獨立 mkdtemp，不引入 mock。
 let dir: string;
-const decisionsDir = () => join(dir, '.decisions', 'decisions');
+const decisionsDir = () => join(dir, '.gitnook', 'decisions');
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nook-decision-'));
@@ -214,6 +215,38 @@ describe('未初始化的目錄', () => {
   });
 });
 
+describe('lazyDecisionLog', () => {
+  it('惰性：建構當下不問 board.root()，直到方法真的被呼叫；不快取，每次呼叫都重新問', () => {
+    initDecisionRoot(dir);
+    let calls = 0;
+    const board = {
+      root: () => {
+        calls++;
+        return dir;
+      },
+    } as unknown as Board;
+
+    const log = lazyDecisionLog(board);
+    expect(calls).toBe(0);
+
+    log.create({ title: 'X' });
+    expect(calls).toBe(1);
+
+    log.list();
+    expect(calls).toBe(2);
+  });
+
+  it('由它建出來的 DecisionLog 功能完整：create 之後 get 讀得回來', () => {
+    initDecisionRoot(dir);
+    const board = { root: () => dir } as unknown as Board;
+
+    const log = lazyDecisionLog(board);
+    const created = log.create({ title: 'Use ULIDs for decisions' });
+
+    expect(log.get(created.id).title).toBe('Use ULIDs for decisions');
+  });
+});
+
 describe('health', () => {
   it('merge=union 在時回傳空陣列', () => {
     initDecisionRoot(dir);
@@ -232,5 +265,8 @@ describe('health', () => {
 
     expect(found).toHaveLength(1);
     expect(found[0]!.kind).toBe('MissingMergeDriver');
+    // 票 04：health() 組出來的訊息不該再提已經被票 01 移除的 `nook decision init`——
+    // 唯一的初始化入口是 `nook init`。
+    expect(found[0]!.message).not.toContain('nook decision init');
   });
 });

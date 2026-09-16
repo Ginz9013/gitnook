@@ -1,0 +1,7 @@
+{"id":"01M2MV1BT5RF6XAXJGEJBMWG62","t":1,"a":"83a1","op":"create","title":"舊版佈局偵測：錯誤訊息附上可執行的 git mv 指令"}
+{"id":"01M2MV1BTFER3DPZDFF2HGJW4P","t":2,"a":"83a1","op":"set","k":"description","v":"票檔：.scratch/gitnook-unify/03-legacy-layout-hint.md（spec 同目錄 spec.md）\n\n找不到 .gitnook/ 但沿路找到舊版 .issues/issues/（或 .decisions/decisions/）時，BoardNotInitialized／DecisionLogNotInitialized 的訊息附上可直接複製貼上的 git mv 指令。不做自動搬移。順帶修掉 DecisionLogNotInitialized 訊息裡殘留的「nook decision init」字樣（該指令已被票 01 移除）。\n\nWrite ownership：src/core/gitattributes.ts、src/core/types.ts、src/core/decisionTypes.ts、src/core/board.ts、src/core/decisionLog.ts，及對應測試。\n\nBlocked by：01、02（types.ts 同一批檔案，避免同批次撞寫）。"}
+{"id":"01M2MV1BTFJK0YS5M0AT6EHXGC","t":3,"a":"83a1","op":"label.add","v":"gitnook-unify"}
+{"id":"01M2MV1BTFB4D8YNY9GTY66ZS2","t":4,"a":"83a1","op":"label.add","v":"core"}
+{"id":"01M2MV4FD40Y2CXKPH932FFMJX","t":5,"a":"83a1","op":"set","k":"status","v":"queued"}
+{"id":"01M2MYGGCRR1YJRER3T4P27HVY","t":6,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M2MZET5GF7RVED17CD08ZR52","t":7,"a":"83a1","op":"set","k":"status","v":"done"}

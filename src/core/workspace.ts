@@ -1,7 +1,8 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { openBoard } from './board.js';
-import { ISSUES_DIR } from './gitattributes.js';
+import { lazyDecisionLog } from './decisionLog.js';
+import { readNookConfig } from './nookConfig.js';
 import { isFullRef } from './ids.js';
 import {
   AmbiguousWorkspaceRef,
@@ -11,21 +12,44 @@ import {
   RefNotFoundInWorkspace,
 } from './types.js';
 import type { Issue, OpenWorkspaceOptions, Workspace, WorkspaceMember } from './types.js';
+import { AmbiguousDecisionWorkspaceRef, DecisionNotFound, DecisionRefNotFoundInWorkspace } from './decisionTypes.js';
+import type { Decision } from './decisionTypes.js';
 
-/** 已知不可能含使用者自建的 .issues/ —— 跳過純粹省時間，見 ADR-0012。 */
+/** 已知不可能含使用者自建的 .gitnook/ —— 跳過純粹省時間，見 ADR-0012。 */
 const SKIPPED_DIR_NAMES: ReadonlySet<string> = new Set(['.git', 'node_modules']);
 
-/** 同 `findBoardRoot` 的判斷（`gitattributes.ts`），只有一份 `ISSUES_DIR`。 */
-const hasBoard = (dir: string): boolean => existsSync(join(dir, ...ISSUES_DIR));
+/**
+ * 票 04：只問 `.gitnook/` 這個容器目錄存不存在，不分別問 issues／decisions
+ * 兩個子目錄——一個只 init 過 decision 側的目錄（legacy 過渡期，或先手動只
+ * 跑過一半）照樣是一個 workspace 成員，`board`／`decisionLog` 各自有沒有初
+ * 始化是它們自己的事。
+ */
+const hasBoard = (dir: string): boolean => existsSync(join(dir, '.gitnook'));
 
 /**
- * 遞迴掃描 dir 找出全部成員路徑。找到一個成員就不再往它底下更深處掃 ——
- * 那一支的搜尋在此停止，不會有巢狀更深處的 Board 被重複列進來。
+ * 這個 board 有沒有在 `.gitnook/config.json` 宣告自己也是一個 workspace 節點
+ * ——`true` 時 `scan()` 會繼續往它底下鑽（見 `scan()` 的呼叫端）。
+ *
+ * 疊在 `readNookConfig()`（`nookConfig.ts`）上：檔案不存在或格式錯誤一律安全
+ * 失敗成 `{}`，`workspace` 讀不到就是 falsy——這是這個承諾在 `scan()` 這個熱
+ * 路徑上真的成立的地方，一個壞掉的 config.json 不會讓整趟掃描掛掉，只會讓
+ * 那一支維持既有的「找到就停」。
+ */
+function isWorkspaceRoot(dir: string): boolean {
+  return readNookConfig(dir).workspace === true;
+}
+
+/**
+ * 遞迴掃描 dir 找出全部成員路徑。找到一個成員預設不再往它底下更深處掃——
+ * 那一支的搜尋在此停止，不會有巢狀更深處的 Board 被重複列進來。**除非**這個
+ * board 自己透過 `.gitnook/config.json` 的 `workspace: true` 宣告「我也是一個
+ * workspace 節點」，此時繼續往下鑽，子目錄裡遇到的 board 遞迴套用同一條規則
+ * ——這個特性掛在 board 自己身上，不特殊化呼叫端傳入的那個 root。
  */
 function scan(dir: string, members: string[]): void {
   if (hasBoard(dir)) {
     members.push(dir);
-    return;
+    if (!isWorkspaceRoot(dir)) return;
   }
 
   let entries;
@@ -54,10 +78,10 @@ export function openWorkspace(opts: OpenWorkspaceOptions = {}): Workspace {
   scan(root, paths);
   paths.sort();
 
-  const members: readonly WorkspaceMember[] = paths.map((path) => ({
-    path,
-    board: openBoard({ dir: path }),
-  }));
+  const members: readonly WorkspaceMember[] = paths.map((path) => {
+    const board = openBoard({ dir: path });
+    return { path, board, decisionLog: lazyDecisionLog(board) };
+  });
 
   return {
     members,
@@ -97,6 +121,43 @@ export function locateInWorkspace(
   if (hits.length === 0) throw new RefNotFoundInWorkspace(ref, workspace.members.length);
   if (hits.length > 1) {
     throw new AmbiguousWorkspaceRef(
+      ref,
+      hits.map((h) => h.member.path),
+    );
+  }
+  return hits[0]!;
+}
+
+/**
+ * 對稱於 `locateInWorkspace()`，但找的是 Decision：在一組成員的 `decisionLog`
+ * 裡找出擁有 ref 的那一個。ref 同樣必須是完整 26 碼 ULID（理由同
+ * `locateInWorkspace()`）。不重用 issue 側的 `RefNotFoundInWorkspace`/
+ * `AmbiguousWorkspaceRef`——兩者各自的呼叫端只需要 catch 各自的型別，硬共用
+ * 只會讓呼叫端多一次「這其實是哪一種 ref」的判斷。
+ */
+export function locateDecisionInWorkspace(
+  workspace: Workspace,
+  ref: string,
+): { readonly member: WorkspaceMember; readonly decision: Decision } {
+  if (!isFullRef(ref)) throw new IncompleteRef(ref);
+
+  const hits: { readonly member: WorkspaceMember; readonly decision: Decision }[] = [];
+  for (const member of workspace.members) {
+    try {
+      // 只接 DecisionNotFound：同 locateInWorkspace() 的既有推理，完整 26 碼
+      // ref 讓單一成員的 resolve() 永遠不會丟 AmbiguousDecisionRef——「多個
+      // 成員各自擁有同一個 ref」只可能發生在成員之間，交給下面的
+      // hits.length 檢查處理。其餘例外原樣拋出，不吞。
+      hits.push({ member, decision: member.decisionLog.get(ref) });
+    } catch (err) {
+      if (err instanceof DecisionNotFound) continue;
+      throw err;
+    }
+  }
+
+  if (hits.length === 0) throw new DecisionRefNotFoundInWorkspace(ref, workspace.members.length);
+  if (hits.length > 1) {
+    throw new AmbiguousDecisionWorkspaceRef(
       ref,
       hits.map((h) => h.member.path),
     );

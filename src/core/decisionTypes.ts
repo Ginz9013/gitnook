@@ -1,5 +1,7 @@
 import type { DecisionOp } from './decisionOps.js';
 import type { Diagnostic } from './types.js';
+import { legacyMoveHint } from './gitattributes.js';
+import type { LegacyLayout } from './gitattributes.js';
 
 /**
  * 四個固定 Disposition。不可自訂——同 `Status` 之於 Issue，但這是完全不同的
@@ -88,12 +90,19 @@ export interface OpenDecisionLogOptions {
 }
 
 export class DecisionLogNotInitialized extends Error {
-  constructor(dir: string, ceiling?: string) {
+  /**
+   * 對稱於 `BoardNotInitialized`（`core/types.ts`）—— 同一份措辭結構，同一份
+   * `legacy` 提示邏輯（票 03），只是 marker 換成 `.gitnook/decisions/`。
+   * `nook decision init` 已經被票 01 移除，這裡不再提它，唯一的初始化入口是
+   * `nook init`。
+   */
+  constructor(dir: string, ceiling?: string, legacy?: LegacyLayout) {
     super(
       ceiling === undefined
-        ? `not a Nook decision log: ${dir} (run nook decision init first)`
+        ? `not a Nook decision log: ${dir} (run nook init first)`
         : `not a Nook decision log: ${dir}` +
-          ` (searched up to ${ceiling} without finding .decisions/decisions/; run nook decision init at the project root)`,
+          ` (searched up to ${ceiling} without finding .gitnook/decisions/; run nook init at the project root)` +
+          legacyMoveHint(legacy),
     );
     this.name = 'DecisionLogNotInitialized';
   }
@@ -117,5 +126,31 @@ export class InvalidDisposition extends Error {
   constructor(value: string) {
     super(`not a valid disposition: ${value} (available: ${DISPOSITIONS.join(', ')})`);
     this.name = 'InvalidDisposition';
+  }
+}
+
+/**
+ * `locateDecisionInWorkspace()`（`core/workspace.ts`）掃過全部成員都沒找到
+ * 這個 ref —— 對稱於 `RefNotFoundInWorkspace`（`core/types.ts`），只是換成
+ * Decision 專用的型別，不重用 issue 那一個（兩者的呼叫端各自 catch 各自的
+ * 型別，共用會讓呼叫端多做一次「這其實是哪一種 ref」的判斷）。
+ */
+export class DecisionRefNotFoundInWorkspace extends Error {
+  constructor(readonly ref: string, readonly searchedCount: number) {
+    super(`decision ref not found in any of ${searchedCount} members: ${ref}`);
+    this.name = 'DecisionRefNotFoundInWorkspace';
+  }
+}
+
+/**
+ * 同一個 decision ref 同時存在於多個成員 —— 對稱於 `AmbiguousWorkspaceRef`
+ * （`core/types.ts`）。ULID 理論上不會撞號（見呼叫端的說明），這個型別存在
+ * 是為了讓 `locateDecisionInWorkspace()` 與 `locateInWorkspace()` 的行為對稱、
+ * 這條路徑可以被測到，不是因為預期它真的會發生。
+ */
+export class AmbiguousDecisionWorkspaceRef extends Error {
+  constructor(readonly ref: string, readonly memberPaths: readonly string[]) {
+    super(`decision ref ${ref} exists in ${memberPaths.length} members at once: ${memberPaths.join(', ')}`);
+    this.name = 'AmbiguousDecisionWorkspaceRef';
   }
 }
