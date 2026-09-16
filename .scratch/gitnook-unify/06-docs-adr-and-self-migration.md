@@ -2,6 +2,17 @@
 
 票檔：本檔（spec 同目錄 `spec.md`）
 
+## 執行後追加（整合者記錄）
+
+nook 自己 repo 的 `.issues/issues/`→`.gitnook/issues/`、`.decisions/decisions/`→
+`.gitnook/decisions/` 已經在票 01 落地之後、票 02 開始之前提前搬完（commit 見
+`git log --grep "Ticket: gitnook-unify/01-migrate"`）——原因：整套測試套件裡的
+`test/integration/packed-smoke.test.ts` 會在跑的過程中內部呼叫 `npm run bench`，
+而 `npm run build` 是那個指令的第一步，意外把 `dist/` 重建成票 01 之後的新版；
+`bin/nook.js` 吃的是 `dist/`，導致連整合者自己管理這批票的狀態都會找不到 board。
+這張票不用再做這個搬移動作，`.gitattributes` 也已經指向 `.gitnook/...`——票 06
+剩下的範圍是文件、ADR-0012 supersede、`packed-smoke.test.ts` 修正。
+
 ## Outcome
 
 README、AGENT.md、CONTEXT.md 完整交代這次的四個變化（`nook init` 統一、
@@ -32,10 +43,10 @@ README、AGENT.md、CONTEXT.md 完整交代這次的四個變化（`nook init` �
       accepted`
 - [ ] 用 `nook decision set <ADR-0012 的 ref> supersededBy <新條目的 ref>` 把
       ADR-0012 標成 superseded
-- [ ] nook 自己這個 repo 的 `.issues/issues/` 搬到 `.gitnook/issues/`，
+- [x] nook 自己這個 repo 的 `.issues/issues/` 搬到 `.gitnook/issues/`，
       `.decisions/decisions/` 搬到 `.gitnook/decisions/`（`git mv`，保留歷史）；
       `.gitattributes` 的兩條 `merge=union` 規則路徑跟著更新；`git status` 確認
-      沒有任何未預期的其餘變更
+      沒有任何未預期的其餘變更——**已在票 01 之後提前完成，見上方「執行後追加」**
 - [ ] `npm run bench` 六列閘門全綠（既有慣例：這個指令會清掉整個 `dist/`，是這
       次全部票落地之後才跑一次的最終驗證，不在任何單張票的 Focused/Suite 裡）
 - [ ] `test/integration/packed-smoke.test.ts` 全綠——這個檔案靠打包後的
