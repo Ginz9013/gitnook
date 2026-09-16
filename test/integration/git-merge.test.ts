@@ -66,7 +66,7 @@ function onBranch(dir: string, branch: string, message: string, work: () => void
 }
 
 function logOf(dir: string, id: string): string {
-  return readFileSync(join(dir, '.issues', 'issues', `${id}.ndjson`), 'utf8');
+  return readFileSync(join(dir, '.gitnook', 'issues', `${id}.ndjson`), 'utf8');
 }
 
 const CONFLICT_MARKERS = ['<<<<<<<', '=======', '>>>>>>>'];
@@ -249,7 +249,7 @@ describe('黏合行：union merge 對缺少 trailing newline 的真實反應（s
     // 證明防禦面認得的是 git 真正產生的東西，而不是我們想像的形狀。
     const dir = makeRepo();
     const id = '01JBX7A9Q3';
-    const log = join(dir, '.issues', 'issues', `${id}.ndjson`);
+    const log = join(dir, '.gitnook', 'issues', `${id}.ndjson`);
     const b1 = `{"id":"b1","t":1,"a":"k3f9","op":"create","title":"Fix login redirect"}`;
     const b2 = `{"id":"b2","t":2,"a":"k3f9","op":"label.add","v":"bug"}`;
     const b3 = `{"id":"b3","t":3,"a":"m8q2","op":"comment","body":"safari 才會重現"}`;

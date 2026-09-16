@@ -90,15 +90,15 @@ describe('exit code 與輸出去向', () => {
     expect(uninitialized.err).not.toBe('');
     expect(uninitialized.out).toBe('');
 
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     const missing = capture();
     expect(await run(['issue', 'show', '01JBZZ'], missing)).toBe(1);
     expect(missing.err).toContain('01JBZZ');
     expect(missing.out).toBe('');
 
-    // 內部錯誤：.issues/issues 變成一個檔案，掃描時炸開 —— 這不是使用者打錯字。
-    rmSync(join(dir, '.issues', 'issues'), { recursive: true });
-    writeFileSync(join(dir, '.issues', 'issues'), '', 'utf8');
+    // 內部錯誤：.gitnook/issues 變成一個檔案，掃描時炸開 —— 這不是使用者打錯字。
+    rmSync(join(dir, '.gitnook', 'issues'), { recursive: true });
+    writeFileSync(join(dir, '.gitnook', 'issues'), '', 'utf8');
     const broken = capture();
     expect(await run(['issue', 'list'], broken)).toBe(2);
     expect(broken.err).not.toBe('');
@@ -121,7 +121,7 @@ const gitInit = (): void => {
 describe('doctor', () => {
   it('健康時沉默 exit 0；有 Diagnostic 時逐條印出並 exit 非 0', async () => {
     gitInit();
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
 
     const healthy = capture();
@@ -129,7 +129,7 @@ describe('doctor', () => {
     expect(healthy.out).toBe('');
 
     // ADR-0001 硬規則 1 的實際產物：缺 trailing newline 時 union merge 把兩行黏成一行。
-    const log = join(dir, '.issues', 'issues', `${fullId('01JBXA')}.ndjson`);
+    const log = join(dir, '.gitnook', 'issues', `${fullId('01JBXA')}.ndjson`);
     const create = '{"id":"01A","t":1,"a":"k3f9","op":"create","title":"Fix login redirect"}';
     const status = '{"id":"01B","t":2,"a":"k3f9","op":"set","k":"status","v":"in_progress"}';
     const label = '{"id":"01C","t":3,"a":"k3f9","op":"label.add","v":"bug"}';
@@ -138,7 +138,7 @@ describe('doctor', () => {
     const sick = capture();
     expect(await run(['doctor'], sick)).not.toBe(0);
     expect(sick.out).toContain('GluedLine');
-    expect(sick.out).toContain(`.issues/issues/${fullId('01JBXA')}.ndjson:2`);
+    expect(sick.out).toContain(`.gitnook/issues/${fullId('01JBXA')}.ndjson:2`);
     expect(sick.out.trimEnd().split('\n')).toHaveLength(1);
   });
 });
@@ -155,7 +155,7 @@ async function waitFor(io: Capture, pattern: RegExp): Promise<string> {
 
 describe('studio', () => {
   it('開 server、印出 URL，收到關閉信號後乾淨結束', async () => {
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     const stop = new AbortController();
     running.push(stop);
@@ -183,10 +183,10 @@ describe('studio', () => {
   });
 });
 
-const COMMANDS = ['issue', 'decision', 'doctor', 'studio', 'workspace'];
+const COMMANDS = ['init', 'issue', 'decision', 'doctor', 'studio', 'workspace'];
 
 describe('--help 與 --version', () => {
-  it('--help 與空指令列出全部五個頂層指令並 exit 0，且短到值得每次都讀', async () => {
+  it('--help 與空指令列出全部六個頂層指令並 exit 0，且短到值得每次都讀', async () => {
     const asked = capture();
     const bare = capture();
 
@@ -237,11 +237,15 @@ describe('不認得的頂層指令', () => {
  * `nook issue <verb>`，沒有相容別名（CHANGELOG 的既有政策明講允許）。打舊
  * 指令得到的必須是一句指向新路徑的明確訊息，不是落回「unknown command」
  * 讓人自己去猜那是不是打錯字。
+ *
+ * **不含 `init`**——它是票 01 之後唯一沒有搬進 `nook issue` 底下的舊扁平指令：
+ * `nook init` 本身就是新指令（見「nook init 是唯一的初始化入口」那組測試），
+ * 不是「指向新路徑的錯誤」。
  */
 describe('舊的扁平指令改成明確的重新導向', () => {
   it('nook <舊指令> 直接指向 nook issue <舊指令>，不是模糊的 unknown command', async () => {
     const verbs = [
-      'init', 'new', 'list', 'show', 'history', 'set', 'rm', 'mv', 'comment', 'label', 'share',
+      'new', 'list', 'show', 'history', 'set', 'rm', 'mv', 'comment', 'label', 'share',
     ];
 
     for (const verb of verbs) {
@@ -298,11 +302,11 @@ describe('真實 process 的 Io adapter', () => {
 describe('doctor --fix', () => {
   it('修復黏合行、重跑診斷，並印出修復了什麼', async () => {
     gitInit();
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
 
     // 「可修復」的診斷若沒有任何修復途徑，等於只是在指責使用者。
-    const log = join(dir, '.issues', 'issues', `${fullId('01JBXA')}.ndjson`);
+    const log = join(dir, '.gitnook', 'issues', `${fullId('01JBXA')}.ndjson`);
     const create = '{"id":"01A","t":1,"a":"k3f9","op":"create","title":"Fix login redirect"}';
     const status = '{"id":"01B","t":2,"a":"k3f9","op":"set","k":"status","v":"in_progress"}';
     const label = '{"id":"01C","t":3,"a":"k3f9","op":"label.add","v":"bug"}';
@@ -318,7 +322,7 @@ describe('doctor --fix', () => {
     // 修好的檔案自己也要守住硬規則 1，否則下一次 merge 又黏起來（ADR-0001）。
     expect(readFileSync(log, 'utf8')).toBe(`${create}\n${status}\n${label}\n`);
     // 重跑診斷後已無 Diagnostic，所以輸出只剩「修了什麼」這一行。
-    expect(fixed.out).toContain(`.issues/issues/${fullId('01JBXA')}.ndjson:2`);
+    expect(fixed.out).toContain(`.gitnook/issues/${fullId('01JBXA')}.ndjson:2`);
     expect(fixed.out.trimEnd().split('\n')).toHaveLength(1);
 
     const again = capture();
@@ -350,7 +354,7 @@ describe('--help 涵蓋新的指令路徑', () => {
 describe('doctor 作用在 board 根目錄', () => {
   /** 根目錄的 op-log 被寫成缺 trailing newline 的樣子（ADR-0001 硬規則 1）。 */
   const glue = (): string => {
-    const log = join(dir, '.issues', 'issues', `${fullId('01JBXA')}.ndjson`);
+    const log = join(dir, '.gitnook', 'issues', `${fullId('01JBXA')}.ndjson`);
     const create = '{"id":"01A","t":1,"a":"k3f9","op":"create","title":"Fix login redirect"}';
     const status = '{"id":"01B","t":2,"a":"k3f9","op":"set","k":"status","v":"in_progress"}';
     const label = '{"id":"01C","t":3,"a":"k3f9","op":"label.add","v":"bug"}';
@@ -360,7 +364,7 @@ describe('doctor 作用在 board 根目錄', () => {
 
   it('在子目錄診斷的是根目錄那一塊，不是就地的空目錄', async () => {
     gitInit();
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     glue();
     const deep = join(dir, 'src', 'deep');
@@ -371,7 +375,7 @@ describe('doctor 作用在 board 根目錄', () => {
     expect(await run(['doctor'], io)).not.toBe(0);
     // 根目錄那一塊真正的問題。
     expect(io.out).toContain('GluedLine');
-    expect(io.out).toContain(`.issues/issues/${fullId('01JBXA')}.ndjson:2`);
+    expect(io.out).toContain(`.gitnook/issues/${fullId('01JBXA')}.ndjson:2`);
     // 就地目錄沒有 .gitattributes，問錯目錄就會多出這一則假診斷。
     expect(io.out).not.toContain('MissingMergeDriver');
     expect(io.out.trimEnd().split('\n')).toHaveLength(1);
@@ -379,7 +383,7 @@ describe('doctor 作用在 board 根目錄', () => {
 
   it('--fix 在子目錄真的修得到根目錄的 op-log', async () => {
     gitInit();
-    await run(['issue', 'init'], capture());
+    await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
     const log = glue();
     const deep = join(dir, 'src', 'deep');
@@ -388,7 +392,7 @@ describe('doctor 作用在 board 根目錄', () => {
     const io = capture({ cwd: deep });
 
     expect(await run(['doctor', '--fix'], io)).toBe(0);
-    expect(io.out).toContain(`.issues/issues/${fullId('01JBXA')}.ndjson:2`);
+    expect(io.out).toContain(`.gitnook/issues/${fullId('01JBXA')}.ndjson:2`);
     // 掃不到 op-log 的 --fix 是靜默不修：它會 exit 0 卻什麼都沒動。
     expect(readFileSync(log, 'utf8').trimEnd().split('\n')).toHaveLength(3);
     const issue = openBoard({ dir }).get('01JBXA');

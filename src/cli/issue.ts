@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { openBoard } from '../core/board.js';
-import { MERGE_RULE, findBoardRoot, initBoard, inspectMergeGuarantee } from '../core/gitattributes.js';
+import { MERGE_RULE, initBoard, inspectMergeGuarantee } from '../core/gitattributes.js';
 import { isValidRef } from '../core/ids.js';
 import { fieldWrites } from '../core/reduce.js';
 import { ignoredByGit, inspectSharing, opLogsTracked, unexcludeBoard } from '../core/sharing.js';
@@ -47,7 +47,14 @@ export async function dispatchIssue(argv: readonly string[], io: Io): Promise<nu
 
   switch (sub) {
     case 'init':
-      return cmdInit(parseArgs(rest, INIT_FLAGS), io);
+      // 票 01：`nook issue init`／`nook decision init` 整個移除，沒有相容
+      // 別名——沿用 `run.ts` 的 `LEGACY_ISSUE_COMMANDS` 那套「明確報錯指向
+      // 新路徑」做法，而不是落回下面模糊的 unknown subcommand（那句話只會
+      // 讓人以為自己打錯字，去猜一個離題的候選）。
+      throw new UsageError(
+        '`nook issue init` was removed — run `nook init` instead ' +
+          '(it creates both the issue board and the decision log, under .gitnook/)',
+      );
     case 'new':
       return cmdNew(parseArgs(rest, NEW_FLAGS), io);
     case 'list':
@@ -77,12 +84,11 @@ export async function dispatchIssue(argv: readonly string[], io: Io): Promise<nu
   // （`run.ts` 的 `unknownCommand`），不在每一個子命名空間各自複製一份。
   throw new UsageError(
     `unknown issue subcommand: ${sub ?? ''} ` +
-      '(available: init, new, list, show, history, set, rm, mv, comment, label, share)',
+      '(available: new, list, show, history, set, rm, mv, comment, label, share)',
   );
 }
 
 const NO_FLAGS: ReadonlySet<string> = new Set();
-const INIT_FLAGS: ReadonlySet<string> = new Set(['--private']);
 const NEW_FLAGS: ReadonlySet<string> = new Set(['--description', '--editor', '--label']);
 const LIST_FLAGS: ReadonlySet<string> = new Set(['--all', '--status', '--label', '--json']);
 const SHOW_FLAGS: ReadonlySet<string> = new Set(['--json']);
@@ -372,58 +378,6 @@ function guaranteeLine(dir: string): (io: Io) => void {
 }
 
 /**
- * init 是一次性的建置動作，因此它說話 —— 而 doctor 不說（unix「沒消息就是好
- * 消息」，且它會進 CI）。ADR-0005 的 token 預算管的是 40 票的日常情境，init
- * 一輩子只跑一次且不在該情境內，這幾行買到的是「我到底建了什麼」。
- *
- * 狀態必須在 initBoard 之前讀完 —— 之後再讀，看到的是它剛寫完的結果，
- * 三種結果會全部塌成「本來就在」。initBoard 丟例外時一行都不印。
- */
-function cmdInit(args: Args, io: Io): number {
-  if (args.has('--private')) return initPrivate(io);
-
-  const enclosing = findBoardRoot(io.cwd);
-  const boardExisted = enclosing.found && enclosing.root === io.cwd;
-  const guarded = inspectMergeGuarantee(io.cwd).kind === 'union';
-  const sayGuarantee = guaranteeLine(io.cwd);
-
-  initBoard(io.cwd);
-
-  if (!boardExisted) line(io, 'Created  .issues/issues/');
-  sayGuarantee(io);
-  // 兩件事都已經在了才是 no-op。沉默在這裡會與第一次的成功長得一模一樣，
-  // 而使用者問的正是「這次到底有沒有動到東西」。
-  if (boardExisted && guarded) line(io, 'Unchanged  this is already a board; nothing was created');
-  return 0;
-}
-
-/**
- * private mode 的 init。輸出沿用同一套三分法（建了 / 補了 / 什麼都沒做），
- * 外加一條**必須**被講出來的代價：被 git ignore 的 board 是一份沒有備份的
- * 資料，`git clean -xdf` 會把它整塊刪掉。
- *
- * 狀態同樣在寫入之前問完 —— 寫完再問，答案永遠是「已經在了」。
- */
-function initPrivate(io: Io): number {
-  const enclosing = findBoardRoot(io.cwd);
-  const boardExisted = enclosing.found && enclosing.root === io.cwd;
-  const excluded = inspectSharing(io.cwd) === 'private';
-
-  initBoard(io.cwd, { sharing: 'private' });
-
-  if (!boardExisted) line(io, 'Created  .issues/issues/');
-  if (!excluded) line(io, 'Ignored  .issues/  $GIT_DIR/info/exclude (this board will not be committed)');
-  // 兩件事都已經在了才是 no-op。沉默在這裡會與第一次的成功長得一模一樣。
-  if (boardExisted && excluded) {
-    line(io, 'Unchanged  this is already a private board; nothing was created');
-  }
-  // 每次都印：重跑 init 的人正是在問「我這塊 board 現在是什麼狀態」，而這是
-  // 那個答案裡最貴的一件事。
-  line(io, 'Note  git clean -xdf deletes the whole board, and there is no backup');
-  return 0;
-}
-
-/**
  * private → shared 的升級路徑：拿掉 nook 借的那一行、冪等補回 MERGE_RULE，然後
  * 把**使用者自己**要跑的 git 指令印出來。
  *
@@ -476,7 +430,7 @@ function cmdShare(args: Args, io: Io): number {
       io,
       blocked.ignored
         ? 'Removed  the line from $GIT_DIR/info/exclude (but see below: git is still ignoring this board)'
-        : 'Shared  .issues/  removed from $GIT_DIR/info/exclude (this board will enter git from now on)',
+        : 'Shared  .gitnook/  removed from $GIT_DIR/info/exclude (this board will enter git from now on)',
     );
   }
   sayGuarantee(io);
@@ -494,7 +448,7 @@ function cmdShare(args: Args, io: Io): number {
       io,
       blocked.source === null
         ? `git is still ignoring this board, so git add would be rejected, but git did not point at ` +
-            `which rule. Run git check-ignore -v "${root}/.issues" yourself to find it, remove it, then run nook issue share again.`
+            `which rule. Run git check-ignore -v "${root}/.gitnook" yourself to find it, remove it, then run nook issue share again.`
         : `git is still ignoring this board: the rule ${blocked.source} is still blocking it, so git add would be rejected. ` +
             `Remove that line yourself (nook never edits your .gitignore), then run nook issue share again.`,
     );
@@ -507,11 +461,11 @@ function cmdShare(args: Args, io: Io): number {
   // 東西」緊接著「請自己執行」本身就是自相矛盾的一對。
   if (alreadyOut) return 0;
 
-  // 指令帶完整路徑：board 可能不在 repo 根目錄（`/services/api/.issues/` 是支援
+  // 指令帶完整路徑：board 可能不在 repo 根目錄（`/services/api/.gitnook/` 是支援
   // 且被測試的形狀），那時貼上一條相對指令的人會在錯的目錄下執行它，而 git 只會
   // 說 pathspec 沒命中 —— 同 AlreadySharedBoard 訊息的理由。
   line(io, 'Next  nook runs no git command that writes; run these yourself:');
-  line(io, `  git add "${root}/.issues" "${root}/.gitattributes"`);
+  line(io, `  git add "${root}/.gitnook" "${root}/.gitattributes"`);
   line(io, '  git commit -m "Share the nook board"');
   return 0;
 }

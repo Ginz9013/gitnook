@@ -7,7 +7,7 @@ import { orderOps, reduce } from './reduce.js';
 import { systemIds, resolvePrefix, isValidRef, normalizeRef } from './ids.js';
 import { deriveActor } from './actor.js';
 import { diagnose } from './health.js';
-import { findBoardRoot } from './gitattributes.js';
+import { findBoardRoot, ISSUES_DIR } from './gitattributes.js';
 
 /** 預設檢視隱藏的工作結果。archived 另外處理 —— 它是可見性，兩者正交（ADR-0003）。 */
 const HIDDEN_BY_DEFAULT: ReadonlySet<string> = new Set(['done', 'cancelled']);
@@ -34,7 +34,7 @@ export function openBoard(opts: OpenBoardOptions = {}): Board {
     return found.root;
   };
 
-  const issuesDir = (): string => join(rootDir(), '.issues', 'issues');
+  const issuesDir = (): string => join(rootDir(), ...ISSUES_DIR);
 
   const actorId = (): string => (actor ??= deriveActor(rootDir()));
 

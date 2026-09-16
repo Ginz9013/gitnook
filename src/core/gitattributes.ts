@@ -1,23 +1,32 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { readNookConfig, writeNookConfig } from './nookConfig.js';
 import { AlreadySharedBoard, excludeBoard, opLogsTracked } from './sharing.js';
 import type { Sharing } from './sharing.js';
 
 /**
  * 整個零衝突保證的唯一支柱 —— decision legacyRef 0001（`nook decision show 0001`）。
  * 這一行被誤刪時資料會靜默開始衝突，因此 doctor 持續驗證它還在。
+ *
+ * `.gitnook/issues/`：票 01 把 Issue 與 Decision 的容器目錄統一成 `.gitnook/`
+ * （原本各自獨立的 `.issues/`、`.decisions/`）——兩個模組的資料格式、marker
+ * 子目錄、gitattributes 規則仍然各自獨立，只是放進同一個父目錄。
  */
-export const MERGE_RULE = '.issues/issues/*.ndjson merge=union';
+export const MERGE_RULE = '.gitnook/issues/*.ndjson merge=union';
 
 /**
  * 一個代表性的 op-log 路徑。問題永遠是「新的 op-log 檔會不會拿到 merge=union」，
  * 所以判斷方式就是拿一條真實形狀的路徑去比對 .gitattributes 的 pattern。
+ *
+ * export 給 `cli/run.ts` 的 `cmdInit` 重用——它要跟 `DECISION_LOG_SAMPLE` 對稱地
+ * 各自問一次兩個模組的零衝突保證（同 `MERGE_RULE`/`DECISION_MERGE_RULE` 已經
+ * export 的理由）。
  */
-const OP_LOG_SAMPLE = '.issues/issues/01JBX7A9Q3.ndjson';
+export const OP_LOG_SAMPLE = '.gitnook/issues/01JBX7A9Q3.ndjson';
 
 /**
  * Decision 版的零衝突保證 —— 同 `MERGE_RULE`/`OP_LOG_SAMPLE`，一份給
- * Decision Log 用。`.decisions/decisions/` 是它的 marker 目錄（同
+ * Decision Log 用。`.gitnook/decisions/` 是它的 marker 目錄（同
  * `ISSUES_DIR` 之於 Issue）。
  *
  * 這是 spec.md 提到的「泛化尋根/初始化」在這個檔案裡實際落地的形狀：不是
@@ -26,9 +35,9 @@ const OP_LOG_SAMPLE = '.issues/issues/01JBX7A9Q3.ndjson';
  * （`board.ts`/`decisionLog.ts`/CLI）永遠只看到具名的
  * `findBoardRoot`/`findDecisionRoot`，不必知道底下共用了什麼。
  */
-export const DECISION_MERGE_RULE = '.decisions/decisions/*.ndjson merge=union';
-export const DECISION_LOG_SAMPLE = '.decisions/decisions/01JBX7A9Q3.ndjson';
-export const DECISIONS_DIR = ['.decisions', 'decisions'] as const;
+export const DECISION_MERGE_RULE = '.gitnook/decisions/*.ndjson merge=union';
+export const DECISION_LOG_SAMPLE = '.gitnook/decisions/01JBX7A9Q3.ndjson';
+export const DECISIONS_DIR = ['.gitnook', 'decisions'] as const;
 
 /**
  * 使用者既有的 .gitattributes 會讓 op-log 拿到 union 以外的 merge 行為。
@@ -71,9 +80,9 @@ export function inspectMergeGuarantee(dir: string, sample: string = OP_LOG_SAMPL
  * board 的資料目錄，相對於 board 的根目錄。
  *
  * 匯出給 `workspace.ts` 重用同一個「這裡有沒有一塊 board」的判斷——兩處各自
- * 寫一份 `.issues/issues` 字面路徑，其中一份改了資料目錄名稱就會漏改。
+ * 寫一份 `.gitnook/issues` 字面路徑，其中一份改了資料目錄名稱就會漏改。
  */
-export const ISSUES_DIR = ['.issues', 'issues'] as const;
+export const ISSUES_DIR = ['.gitnook', 'issues'] as const;
 
 /** 由某個目錄向上尋根的結果。 */
 export type BoardRoot =
@@ -86,7 +95,7 @@ export type BoardRoot =
  * 沒有它，`cd src/deep && nook list` 會說這裡不是 board。
  *
  * **停止條件是 git repo 的根目錄**，只有不在任何 repo 內時才一路走到
- * filesystem root。理由：`.issues/` 的每一個 byte 都在 git 裡（ADR-0002），
+ * filesystem root。理由：`.gitnook/` 的每一個 byte 都在 git 裡（ADR-0002），
  * 一塊 board 屬於一個 repo。越過 repo 根去命中上層的 board，等於把 Issue
  * 寫進另一個 repo 的資料 —— 那是「board 被無聲切成兩塊」的鏡像失敗，同樣
  * 沒有任何東西會提示。而在 `git init` 之前 board 仍然要能用，所以沒有 repo
@@ -97,7 +106,7 @@ export function findBoardRoot(dir: string): BoardRoot {
 }
 
 /**
- * 同 `findBoardRoot`，但 marker 換成 `.decisions/decisions`——給 Decision Log
+ * 同 `findBoardRoot`，但 marker 換成 `.gitnook/decisions`——給 Decision Log
  * 用。兩者呼叫的是同一份尋根邏輯（`findMarkerRoot`），差別只在 marker 目錄，
  * 因此停止條件（repo 根）與退回規則（找不到 repo 根就走到 filesystem root）
  * 逐字相同，不會漂移成兩份規則。
@@ -141,7 +150,7 @@ export class NestedBoard extends Error {
 }
 
 /**
- * 建立 .issues/issues/，並依 Sharing 補上這個模式的保證：
+ * 建立 .gitnook/issues/，並依 Sharing 補上這個模式的保證：
  * shared 冪等寫入 MERGE_RULE（不覆蓋既有內容），private 則把整塊 board 冪等
  * 排除在 git 之外。
  *
@@ -162,7 +171,7 @@ export function initBoard(dir: string, opts?: { readonly sharing?: Sharing }): v
 
   if (sharing === 'private') {
     // **兩條拒絕都排在任何寫入之前，然後才是排除，最後才建目錄。** 反過來的話，
-    // 拒絕會留下一個 git 看得見的 .issues/（NoGitDir）或一條對 tracked 路徑毫無
+    // 拒絕會留下一個 git 看得見的 .gitnook/（NoGitDir）或一條對 tracked 路徑毫無
     // 效果、卻讓 inspectSharing 從此回答 private 的規則（AlreadySharedBoard）——
     // 兩者都與使用者要的「不留痕跡」正好相反，而他以為指令失敗了。shared 路徑的
     // ConflictingGitAttributes 同樣排在 mkdir 之前，是同一條紀律。
@@ -215,19 +224,154 @@ function initGuardedMarkerDir(here: string, marker: readonly string[], rule: str
   }
 
   mkdirSync(join(here, ...marker), { recursive: true });
+  ensureGuaranteeRule(here, rule, sample);
+}
+
+/**
+ * `initGuardedMarkerDir` 的寫入下半段，抽出來給 `initNook` 重用 ——
+ * `initNook` 要在**建目錄之前**把 issues、decisions 兩條規則的衝突檢查都做完
+ * （見 `ConflictingGitAttributes` 的不變量），所以不能沿用
+ * `initGuardedMarkerDir` 一次做完檢查與 mkdir 的形狀，只重用這一段純寫入邏輯。
+ *
+ * **不做衝突檢查、不 mkdir** —— 呼叫端自己負責這兩件事，且要排在呼叫這個函式
+ * 之前。回傳值是三分法：`created`（.gitattributes 這次才有）、`added`（補了
+ * 一行進既有檔案）、`unchanged`（規則早就在了）。
+ */
+function ensureGuaranteeRule(here: string, rule: string, sample: string): 'created' | 'added' | 'unchanged' {
+  const file = join(here, '.gitattributes');
+  const guarantee = inspectMergeGuarantee(here, sample);
+  // 既有規則已經讓 op-log 拿到 union 時就不再寫入 —— 冪等。
+  if (guarantee.kind === 'union') return 'unchanged';
 
   if (!existsSync(file)) {
     writeFileSync(file, `${rule}\n`, 'utf8');
-    return;
+    return 'created';
   }
-  // 既有規則已經讓 op-log 拿到 union 時就不再寫入 —— 冪等。
-  if (guarantee.kind === 'union') return;
 
   const existing = readFileSync(file, 'utf8');
-
   // 既有檔案缺 trailing newline 時，直接 append 會把規則黏在使用者的最後一行上。
   const lead = existing === '' || existing.endsWith('\n') ? '' : '\n';
   appendFileSync(file, `${lead}${rule}\n`, 'utf8');
+  return 'added';
+}
+
+/**
+ * `nook init [--private] [--workspace]` 的唯一入口 —— 一次把 Issue 與 Decision
+ * 兩個模組都準備好（新建或補齊，冪等），可選擇 private（整個 `.gitnook/` 不進
+ * git 追蹤）與 workspace（標記這個目錄在遞迴掃描時繼續往下鑽，見
+ * `workspace.ts` 的 `scan()`，票 02）。
+ *
+ * 取代 `nook issue init`／`nook decision init` 兩個獨立入口 —— 兩次 init 容易
+ * 漏掉一次，而「issue shared、decision private」混搭不是這批要支援的心智模型
+ * （spec.md 的 Non-goals）。
+ */
+export interface InitResult {
+  readonly issues: 'created' | 'unchanged';
+  readonly decisions: 'created' | 'unchanged';
+  /** 只在 shared 模式有意義；private 模式完全不碰 `.gitattributes`，恆為 `unchanged`。 */
+  readonly gitattributes: 'created' | 'added' | 'unchanged';
+  readonly workspace: 'enabled' | 'unchanged';
+  readonly sharing: Sharing;
+}
+
+/** `initNook` 的 NestedBoard 檢查用的 marker —— 只問 `.gitnook` 這一層。 */
+const GITNOOK_MARKER = ['.gitnook'] as const;
+
+/**
+ * 由 dir 向上找最近一個 `.gitnook` 目錄 —— `initNook` 的 NestedBoard 檢查用這個，
+ * **只檢查一次，涵蓋 issues、decisions 兩個模組**（不像 `initBoard`/
+ * `initDecisionRoot` 各自呼叫 `findBoardRoot`/`findDecisionRoot` 各查一次）。
+ * `.gitnook` 本身在任一模組 mkdir 時就會被建出來（`mkdirSync` 的 `recursive`
+ * 連父目錄一起建），所以只問這一層 marker 就足以認出「這裡已經 init 過」。
+ */
+function findNookRoot(dir: string): BoardRoot {
+  return findMarkerRoot(dir, GITNOOK_MARKER);
+}
+
+export function initNook(
+  dir: string,
+  opts?: { readonly sharing?: Sharing; readonly workspace?: boolean },
+): InitResult {
+  const here = resolve(dir);
+
+  // 排在任何寫入之前，且只做這一次 —— 兩個模組共用同一個 `.gitnook` 容器，
+  // 檢查它有沒有出現在某個上層目錄就夠，不必各自尋根。
+  const enclosing = findNookRoot(here);
+  if (enclosing.found && enclosing.root !== here) throw new NestedBoard(here, enclosing.root);
+
+  const sharing: Sharing = opts?.sharing ?? 'shared';
+
+  if (sharing === 'private') {
+    // 兩條拒絕都排在任何寫入之前（同 `initBoard` 的既有紀律）：op-log 已被追蹤
+    // 就是「這塊 board 已經共享出去了」，`excludeBoard` 沒有 `$GIT_DIR` 時丟
+    // `NoGitDir`。**完全不碰 `.gitattributes`**，連讀都不讀。
+    if (opLogsTracked(here)) throw new AlreadySharedBoard(here);
+    excludeBoard(here);
+
+    const issuesExisted = existsSync(join(here, ...ISSUES_DIR));
+    const decisionsExisted = existsSync(join(here, ...DECISIONS_DIR));
+    mkdirSync(join(here, ...ISSUES_DIR), { recursive: true });
+    mkdirSync(join(here, ...DECISIONS_DIR), { recursive: true });
+
+    return {
+      issues: issuesExisted ? 'unchanged' : 'created',
+      decisions: decisionsExisted ? 'unchanged' : 'created',
+      gitattributes: 'unchanged',
+      workspace: applyWorkspace(here, opts?.workspace),
+      sharing: 'private',
+    };
+  }
+
+  // shared 模式：**兩個模組的衝突檢查都排在任何 mkdir 之前** —— 只有其中一個
+  // 衝突,也不能先把另一個模組的目錄建出來,那會留下一個「一半初始化」的半成品。
+  const file = join(here, '.gitattributes');
+  const issuesGuarantee = inspectMergeGuarantee(here, OP_LOG_SAMPLE);
+  if (issuesGuarantee.kind === 'conflicting') {
+    throw new ConflictingGitAttributes(file, issuesGuarantee.line, issuesGuarantee.rule);
+  }
+  const decisionsGuarantee = inspectMergeGuarantee(here, DECISION_LOG_SAMPLE);
+  if (decisionsGuarantee.kind === 'conflicting') {
+    throw new ConflictingGitAttributes(file, decisionsGuarantee.line, decisionsGuarantee.rule);
+  }
+
+  const issuesExisted = existsSync(join(here, ...ISSUES_DIR));
+  const decisionsExisted = existsSync(join(here, ...DECISIONS_DIR));
+  const fileExistedBefore = existsSync(file);
+
+  mkdirSync(join(here, ...ISSUES_DIR), { recursive: true });
+  mkdirSync(join(here, ...DECISIONS_DIR), { recursive: true });
+
+  // 各自冪等寫入自己的 merge=union 規則 —— 不合併成一條 glob（spec.md 的
+  // Outcome）：issues、decisions 是兩個獨立的零衝突保證。
+  const issuesRuleOutcome = ensureGuaranteeRule(here, MERGE_RULE, OP_LOG_SAMPLE);
+  const decisionsRuleOutcome = ensureGuaranteeRule(here, DECISION_MERGE_RULE, DECISION_LOG_SAMPLE);
+
+  const gitattributes: InitResult['gitattributes'] = !fileExistedBefore
+    ? 'created'
+    : issuesRuleOutcome === 'added' || decisionsRuleOutcome === 'added'
+      ? 'added'
+      : 'unchanged';
+
+  return {
+    issues: issuesExisted ? 'unchanged' : 'created',
+    decisions: decisionsExisted ? 'unchanged' : 'created',
+    gitattributes,
+    workspace: applyWorkspace(here, opts?.workspace),
+    sharing: 'shared',
+  };
+}
+
+/**
+ * `.gitnook/config.json` 的 `workspace` 位元 —— **additive-only**：`true`
+ * 確保為 `true`，`undefined` 不動既有值，沒有「設回 false」的路徑（spec.md 的
+ * Non-goals：關掉這個標記是另一個未來的指令）。
+ */
+function applyWorkspace(here: string, workspace: boolean | undefined): 'enabled' | 'unchanged' {
+  if (workspace !== true) return 'unchanged';
+  const current = readNookConfig(here);
+  if (current.workspace === true) return 'unchanged';
+  writeNookConfig(here, { ...current, workspace: true });
+  return 'enabled';
 }
 
 interface MergeSetting {

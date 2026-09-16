@@ -9,7 +9,7 @@ import { IssueDeleted } from '../../src/core/types.js';
 // ADR-0009：刪除是第五個 LWW 欄位，不是新的 op 型別，也不是 unlink 檔案。
 // ADR-0004：真實檔案系統 + 每個測試用例獨立 mkdtemp，不使用 in-memory fake。
 let dir: string;
-const issuesDir = () => join(dir, '.issues', 'issues');
+const issuesDir = () => join(dir, '.gitnook', 'issues');
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nook-deleted-'));

@@ -133,7 +133,7 @@ describe('舊版 nook 讀一塊有墓碑的 board', () => {
     const { dir, removedId } = boardWithOneDeleted();
 
     // D2 的機制面：舊版看得見它，是因為那個檔從來沒有被 unlink。
-    const log = join(dir, '.issues', 'issues', `${removedId}.ndjson`);
+    const log = join(dir, '.gitnook', 'issues', `${removedId}.ndjson`);
     expect(existsSync(log)).toBe(true);
     // 誤刪的救生索 —— create 那一行也還在，不是被覆寫成一個墓碑。
     expect(readFileSync(log, 'utf8')).toContain(REMOVED);

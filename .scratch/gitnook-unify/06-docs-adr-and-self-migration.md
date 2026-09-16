@@ -38,6 +38,12 @@ README、AGENT.md、CONTEXT.md 完整交代這次的四個變化（`nook init` �
       沒有任何未預期的其餘變更
 - [ ] `npm run bench` 六列閘門全綠（既有慣例：這個指令會清掉整個 `dist/`，是這
       次全部票落地之後才跑一次的最終驗證，不在任何單張票的 Focused/Suite 裡）
+- [ ] `test/integration/packed-smoke.test.ts` 全綠——這個檔案靠打包後的
+      `dist/` 跑真的 CLI，裡面直接呼叫 `nook issue init`／`nook decision init`
+      （票 01 已經移除的指令），且內部會跑一次 `npm run bench`。它從票 01 落地
+      的那一刻起就會是紅的（在整合者的驗證紀錄裡；這是預期、已知的過渡狀態，
+      不是任何一張票的缺陷），要等這張票把呼叫換成 `nook init`、重新
+      build `dist/` 之後才會變綠——不要在票 01～05 任何一輪嘗試修它
 - [ ] `CHANGELOG.md` 補一則條目：breaking change，`.issues/`/`.decisions/` →
       `.gitnook/`、`nook issue init`/`nook decision init` 移除、
       `nook workspace decision` 新增——讓從 npm 更新上來的使用者知道要手動
@@ -57,6 +63,8 @@ None（這張票不改行為，只改文件與跑一次真實 CLI 操作在 nook
   檔案）
 - `.gitattributes`（路徑更新）
 - nook 自己 repo 的 `.issues/`、`.decisions/`（整個目錄被 `git mv` 清空）
+- `test/integration/packed-smoke.test.ts`（`nook issue init`/`nook decision
+  init` 呼叫換成 `nook init`）
 
 **不得碰**：任何 `src/*`、任何測試檔——文件跟實作對不上要回報 blocked，不是偷
 改程式碼配合文件。

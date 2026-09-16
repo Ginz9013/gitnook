@@ -8,7 +8,7 @@ import type { Op } from '../../src/core/ops.js';
 
 // ADR-0004：真實檔案系統 + 每個測試用例獨立 mkdtemp，不使用 in-memory fake。
 let dir: string;
-const issuesDir = () => join(dir, '.issues', 'issues');
+const issuesDir = () => join(dir, '.gitnook', 'issues');
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nook-labels-'));
@@ -155,12 +155,12 @@ function shuffler(seed: number): <T>(xs: readonly T[]) => T[] {
 /** 一個獨立的 board 根目錄，用來代表一個分支的 working tree。 */
 function branchDir(name: string): string {
   const root = join(dir, name);
-  mkdirSync(join(root, '.issues', 'issues'), { recursive: true });
+  mkdirSync(join(root, '.gitnook', 'issues'), { recursive: true });
   return root;
 }
 
 const logPath = (root: string, id: string): string =>
-  join(root, '.issues', 'issues', `${id}.ndjson`);
+  join(root, '.gitnook', 'issues', `${id}.ndjson`);
 
 const linesOf = (root: string, id: string): string[] =>
   readFileSync(logPath(root, id), 'utf8').split('\n').filter((l) => l !== '');

@@ -7,7 +7,7 @@ import type { IdSource } from '../../src/index.js';
 
 // ADR-0004：真實檔案系統 + 每個測試用例獨立 mkdtemp，不使用 in-memory fake。
 let dir: string;
-const issuesDir = () => join(dir, '.issues', 'issues');
+const issuesDir = () => join(dir, '.gitnook', 'issues');
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nook-set-'));

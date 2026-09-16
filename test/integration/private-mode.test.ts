@@ -75,7 +75,7 @@ function makeRepo(prefix = 'nook-private-'): string {
  *
  * 刻意走 openBoard().create() 而不是手寫一個 ndjson —— 要 tracked 的是 nook
  * 自己會寫出來的那個形狀的檔案，而 op-log 的格式不是這一批發明得出來的。
- * `initBoard` 之後的空 `.issues/issues/` 是 git 看不見的（git 不追蹤空目錄），
+ * `initBoard` 之後的空 `.gitnook/issues/` 是 git 看不見的（git 不追蹤空目錄），
  * 所以一定要先有一張 Issue 才 commit 得到東西。
  */
 function makeSharedBoard(): string {
@@ -142,22 +142,22 @@ function caught(fn: () => void): unknown {
 }
 
 describe('init --private 的核心路徑', () => {
-  it('建出 board、把 /.issues/ 寫進 info/exclude，而 git 看不到任何東西', () => {
+  it('建出 board、把 /.gitnook/ 寫進 info/exclude，而 git 看不到任何東西', () => {
     const repo = makeRepo();
 
     initBoard(repo, { sharing: 'private' });
 
-    expect(existsSync(join(repo, '.issues', 'issues'))).toBe(true);
+    expect(existsSync(join(repo, '.gitnook', 'issues'))).toBe(true);
     // private 模式完全不碰 .gitattributes：被 ignore 的 op-log 永遠不會 merge，
     // 那條規則在這裡是「不需要」而不是「缺少」。
     expect(existsSync(join(repo, '.gitattributes'))).toBe(false);
-    expect(linesOf(excludeFileOf(repo))).toContain('/.issues/');
+    expect(linesOf(excludeFileOf(repo))).toContain('/.gitnook/');
     // zero committed bytes：這一票的 outcome 就是這兩行。
     expect(git(repo, 'status', '--porcelain')).toBe('');
-    expect(git(repo, 'ls-files', '.issues')).toBe('');
+    expect(git(repo, 'ls-files', '.gitnook')).toBe('');
     // git 自己確認那條規則真的生效。不存在的路徑也答得出來（純 pattern 比對），
     // 所以不必先造一個 op-log 檔。
-    expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/01JBXA.ndjson').status).toBe(0);
+    expect(tryGit(repo, 'check-ignore', '-q', '.gitnook/issues/01JBXA.ndjson').status).toBe(0);
   });
 });
 
@@ -170,7 +170,7 @@ describe('exclude 的寫入是冪等的', () => {
     // 第二次是使用者真的會做的事（忘了自己跑過）。它必須是 no-op 而不是錯誤。
     initBoard(repo, { sharing: 'private' });
 
-    expect(linesOf(file).filter((l) => l === '/.issues/')).toHaveLength(1);
+    expect(linesOf(file).filter((l) => l === '/.gitnook/')).toHaveLength(1);
     // 回傳值是 init 的輸出要講的那件事：這次什麼都沒動。
     expect(excludeBoard(repo)).toBe('unchanged');
     expect(git(repo, 'status', '--porcelain')).toBe('');
@@ -183,15 +183,15 @@ describe('exclude 的寫入是冪等的', () => {
     rmSync(file);
 
     expect(excludeBoard(fresh)).toBe('created');
-    expect(readFileSync(file, 'utf8')).toBe('/.issues/\n');
+    expect(readFileSync(file, 'utf8')).toBe('/.gitnook/\n');
 
     const used = makeRepo();
-    // 缺 trailing newline 的既有檔案：直接 append 會生出 `*.log/.issues/`，
+    // 缺 trailing newline 的既有檔案：直接 append 會生出 `*.log/.gitnook/`，
     // 那條規則兩邊都不生效（ADR-0001 硬規則 1 的同一種 I/O 紀律）。
     writeFileSync(excludeFileOf(used), '*.log', 'utf8');
 
     expect(excludeBoard(used)).toBe('added');
-    expect(linesOf(excludeFileOf(used))).toEqual(['*.log', '/.issues/', '']);
+    expect(linesOf(excludeFileOf(used))).toEqual(['*.log', '/.gitnook/', '']);
   });
 });
 
@@ -204,28 +204,28 @@ describe('那一行的字面意義 —— 左右兩側不對稱', () => {
    * 東西會提示。基準一律是真實的 git check-ignore，不是我們對 gitignore 的記憶。
    */
   it('前導空白的規則 git 不承認，所以 nook 也不得承認', () => {
-    for (const written of [' /.issues/', '\t/.issues/']) {
+    for (const written of [' /.gitnook/', '\t/.gitnook/']) {
       const repo = makeRepo();
       initBoard(repo);
       writeFileSync(excludeFileOf(repo), `${written}\n`, 'utf8');
 
       // 先確認前提：git 真的不 ignore 它（前導空白是 pattern 的一部分）。
-      expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/x.ndjson').status).toBe(1);
+      expect(tryGit(repo, 'check-ignore', '-q', '.gitnook/issues/x.ndjson').status).toBe(1);
       expect(inspectSharing(repo)).toBe('shared');
       // 而且補得上去 —— 答 shared 之後還回 unchanged 等於永遠不修。
       expect(excludeBoard(repo)).toBe('added');
-      expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/x.ndjson').status).toBe(0);
+      expect(tryGit(repo, 'check-ignore', '-q', '.gitnook/issues/x.ndjson').status).toBe(0);
     }
   });
 
   it('尾端空白與 CR 是 git 自己就忽略的，所以那仍然是 nook 的那一行', () => {
-    for (const written of ['/.issues/   ', '/.issues/\r']) {
+    for (const written of ['/.gitnook/   ', '/.gitnook/\r']) {
       const repo = makeRepo();
       initBoard(repo);
       writeFileSync(excludeFileOf(repo), `${written}\n`, 'utf8');
 
       // 前提同上，但這次 git 說它生效 —— 所以答 private 才與 git 一致。
-      expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/x.ndjson').status).toBe(0);
+      expect(tryGit(repo, 'check-ignore', '-q', '.gitnook/issues/x.ndjson').status).toBe(0);
       expect(inspectSharing(repo)).toBe('private');
       expect(excludeBoard(repo)).toBe('unchanged');
     }
@@ -235,15 +235,15 @@ describe('那一行的字面意義 —— 左右兩側不對稱', () => {
 describe('拒絕時不留痕跡', () => {
   /**
    * 排除失敗（這裡是不在 git work tree 內）時若已經 mkdir 過，使用者會得到
-   * 一個 **git 看得見的** .issues/ —— 與他要的正好相反，而他以為指令失敗了。
+   * 一個 **git 看得見的** .gitnook/ —— 與他要的正好相反，而他以為指令失敗了。
    * 那條拒絕的使用者訊息屬於票 02；這一條守的是順序。
    */
-  it('不在 git work tree 內時丟錯，且不留下 .issues/', () => {
+  it('不在 git work tree 內時丟錯，且不留下 .gitnook/', () => {
     const loose = mkdtempSync(join(tmpdir(), 'nook-private-norepo-'));
     dirs.push(loose);
 
     expect(() => initBoard(loose, { sharing: 'private' })).toThrow();
-    expect(existsSync(join(loose, '.issues'))).toBe(false);
+    expect(existsSync(join(loose, '.gitnook'))).toBe(false);
   });
 
   /**
@@ -291,8 +291,8 @@ describe('inspectSharing 推導 Sharing', () => {
     // git 確實會 ignore 它（沒有前導 / 的 pattern 比對任何層級），但 nook 只認
     // 自己寫的那一整行：通用的 pattern 與優先序規則只有 git 自己說得準，而
     // 讀取熱路徑不能 spawn git。
-    writeFileSync(excludeFileOf(repo), '.issues/\n', 'utf8');
-    expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/01JBXA.ndjson').status).toBe(0);
+    writeFileSync(excludeFileOf(repo), '.gitnook/\n', 'utf8');
+    expect(tryGit(repo, 'check-ignore', '-q', '.gitnook/issues/01JBXA.ndjson').status).toBe(0);
 
     // 照舊回答 shared = 照舊警告、照舊回報。那是保守的失敗，不是靜默的失敗。
     expect(inspectSharing(repo)).toBe('shared');
@@ -333,7 +333,7 @@ describe('private 完全不碰 .gitattributes', () => {
     expect(existsSync(join(bare, '.gitattributes'))).toBe(false);
 
     const kept = makeRepo();
-    const existing = '*.png binary\n.issues/issues/*.ndjson merge=ours\n';
+    const existing = '*.png binary\n.gitnook/issues/*.ndjson merge=ours\n';
     writeFileSync(join(kept, '.gitattributes'), existing, 'utf8');
 
     initBoard(kept, { sharing: 'private' });
@@ -350,7 +350,7 @@ describe('private 完全不碰 .gitattributes', () => {
 });
 
 describe('board 不在 work tree 頂端', () => {
-  it('寫的是 /<相對路徑>/.issues/，而且 git 確認那條規則真的生效', () => {
+  it('寫的是 /<相對路徑>/.gitnook/，而且 git 確認那條規則真的生效', () => {
     const repo = makeRepo();
     const nested = join(repo, 'services', 'api');
     mkdirSync(nested, { recursive: true });
@@ -358,13 +358,13 @@ describe('board 不在 work tree 頂端', () => {
     initBoard(nested, { sharing: 'private' });
 
     // pattern 一律相對於 work tree 頂端 —— info/exclude 是整個 repo 的一份檔案，
-    // 寫成 /.issues/ 會排除掉頂端那塊（不存在的）board 而放過這一塊。
-    expect(linesOf(excludeFileOf(repo))).toContain('/services/api/.issues/');
+    // 寫成 /.gitnook/ 會排除掉頂端那塊（不存在的）board 而放過這一塊。
+    expect(linesOf(excludeFileOf(repo))).toContain('/services/api/.gitnook/');
     expect(
-      tryGit(repo, 'check-ignore', '-q', 'services/api/.issues/issues/01JBXA.ndjson').status,
+      tryGit(repo, 'check-ignore', '-q', 'services/api/.gitnook/issues/01JBXA.ndjson').status,
     ).toBe(0);
     // 錨定的另一半：頂端的同名路徑不該被這條規則掃到。
-    expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/01JBXA.ndjson').status).toBe(1);
+    expect(tryGit(repo, 'check-ignore', '-q', '.gitnook/issues/01JBXA.ndjson').status).toBe(1);
     expect(git(repo, 'status', '--porcelain')).toBe('');
     expect(inspectSharing(nested)).toBe('private');
   });
@@ -373,20 +373,20 @@ describe('board 不在 work tree 頂端', () => {
 /**
  * board 的相對路徑是一條**字面路徑**，而 `info/exclude` 收的是 gitignore 的
  * **pattern 語言**。目錄名裡的 metacharacter 不轉義，寫出去的就是一條**別的**
- * 規則：`/apps/[id]/.issues/`（Next.js 動態路由那種目錄名）不比對
+ * 規則：`/apps/[id]/.gitnook/`（Next.js 動態路由那種目錄名）不比對
  * `apps/[id]/` —— `[id]` 是一個字元類別 —— 卻會比對 `apps/i/`。實測
  * （git 2.50.1）那個狀態下 `git status` 看得到整塊 board，而 nook 三個面都沉默。
  *
  * 期望的形狀不是這一層發明的：`git check-ignore -v` 自己回寫的就是
- * `/apps/\[id\]/.issues/`。
+ * `/apps/\[id\]/.gitnook/`。
  */
 describe('board 路徑含 gitignore metacharacter', () => {
   /** [board 的目錄名, 該寫出去的那一行, 未轉義的規則會誤中的鄰居] */
   const shapes: ReadonlyArray<readonly [string, string, string]> = [
-    ['a[bc]d', '/a\\[bc\\]d/.issues/', 'abd'],
-    ['a*b', '/a\\*b/.issues/', 'aXb'],
-    ['q?z', '/q\\?z/.issues/', 'qAz'],
-    ['back\\slash', '/back\\\\slash/.issues/', 'backslash'],
+    ['a[bc]d', '/a\\[bc\\]d/.gitnook/', 'abd'],
+    ['a*b', '/a\\*b/.gitnook/', 'aXb'],
+    ['q?z', '/q\\?z/.gitnook/', 'qAz'],
+    ['back\\slash', '/back\\\\slash/.gitnook/', 'backslash'],
   ];
 
   it('寫出去的是轉義過的字面路徑，git 只咬得到那一個目錄', () => {
@@ -402,9 +402,9 @@ describe('board 路徑含 gitignore metacharacter', () => {
 
       expect(linesOf(excludeFileOf(repo))).toContain(rule);
       // 基準一律是真實的 git：規則真的咬得到這塊 board。
-      expect(tryGit(repo, 'check-ignore', '-q', `${name}/.issues/issues/x.ndjson`).status).toBe(0);
+      expect(tryGit(repo, 'check-ignore', '-q', `${name}/.gitnook/issues/x.ndjson`).status).toBe(0);
       // 而且只咬得到它 —— 未轉義的那一行會誤中這個鄰居，那才是 pattern 而不是路徑。
-      expect(tryGit(repo, 'check-ignore', '-q', `${decoy}/.issues/issues/x.ndjson`).status).toBe(1);
+      expect(tryGit(repo, 'check-ignore', '-q', `${decoy}/.gitnook/issues/x.ndjson`).status).toBe(1);
       // zero committed bytes 在這種目錄名上同樣成立。
       expect(git(repo, 'status', '--porcelain')).toBe('');
     }
@@ -415,7 +415,7 @@ describe('board 路徑含 gitignore metacharacter', () => {
  * 尾端空白是 gitignore 唯一一種會**改寫我們寫出去的那一行**的規則（git 會吃掉
  * 未轉義的尾端空白），而票 01 釘住的不變式就是：**寫出去的與讀回來的必須是
  * 同一條規則**。所以路徑裡帶尾端空白的那一段一律轉義，不讓那條規則有機會
- * 咬到 nook 自己的行 —— 這一行今天以 `.issues/` 結尾，那個「今天」不是契約。
+ * 咬到 nook 自己的行 —— 這一行今天以 `.gitnook/` 結尾，那個「今天」不是契約。
  */
 describe('board 路徑含尾端空白', () => {
   it('那一段的尾端空白也轉義，而且三個問法認的仍是同一行', () => {
@@ -425,16 +425,16 @@ describe('board 路徑含尾端空白', () => {
 
     initBoard(board, { sharing: 'private' });
 
-    expect(linesOf(excludeFileOf(repo))).toContain('/trail\\ /.issues/');
+    expect(linesOf(excludeFileOf(repo))).toContain('/trail\\ /.gitnook/');
     // 基準是真實的 git：轉義過的那一行照樣咬得到這塊 board。
-    expect(tryGit(repo, 'check-ignore', '-q', 'trail /.issues/issues/x.ndjson').status).toBe(0);
+    expect(tryGit(repo, 'check-ignore', '-q', 'trail /.gitnook/issues/x.ndjson').status).toBe(0);
     expect(git(repo, 'status', '--porcelain')).toBe('');
 
     // 寫什麼就認什麼 —— 認得它、補不重複、也移得掉。
     expect(inspectSharing(board)).toBe('private');
     expect(excludeBoard(board)).toBe('unchanged');
     expect(unexcludeBoard(board)).toBe('removed');
-    expect(tryGit(repo, 'check-ignore', '-q', 'trail /.issues/issues/x.ndjson').status).toBe(1);
+    expect(tryGit(repo, 'check-ignore', '-q', 'trail /.gitnook/issues/x.ndjson').status).toBe(1);
     expect(inspectSharing(board)).toBe('shared');
   });
 });
@@ -448,8 +448,8 @@ describe('board 路徑含尾端空白', () => {
 describe('board 路徑以 # 或 ! 開頭的那一段', () => {
   it('不轉義，而 git 確認那一行照樣生效', () => {
     for (const [name, rule] of [
-      ['#hash', '/#hash/.issues/'],
-      ['!bang', '/!bang/.issues/'],
+      ['#hash', '/#hash/.gitnook/'],
+      ['!bang', '/!bang/.gitnook/'],
     ] as const) {
       const repo = makeRepo();
       const board = join(repo, name);
@@ -459,7 +459,7 @@ describe('board 路徑以 # 或 ! 開頭的那一段', () => {
 
       expect(linesOf(excludeFileOf(repo))).toContain(rule);
       // git 自己說了：`#` 沒被讀成註解、`!` 沒被讀成否定 —— 行首是那個 `/`。
-      expect(tryGit(repo, 'check-ignore', '-q', `${name}/.issues/issues/x.ndjson`).status).toBe(0);
+      expect(tryGit(repo, 'check-ignore', '-q', `${name}/.gitnook/issues/x.ndjson`).status).toBe(0);
       expect(git(repo, 'status', '--porcelain')).toBe('');
       expect(inspectSharing(board)).toBe('private');
     }
@@ -480,11 +480,11 @@ describe('轉義之前就寫下的那一行（轉換期）', () => {
     initBoard(board, { sharing: 'private' });
     openBoard({ dir: board, actor: 'aaaa' }).create({ title: 'Fix login redirect' });
     // 舊版寫出去的形狀：一模一樣的路徑，只是沒有轉義。
-    writeFileSync(excludeFileOf(repo), '/apps/[id]/.issues/\n', 'utf8');
+    writeFileSync(excludeFileOf(repo), '/apps/[id]/.gitnook/\n', 'utf8');
 
     // 這一批的起點，由真實 git 確認：那條規則對這塊 board 沒有效果，board 整塊
     // 在 git 眼前 —— 下一次 git add -A 就把它推出去。
-    expect(tryGit(repo, 'check-ignore', '-q', 'apps/[id]/.issues/issues/x.ndjson').status).toBe(1);
+    expect(tryGit(repo, 'check-ignore', '-q', 'apps/[id]/.gitnook/issues/x.ndjson').status).toBe(1);
     expect(git(repo, 'status', '--porcelain')).toContain('apps/');
 
     // 認不得 → 答 shared。保守的失敗：list / show 照舊警告。
@@ -495,14 +495,14 @@ describe('轉義之前就寫下的那一行（轉換期）', () => {
     // 下一步修得回來：init --private 補上一條轉義過的規則。
     initBoard(board, { sharing: 'private' });
 
-    expect(linesOf(excludeFileOf(repo))).toContain('/apps/\\[id\\]/.issues/');
-    expect(tryGit(repo, 'check-ignore', '-q', 'apps/[id]/.issues/issues/x.ndjson').status).toBe(0);
+    expect(linesOf(excludeFileOf(repo))).toContain('/apps/\\[id\\]/.gitnook/');
+    expect(tryGit(repo, 'check-ignore', '-q', 'apps/[id]/.gitnook/issues/x.ndjson').status).toBe(0);
     expect(git(repo, 'status', '--porcelain')).toBe('');
     expect(inspectSharing(board)).toBe('private');
     expect(diagnose(board)).toEqual([]);
     // 舊那一行留在檔案裡：`info/exclude` 是使用者的檔案，nook 只認也只動自己
     // 寫的那一行（同 unexcludeBoard 的紀律）。
-    expect(linesOf(excludeFileOf(repo))).toContain('/apps/[id]/.issues/');
+    expect(linesOf(excludeFileOf(repo))).toContain('/apps/[id]/.gitnook/');
   });
 });
 
@@ -523,14 +523,14 @@ describe('linked worktree', () => {
 
     // 實測基準：git 自己說 info/exclude 在 common dir，兩邊問到同一個檔案。
     expect(excludeFileOf(linked)).toBe(excludeFileOf(main));
-    expect(linesOf(excludeFileOf(linked))).toContain('/.issues/');
-    expect(tryGit(linked, 'check-ignore', '-q', '.issues/issues/01JBXA.ndjson').status).toBe(0);
+    expect(linesOf(excludeFileOf(linked))).toContain('/.gitnook/');
+    expect(tryGit(linked, 'check-ignore', '-q', '.gitnook/issues/01JBXA.ndjson').status).toBe(0);
     expect(git(linked, 'status', '--porcelain')).toBe('');
     expect(inspectSharing(linked)).toBe('private');
 
     // 代價三：ignore 規則是共用的，untracked 的檔案不是 —— 每個 worktree 各有
     // 一塊空 board。這裡把那個事實釘住，README 要講的就是它。
-    expect(existsSync(join(main, '.issues'))).toBe(false);
+    expect(existsSync(join(main, '.gitnook'))).toBe(false);
   });
 });
 
@@ -543,7 +543,7 @@ describe('opLogsTracked —— git 的 index 才是共享狀態的權威', () =>
   it('op-log 進了 index 就回 true；還沒 commit 的 board 與不是 repo 的目錄回 false', () => {
     const shared = makeSharedBoard();
     // 前提成立才有這一條可言：git 真的在追蹤那些檔案。
-    expect(git(shared, 'ls-files', '.issues')).not.toBe('');
+    expect(git(shared, 'ls-files', '.gitnook')).not.toBe('');
 
     const fresh = makeRepo();
     initBoard(fresh);
@@ -572,14 +572,14 @@ describe('op-log 已經被 git 追蹤時，init --private 拒絕', () => {
   it('丟 AlreadySharedBoard，訊息講出使用者自己要跑的 git rm -r --cached', () => {
     const repo = makeSharedBoard();
     // 前提：git 真的在追蹤 op-log，而且因此不認那條 ignore 規則會有任何效果。
-    expect(git(repo, 'ls-files', '.issues')).not.toBe('');
+    expect(git(repo, 'ls-files', '.gitnook')).not.toBe('');
 
     const error = caught(() => initBoard(repo, { sharing: 'private' }));
 
     expect(error).toBeInstanceOf(AlreadySharedBoard);
     // 指令帶完整路徑：board 不在 repo 根目錄時，一條相對指令會在錯的目錄下
     // 執行，而 git 只會說 pathspec 沒命中 —— 貼得上去才算講出解法。
-    expect((error as Error).message).toContain(`git rm -r --cached "${repo}/.issues"`);
+    expect((error as Error).message).toContain(`git rm -r --cached "${repo}/.gitnook"`);
     // 「你自己跑」這件事必須寫在訊息裡，否則使用者會等 nook 動手。
     expect((error as Error).message).toContain('yourself');
   });
@@ -607,7 +607,7 @@ describe('答不出來時不得答「沒共享」', () => {
   });
 });
 
-describe('共享狀態問的是 op-log，不是整個 .issues/', () => {
+describe('共享狀態問的是 op-log，不是整個 .gitnook/', () => {
   /**
    * `opLogsTracked` 有兩個消費者，而寬一格對它們不是同一個答案：對 init 的拒絕，
    * 多拒是保守的；但 doctor 拿它當否決權（答 true 就是「不要壓掉
@@ -620,15 +620,15 @@ describe('共享狀態問的是 op-log，不是整個 .issues/', () => {
   it('只有 .gitkeep 進了 index 時不算共享，doctor 因此仍然沉默', () => {
     const repo = makeRepo();
     initBoard(repo, { sharing: 'private' });
-    writeFileSync(join(repo, '.issues', '.gitkeep'), '', 'utf8');
-    // -f 是必要的：整個 .issues/ 已經被排除了。
-    git(repo, 'add', '-f', '.issues/.gitkeep');
+    writeFileSync(join(repo, '.gitnook', '.gitkeep'), '', 'utf8');
+    // -f 是必要的：整個 .gitnook/ 已經被排除了。
+    git(repo, 'add', '-f', '.gitnook/.gitkeep');
     git(repo, 'commit', '-qm', 'keep the dir');
 
-    // 前提一：git 確實追蹤著 .issues/ 底下的某個東西（寬的問法會答 true）。
-    expect(git(repo, 'ls-files', '.issues')).not.toBe('');
+    // 前提一：git 確實追蹤著 .gitnook/ 底下的某個東西（寬的問法會答 true）。
+    expect(git(repo, 'ls-files', '.gitnook')).not.toBe('');
     // 前提二：op-log 本身仍然沒有被追蹤，而且仍然被 ignore。
-    expect(git(repo, 'ls-files', '.issues/issues')).toBe('');
+    expect(git(repo, 'ls-files', '.gitnook/issues')).toBe('');
 
     expect(opLogsTracked(repo)).toBe(false);
     expect(inspectSharing(repo)).toBe('private');
@@ -640,18 +640,18 @@ describe('拒絕時一個目錄都不建', () => {
   /**
    * 「什麼都沒寫」的另一半：git 看不見空目錄，所以只比對 info/exclude 與
    * `git status` 的話，把 mkdir 搬到拒絕之前不會讓任何測試變紅。這個情境
-   * （index 裡有 .issues，工作目錄那一份被 rm -rf 掉了）讓那一半也有斷言。
+   * （index 裡有 .gitnook，工作目錄那一份被 rm -rf 掉了）讓那一半也有斷言。
    */
   it('op-log 在 index 裡、工作目錄卻沒有那個目錄時，拒絕不會順手把它建回來', () => {
     const repo = makeSharedBoard();
-    rmSync(join(repo, '.issues'), { recursive: true, force: true });
+    rmSync(join(repo, '.gitnook'), { recursive: true, force: true });
     const before = readFileSync(excludeFileOf(repo), 'utf8');
 
     expect(caught(() => initBoard(repo, { sharing: 'private' }))).toBeInstanceOf(
       AlreadySharedBoard,
     );
 
-    expect(existsSync(join(repo, '.issues'))).toBe(false);
+    expect(existsSync(join(repo, '.gitnook'))).toBe(false);
     expect(readFileSync(excludeFileOf(repo), 'utf8')).toBe(before);
   });
 });
@@ -685,7 +685,7 @@ describe('兩條拒絕在 CLI 上都是 exit 1', () => {
     const repo = makeSharedBoard();
     const io = capture(repo);
 
-    expect(await run(['issue', 'init', '--private'], io)).toBe(1);
+    expect(await run(['init', '--private'], io)).toBe(1);
 
     expect(io.err).toContain('git rm -r --cached');
     // 沒有型別名前綴 —— 那是 exit 2（內部錯誤）那條路才加的。
@@ -699,13 +699,13 @@ describe('兩條拒絕在 CLI 上都是 exit 1', () => {
     dirs.push(loose);
     const io = capture(loose);
 
-    expect(await run(['issue', 'init', '--private'], io)).toBe(1);
+    expect(await run(['init', '--private'], io)).toBe(1);
 
     expect(io.err).toContain('nook init');
     expect(io.err.startsWith('NoGitDir:')).toBe(false);
     expect(io.out).toBe('');
     // 拒絕不留痕跡的那一半，在 CLI 這一層也成立。
-    expect(existsSync(join(loose, '.issues'))).toBe(false);
+    expect(existsSync(join(loose, '.gitnook'))).toBe(false);
   });
 });
 
@@ -722,9 +722,9 @@ describe('unexcludeBoard —— 只拿掉 nook 寫的那一行', () => {
     writeFileSync(file, '*.log\n', 'utf8');
     initBoard(repo, { sharing: 'private' });
     appendFileSync(file, 'build/\n', 'utf8');
-    expect(linesOf(file)).toEqual(['*.log', '/.issues/', 'build/', '']);
+    expect(linesOf(file)).toEqual(['*.log', '/.gitnook/', 'build/', '']);
     // 前提：git 真的在 ignore 這塊 board。
-    expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/01JBXA.ndjson').status).toBe(0);
+    expect(tryGit(repo, 'check-ignore', '-q', '.gitnook/issues/01JBXA.ndjson').status).toBe(0);
 
     expect(unexcludeBoard(repo)).toBe('removed');
 
@@ -732,7 +732,7 @@ describe('unexcludeBoard —— 只拿掉 nook 寫的那一行', () => {
     // 檔案本身留著 —— 它不是 nook 的檔案。
     expect(existsSync(file)).toBe(true);
     // 基準是真實的 git，不是我們對 gitignore 的記憶：規則真的失效了。
-    expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/01JBXA.ndjson').status).toBe(1);
+    expect(tryGit(repo, 'check-ignore', '-q', '.gitnook/issues/01JBXA.ndjson').status).toBe(1);
     expect(inspectSharing(repo)).toBe('shared');
   });
 
@@ -751,32 +751,32 @@ describe('移除時認的是 hasLine 的同一個判斷', () => {
    * 左右不對稱的那一面在移除這一側同樣成立，而且**兩個方向必須是同一個判斷**。
    * 各寫一套比對會長出兩種不一致的失敗：
    *
-   * - 移除端比得寬（`trim()`）：連使用者自己寫的 ` /.issues/` 一起刪掉 —— 那是
+   * - 移除端比得寬（`trim()`）：連使用者自己寫的 ` /.gitnook/` 一起刪掉 —— 那是
    *   git 不承認的規則，也就不是 nook 的那一行，nook 沒有權限動它。
-   * - 移除端比得窄（整行相等）：`/.issues/   ` 留在檔案裡，而 git **仍然承認它**
+   * - 移除端比得窄（整行相等）：`/.gitnook/   ` 留在檔案裡，而 git **仍然承認它**
    *   —— `share` 報告成功、board 卻還被 ignore，而 `inspectSharing` 也照樣回答
    *   private。那是這一批最不想要的那種靜默失敗。
    *
    * 基準一律是真實的 git check-ignore。
    */
   it('尾端空白與 CR 的那一行要拿掉 —— git 承認它，所以它就是 nook 的那一行', () => {
-    for (const written of ['/.issues/   ', '/.issues/\r']) {
+    for (const written of ['/.gitnook/   ', '/.gitnook/\r']) {
       const repo = makeRepo();
       initBoard(repo);
       writeFileSync(excludeFileOf(repo), `${written}\n`, 'utf8');
       // 前提：git 說這條規則生效，所以這塊 board 真的是 private。
-      expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/x.ndjson').status).toBe(0);
+      expect(tryGit(repo, 'check-ignore', '-q', '.gitnook/issues/x.ndjson').status).toBe(0);
       expect(inspectSharing(repo)).toBe('private');
 
       expect(unexcludeBoard(repo)).toBe('removed');
 
-      expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues/x.ndjson').status).toBe(1);
+      expect(tryGit(repo, 'check-ignore', '-q', '.gitnook/issues/x.ndjson').status).toBe(1);
       expect(inspectSharing(repo)).toBe('shared');
     }
   });
 
   it('前導空白的那一行不准碰 —— git 不承認它，它是使用者自己的內容', () => {
-    for (const written of [' /.issues/', '\t/.issues/']) {
+    for (const written of [' /.gitnook/', '\t/.gitnook/']) {
       const repo = makeRepo();
       initBoard(repo);
       writeFileSync(excludeFileOf(repo), `${written}\n`, 'utf8');
@@ -788,7 +788,7 @@ describe('移除時認的是 hasLine 的同一個判斷', () => {
 
   /**
    * pattern 錨定的另一半（同 `excludeBoard` 那一條）：`info/exclude` 是整個 repo
-   * 共用的一份檔案，所以 share 一塊 `/services/api/.issues/` 的 board 不得順手
+   * 共用的一份檔案，所以 share 一塊 `/services/api/.gitnook/` 的 board 不得順手
    * 解除頂端那一塊 —— 那會把另一塊 private board 無聲地交給 git。
    */
   it('board 不在 repo 根目錄時，只拿掉它自己那一行', () => {
@@ -801,11 +801,11 @@ describe('移除時認的是 hasLine 的同一個判斷', () => {
     // 頂端那一塊 board 的規則（一塊 board 不能開在另一塊底下，所以只寫規則）——
     // info/exclude 是整個 repo 共用的一份檔案，兩條規則本來就會並存。
     excludeBoard(repo);
-    expect(linesOf(excludeFileOf(repo))).toEqual(['/services/api/.issues/', '/.issues/', '']);
+    expect(linesOf(excludeFileOf(repo))).toEqual(['/services/api/.gitnook/', '/.gitnook/', '']);
 
     expect(unexcludeBoard(nested)).toBe('removed');
 
-    expect(linesOf(excludeFileOf(repo))).toEqual(['/.issues/', '']);
+    expect(linesOf(excludeFileOf(repo))).toEqual(['/.gitnook/', '']);
     expect(inspectSharing(nested)).toBe('shared');
     // 頂端那一塊還是 private —— 它不是這次 share 的對象。
     expect(inspectSharing(repo)).toBe('private');
@@ -823,7 +823,7 @@ describe('share 之後 git 仍然 ignore 那些檔案時', () => {
    */
   it('exit 1，說出是哪個檔案第幾行在擋，而且不印那條會失敗的 git add', async () => {
     const repo = makeRepo();
-    writeFileSync(join(repo, '.gitignore'), '# project junk\n.issues/\n', 'utf8');
+    writeFileSync(join(repo, '.gitignore'), '# project junk\n.gitnook/\n', 'utf8');
     git(repo, 'add', '.gitignore');
     git(repo, 'commit', '-qm', 'ignore the nook board');
     initBoard(repo, { sharing: 'private' });
@@ -834,9 +834,9 @@ describe('share 之後 git 仍然 ignore 那些檔案時', () => {
 
     // nook 那一行真的被拿掉了（它做完了自己那一半），但 git 還是說 ignore ——
     // 擋路的是 .gitignore 第 2 行，而那是使用者自己的檔案，nook 不改它。
-    expect(linesOf(excludeFileOf(repo))).not.toContain('/.issues/');
-    expect(tryGit(repo, 'check-ignore', '-q', '.issues/issues').status).toBe(0);
-    expect(io.err).toContain('.gitignore:2:.issues/');
+    expect(linesOf(excludeFileOf(repo))).not.toContain('/.gitnook/');
+    expect(tryGit(repo, 'check-ignore', '-q', '.gitnook/issues').status).toBe(0);
+    expect(io.err).toContain('.gitignore:2:.gitnook/');
     // 不假裝成功：那條 git add 會被 git 拒絕，印出來就是叫使用者去撞牆。
     expect(io.out).not.toContain('git add');
     // **也不得先承諾再收回。** stdout 那一行不能說「從現在起會進 git」，因為

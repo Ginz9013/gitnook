@@ -6,11 +6,22 @@ import { fileURLToPath } from 'node:url';
 // 直接匯入各模組，不繞 src/index.ts。CLI 是這個 package 內部的呼叫端，走公開面
 // 只會逼公開面為了自己人而變寬 —— 而每一個匯出都是永久的相容負債。
 import { openBoard } from '../core/board.js';
-import { ConflictingGitAttributes, NestedBoard, findBoardRoot } from '../core/gitattributes.js';
+import {
+  ConflictingGitAttributes,
+  DECISION_LOG_SAMPLE,
+  DECISION_MERGE_RULE,
+  MERGE_RULE,
+  NestedBoard,
+  OP_LOG_SAMPLE,
+  findBoardRoot,
+  initNook,
+  inspectMergeGuarantee,
+} from '../core/gitattributes.js';
 import { repair } from '../core/health.js';
 import type { Repair } from '../core/health.js';
 import { shortIdLength } from '../core/ids.js';
-import { AlreadySharedBoard, NoGitDir } from '../core/sharing.js';
+import { AlreadySharedBoard, NoGitDir, inspectSharing } from '../core/sharing.js';
+import type { Sharing } from '../core/sharing.js';
 import {
   AmbiguousRef,
   AmbiguousWorkspaceRef,
@@ -205,6 +216,8 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
   }
 
   switch (command) {
+    case 'init':
+      return cmdInit(parseArgs(rest, INIT_FLAGS), io);
     case 'issue':
       return dispatchIssue(rest, io);
     case 'decision':
@@ -236,9 +249,12 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
  * 名單只用來認出「這是一個搬過家的舊指令」，好給出比模糊的 unknownCommand
  * 更明確的那句話 —— 不是給 `dispatchIssue` 用的清單（那份清單在
  * `cli/issue.ts` 自己手上）。
+ *
+ * **不含 `init`**——票 01 把它搬去了 `nook init`（頂層指令，不是
+ * `nook issue init`），走的是完全不同的重新導向訊息（`dispatchIssue` 自己那
+ * 條 `case 'init'`），不屬於這份「`nook <verb>` → `nook issue <verb>`」清單。
  */
 const LEGACY_ISSUE_COMMANDS = [
-  'init',
   'new',
   'list',
   'show',
@@ -254,7 +270,7 @@ const LEGACY_ISSUE_COMMANDS = [
 /** 頂層指令：ADR-0005 的近似建議只在這個小得多的命名空間裡做，子命名空間
  * 各自的未知子指令另外處理（`dispatchIssue`/`dispatchWorkspace`/
  * `dispatchDecision`，都只列出可用清單，不做模糊猜測）。 */
-const COMMANDS = ['issue', 'decision', 'doctor', 'studio', 'workspace'];
+const COMMANDS = ['init', 'issue', 'decision', 'doctor', 'studio', 'workspace'];
 
 /** 打錯字與想要一個不存在的功能是兩件事，回答也該不一樣。 */
 function unknownCommand(command: string): string {
@@ -318,7 +334,7 @@ export function displayLength(board: Board): number {
  */
 const HELP = `nook <command>
 
-issue init [--private]  create the board; --private = no committed bytes
+init [--private] [--workspace]  create the board; --private = no committed bytes
 issue new <title> [--description <t|->] [--label <l>] [--editor]
 issue list [--all] [--status <s>] [--label <l>] [--json]
 issue show <ref> [--json]
@@ -329,7 +345,7 @@ issue mv <ref> <status>
 issue comment <ref> <body|->
 issue label <ref> +bug -ui
 issue share  upgrade a private board to shared
-decision init|new|show
+decision new|show
 doctor [--fix]           health check; --fix repairs glued lines
 studio [--port <n>]      localhost board
 workspace list [flags]   grouped by member, same filters as list
@@ -379,6 +395,7 @@ export const VALUED: ReadonlySet<string> = new Set([
  * 旗標名單搬進了 `cli/issue.ts`，這裡只留 doctor/studio 自己的兩份。 */
 const DOCTOR_FLAGS: ReadonlySet<string> = new Set(['--fix']);
 const STUDIO_FLAGS: ReadonlySet<string> = new Set(['--port']);
+const INIT_FLAGS: ReadonlySet<string> = new Set(['--private', '--workspace']);
 
 /** 供 `cli/workspace.ts` 重用（票 02），不在新檔裡重寫一份參數解析器。 */
 export interface Args {
@@ -578,6 +595,85 @@ async function cmdStudio(args: Args, io: Io): Promise<number> {
 
   await untilAborted(io.signal);
   await studio.close();
+  return 0;
+}
+
+/**
+ * `.gitattributes` 那一行這次發生了什麼事，講成一行字 —— 同 `cli/issue.ts`/
+ * `cli/decision.ts` 各自的 `guaranteeLine`，這裡把 rule/sample 參數化：
+ * `nook init` 要同時問 issues、decisions 兩條規則（各自一條，不合併成一條
+ * glob），所以呼叫兩次，帶不同的 rule/sample。
+ *
+ * **狀態必須在 `initNook` 之前讀完** —— 寫完再讀，看到的永遠是它剛寫完的
+ * 結果，三種結果會全部塌成「本來就在」。
+ */
+function guaranteeLine(dir: string, rule: string, sample: string): (io: Io) => void {
+  const guarded = inspectMergeGuarantee(dir, sample).kind === 'union';
+  const existed = existsSync(join(dir, '.gitattributes'));
+  return (target) => {
+    if (guarded) return;
+    line(target, `${existed ? 'Added  ' : 'Created'}  .gitattributes  ${rule}`);
+  };
+}
+
+/**
+ * `nook init [--private] [--workspace]` —— 唯一的初始化入口（票 01）：一次把
+ * Issue 與 Decision 兩個模組都準備好，取代已移除的 `nook issue init`／
+ * `nook decision init`。
+ *
+ * init 是一次性的建置動作，因此它說話（同既有 `cmdInit`／`initPrivate` 的既有
+ * 紀律）——doctor 不說（沒消息就是好消息，且它會進 CI）。狀態一律在
+ * `initNook` 之前讀完，寫完再讀會把三種結果塌成「本來就在」。`initNook` 丟例外
+ * 時一行都不印。
+ */
+function cmdInit(args: Args, io: Io): number {
+  const sharing: Sharing | undefined = args.has('--private') ? 'private' : undefined;
+  const workspace = args.has('--workspace') || undefined;
+
+  const wasPrivate = inspectSharing(io.cwd) === 'private';
+  const sayIssuesGuarantee = guaranteeLine(io.cwd, MERGE_RULE, OP_LOG_SAMPLE);
+  const sayDecisionsGuarantee = guaranteeLine(io.cwd, DECISION_MERGE_RULE, DECISION_LOG_SAMPLE);
+
+  const result = initNook(io.cwd, {
+    ...(sharing === undefined ? {} : { sharing }),
+    ...(workspace === undefined ? {} : { workspace }),
+  });
+
+  const createdIssues = result.issues === 'created';
+  const createdDecisions = result.decisions === 'created';
+  if (createdIssues) line(io, 'Created  .gitnook/issues/');
+  if (createdDecisions) line(io, 'Created  .gitnook/decisions/');
+
+  const workspaceEnabled = result.workspace === 'enabled';
+
+  if (result.sharing === 'private') {
+    const ignoredNow = !wasPrivate;
+    if (ignoredNow) {
+      line(io, 'Ignored  .gitnook/  $GIT_DIR/info/exclude (this board will not be committed)');
+    }
+    if (workspaceEnabled) {
+      line(io, 'Enabled  .gitnook/config.json  workspace: true (recursive scan continues past this directory)');
+    }
+    // 三件事都本來就對了才是 no-op。沉默在這裡會與第一次的成功長得一模一樣，
+    // 而使用者問的正是「這次到底有沒有動到東西」。
+    if (!createdIssues && !createdDecisions && !ignoredNow && !workspaceEnabled) {
+      line(io, 'Unchanged  this is already a private board; nothing was created');
+    }
+    // 每次都印：重跑 init 的人正是在問「我這塊 board 現在是什麼狀態」，而這是
+    // 那個答案裡最貴的一件事。
+    line(io, 'Note  git clean -xdf deletes the whole board, and there is no backup');
+    return 0;
+  }
+
+  sayIssuesGuarantee(io);
+  sayDecisionsGuarantee(io);
+  if (workspaceEnabled) {
+    line(io, 'Enabled  .gitnook/config.json  workspace: true (recursive scan continues past this directory)');
+  }
+  // 四件事都本來就對了才是 no-op（同 private 分支的既有紀律）。
+  if (!createdIssues && !createdDecisions && result.gitattributes === 'unchanged' && !workspaceEnabled) {
+    line(io, 'Unchanged  this is already a board; nothing was created');
+  }
   return 0;
 }
 

@@ -21,12 +21,12 @@ afterEach(() => {
 const attrs = (): string => readFileSync(join(dir, '.gitattributes'), 'utf8');
 
 describe('initDecisionRoot 在空目錄', () => {
-  it('建立 .decisions/decisions/ 與含 merge=union 那一行的 .gitattributes', () => {
+  it('建立 .gitnook/decisions/ 與含 merge=union 那一行的 .gitattributes', () => {
     initDecisionRoot(dir);
 
-    expect(statSync(join(dir, '.decisions', 'decisions')).isDirectory()).toBe(true);
+    expect(statSync(join(dir, '.gitnook', 'decisions')).isDirectory()).toBe(true);
     expect(existsSync(join(dir, '.gitattributes'))).toBe(true);
-    expect(attrs().split('\n')).toContain('.decisions/decisions/*.ndjson merge=union');
+    expect(attrs().split('\n')).toContain('.gitnook/decisions/*.ndjson merge=union');
     expect(attrs().endsWith('\n')).toBe(true);
   });
 });
@@ -37,7 +37,7 @@ describe('initDecisionRoot 遇上既有的 .gitattributes', () => {
 
     initDecisionRoot(dir);
 
-    expect(attrs()).toBe('*.png binary\n.decisions/decisions/*.ndjson merge=union\n');
+    expect(attrs()).toBe('*.png binary\n.gitnook/decisions/*.ndjson merge=union\n');
   });
 });
 
@@ -54,7 +54,7 @@ describe('重複 initDecisionRoot', () => {
 });
 
 describe('findDecisionRoot', () => {
-  it('由子目錄向上找到含 .decisions/decisions 的根', () => {
+  it('由子目錄向上找到含 .gitnook/decisions 的根', () => {
     initDecisionRoot(dir);
     const sub = join(dir, 'src', 'deep');
     mkdirSync(sub, { recursive: true });
@@ -85,11 +85,11 @@ describe('initDecisionRoot 在既有 decision log 的子目錄', () => {
     }
 
     expect(error?.name).toBe('NestedBoard');
-    expect(existsSync(join(sub, '.decisions'))).toBe(false);
+    expect(existsSync(join(sub, '.gitnook'))).toBe(false);
   });
 });
 
-describe('既有的 .gitattributes 對 .decisions 的 op-log 含衝突規則', () => {
+describe('既有的 .gitattributes 對 .gitnook/decisions 的 op-log 含衝突規則', () => {
   it('遇上 * -merge 時報錯停止，不靜默改變使用者的 merge 行為', () => {
     const before = '* -merge\n*.png binary\n';
     writeFileSync(join(dir, '.gitattributes'), before, 'utf8');
@@ -103,19 +103,19 @@ describe('既有的 .gitattributes 對 .decisions 的 op-log 含衝突規則', (
 
     expect(error?.name).toBe('ConflictingGitAttributes');
     expect(attrs()).toBe(before);
-    expect(existsSync(join(dir, '.decisions', 'decisions'))).toBe(false);
+    expect(existsSync(join(dir, '.gitnook', 'decisions'))).toBe(false);
   });
 });
 
 describe('Issue 的 initBoard/findBoardRoot 不受 Decision 泛化影響', () => {
-  it('initBoard 建出 .issues/issues，與 .decisions 完全獨立', () => {
+  it('initBoard 建出 .gitnook/issues，與 .gitnook/decisions 完全獨立', () => {
     initBoard(dir);
     initDecisionRoot(dir);
 
-    expect(existsSync(join(dir, '.issues', 'issues'))).toBe(true);
-    expect(existsSync(join(dir, '.decisions', 'decisions'))).toBe(true);
-    expect(attrs()).toContain('.issues/issues/*.ndjson merge=union');
-    expect(attrs()).toContain('.decisions/decisions/*.ndjson merge=union');
+    expect(existsSync(join(dir, '.gitnook', 'issues'))).toBe(true);
+    expect(existsSync(join(dir, '.gitnook', 'decisions'))).toBe(true);
+    expect(attrs()).toContain('.gitnook/issues/*.ndjson merge=union');
+    expect(attrs()).toContain('.gitnook/decisions/*.ndjson merge=union');
 
     const boardRoot = findBoardRoot(dir);
     const decisionRoot = findDecisionRoot(dir);

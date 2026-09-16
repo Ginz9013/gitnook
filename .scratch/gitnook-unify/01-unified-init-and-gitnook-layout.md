@@ -69,6 +69,19 @@
 - `AGENT.md`（HELP 文字裡 `init`/`issue init`/`decision init` 的異動要跟著更
   新——`test/agent-doc.test.ts` 對 HELP 與 AGENT.md 的指令名做雙向比對）
 
+**執行後追加（board 缺口，整合者驗證時發現並修補）**：`src/core/board.ts` 的
+`issuesDir()` 硬編了 `.issues/issues` 字面路徑，沒有被任何票認領——`findBoardRoot`
+已經指向新佈局，這一行沒有跟著動就會讓 board 找得到根卻讀不到檔案。已改成
+`import { ISSUES_DIR } from './gitattributes.js'` 並重用它。連帶把同樣硬編了
+`.issues`/`.decisions` 字面路徑、且不在任何票寫入範圍內的測試檔一併修正（純路徑
+字面值替換，不改任何斷言邏輯）：`test/core/board.comments.test.ts`、
+`test/core/board.create.test.ts`、`test/core/board.deleted.test.ts`、
+`test/core/board.list.test.ts`、`test/core/board.labels.test.ts`、
+`test/core/board.oplog.test.ts`、`test/core/board.set.test.ts`、
+`test/core/reduce.malformed.test.ts`、`test/integration/forward-compat.test.ts`、
+`test/integration/git-merge.test.ts`、`test/server/serveWorkspace.test.ts`、
+`test/server/handler.test.ts`。
+
 **不得碰**：`src/core/health.ts`、`src/core/workspace.ts`、`src/core/types.ts`、
 `src/core/decisionTypes.ts`、`src/core/decisionLog.ts`、`src/server/*`、
 `src/cli/workspace.ts`、`src/render/*`、`src/studio/*`——這些路徑常數字面值仍然
