@@ -104,6 +104,29 @@ export interface LegacyLayout {
   readonly decisions: boolean;
 }
 
+/**
+ * `BoardNotInitialized`/`DecisionLogNotInitialized` 共用的措辭——兩者各自對稱
+ * 組出同一種提示，理由同 `findBoardRoot`/`findDecisionRoot` 之於
+ * `findMarkerRoot` 的既有設計語言：同一份邏輯只寫一次，兩個呼叫端各自匯入。
+ * 指令帶上完整路徑而不是相對路徑：board 可能不在呼叫端的 cwd，貼上一條相對
+ * 指令的人會在錯的目錄下執行它。兩條指令用 `&&` 接在同一行，維持這兩個錯誤
+ * 訊息單行的既有紀律，也讓使用者一次貼上就搬完，不必先後執行兩次、失敗兩次。
+ */
+export function legacyMoveHint(legacy: LegacyLayout | undefined): string {
+  if (legacy === undefined) return '';
+  const moves: string[] = [];
+  if (legacy.issues) {
+    moves.push(`git mv "${join(legacy.dir, '.issues', 'issues')}" "${join(legacy.dir, '.gitnook', 'issues')}"`);
+  }
+  if (legacy.decisions) {
+    moves.push(
+      `git mv "${join(legacy.dir, '.decisions', 'decisions')}" "${join(legacy.dir, '.gitnook', 'decisions')}"`,
+    );
+  }
+  if (moves.length === 0) return '';
+  return ` — found a legacy layout at ${legacy.dir}, run: ${moves.join(' && ')}`;
+}
+
 /** 由某個目錄向上尋根的結果。 */
 export type BoardRoot =
   | { readonly found: true; readonly root: string }

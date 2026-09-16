@@ -1,6 +1,6 @@
-import { join } from 'node:path';
 import type { DecisionOp } from './decisionOps.js';
 import type { Diagnostic } from './types.js';
+import { legacyMoveHint } from './gitattributes.js';
 import type { LegacyLayout } from './gitattributes.js';
 
 /**
@@ -106,26 +106,6 @@ export class DecisionLogNotInitialized extends Error {
     );
     this.name = 'DecisionLogNotInitialized';
   }
-}
-
-/**
- * 同 `core/types.ts` 的 `legacyMoveHint`——各自一份薄包裝，理由見那邊的註解。
- * 兩份逐字相同：`BoardNotInitialized`/`DecisionLogNotInitialized` 對稱處理同
- * 一種提示，不因為呼叫端是哪一個模組而有第二種措辭。
- */
-function legacyMoveHint(legacy: LegacyLayout | undefined): string {
-  if (legacy === undefined) return '';
-  const moves: string[] = [];
-  if (legacy.issues) {
-    moves.push(`git mv "${join(legacy.dir, '.issues', 'issues')}" "${join(legacy.dir, '.gitnook', 'issues')}"`);
-  }
-  if (legacy.decisions) {
-    moves.push(
-      `git mv "${join(legacy.dir, '.decisions', 'decisions')}" "${join(legacy.dir, '.gitnook', 'decisions')}"`,
-    );
-  }
-  if (moves.length === 0) return '';
-  return ` — found a legacy layout at ${legacy.dir}, run: ${moves.join(' && ')}`;
 }
 
 export class DecisionNotFound extends Error {
