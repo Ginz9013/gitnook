@@ -85,7 +85,9 @@ export type DiagnosticKind =
   | 'NotAGitRepo'
   | 'GluedLine'
   | 'UnparsableLine'
-  | 'UnknownOp';
+  | 'UnknownOp'
+  /** `.gitnook/config.json` 存在但無法解析（不是合法 JSON，或不是物件）。 */
+  | 'InvalidNookConfig';
 
 export interface Diagnostic {
   readonly kind: DiagnosticKind;

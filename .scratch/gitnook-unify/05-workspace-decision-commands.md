@@ -2,6 +2,16 @@
 
 票檔：本檔（spec 同目錄 `spec.md`）
 
+## 執行後追加（整合者記錄，票 02 驗證時發現）
+
+`test/cli/workspace.test.ts` 裡 `writeGluedOpLog` 這個測試輔助函式（目前在檔案
+第 97 行附近）仍硬編 `join(memberDir, '.issues', 'issues', ...)`，是這個檔案裡
+唯一還沒跟著佈局改動的路徑字面值，導致 `dispatchWorkspace doctor --fix` 那條測
+試持續紅（`health.ts`/`repair()` 本身是對的，已在票 02 驗證過）。這張票本來就
+會動 `test/cli/workspace.test.ts`，動手時請順便把這個字面值改成
+`'.gitnook', 'issues'`——純路徑替換，不是這張票原本範圍要求的新行為，但既然要
+動這個檔案就一併帶上。
+
 ## Outcome
 
 `nook workspace decision <list|new|set|show|history>`，比照既有
