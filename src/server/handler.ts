@@ -11,6 +11,8 @@ import { decisionFieldWrites } from '../core/decisionReduce.js';
 import { shortIdLength } from '../core/ids.js';
 import type { SetKey } from '../core/ops.js';
 import { fieldWrites } from '../core/reduce.js';
+import type { Sharing } from '../core/sharing.js';
+import { inspectSharing } from '../core/sharing.js';
 import type { Board, Change, Diagnostic, Issue, Status } from '../core/types.js';
 import { AmbiguousRef, InvalidStatus, IssueDeleted, RefNotFound } from '../core/types.js';
 import { escapeHtml, renderMarkdown } from '../render/html.js';
@@ -405,6 +407,18 @@ export interface BoardInfo {
    */
   readonly actor: string;
   /**
+   * 這塊 board 的 op-log 有沒有交給 git 追蹤（`core/sharing.ts` 的 `inspectSharing`，
+   * 同一份推導，不是第二份判斷）。`private` 是被測的那一側，其餘一律是 `shared`。
+   */
+  readonly sharing: Sharing;
+  /**
+   * 這個 studio 是不是被 `nook workspace` 的 landing page（`serveWorkspace.ts`）
+   * 點開的成員，還是單獨 `nook studio` 起來的。**由呼叫端在 `serve()` 時宣告**
+   * （`ServeOptions.fromWorkspace`），board 自己答不出這件事 —— 同一塊 board
+   * 兩種方式都起得來，這不是 board 的屬性。
+   */
+  readonly fromWorkspace: boolean;
+  /**
    * `board.health()` 的產物，原樣送出去。**這裡不做第二份判斷** —— 哪些東西
    * 算 Diagnostic 只有 `diagnose()` 一份定義，header 只是把它畫出來（票 B4）。
    */
@@ -431,16 +445,18 @@ function currentBranch(dir: string): string | null {
   }
 }
 
-function boardInfo(board: Board): StudioResponse {
+function boardInfo(board: Board, opts: HandlerOptions): StudioResponse {
   // 路徑向 `Board` 要，不在這裡另尋一次根 —— 尋根是向上找，所以 board 從子目錄
   // 開起來的時候，「呼叫端給的目錄」與「這塊 board 的根」是兩個不同的答案，而
-  // 錯的那一個看起來完全正常。branch 與 actor 都對這個值算，四個欄位因此必然
-  // 描述同一個目錄（票 B8）。
+  // 錯的那一個看起來完全正常。branch、actor、sharing 都對這個值算，欄位因此
+  // 必然描述同一個目錄（票 B8）。
   const root = board.root();
   const info: BoardInfo = {
     root,
     branch: currentBranch(root),
     actor: deriveActor(root),
+    sharing: inspectSharing(root),
+    fromWorkspace: opts.fromWorkspace ?? false,
     diagnostics: board.health(),
   };
   return json(info);
@@ -547,6 +563,12 @@ export interface HandlerOptions {
    * 假目錄，因此不必先跑一次 vite build 才測得動。
    */
   readonly assetsDir?: string;
+  /**
+   * 這個 studio 是不是被 `serveWorkspace.ts` 的 `/launch/<n>` 啟動的成員。
+   * 只影響 `/api/board-info` 的 `fromWorkspace` 欄位 —— 同 `assetsDir`，由
+   * 呼叫端（`serve()`）宣告，`handleRequest` 自己答不出這件事。
+   */
+  readonly fromWorkspace?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -915,7 +937,7 @@ function route(board: Board, decisionLog: DecisionLog, req: StudioRequest, opts:
   // 變成可 POST 的。ref 也與 `/i/<ref>` 一樣原樣交給 core：形狀檢查與路徑
   // 穿越的防線只有 `board` 那一份。
   if (path === API_BOARD_INFO_PATH) {
-    return boardInfo(board);
+    return boardInfo(board, opts);
   }
 
   if (path.startsWith(API_HISTORY_PREFIX)) {

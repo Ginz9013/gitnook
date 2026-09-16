@@ -62,8 +62,13 @@ export function serveWorkspace(workspace: Workspace, opts: ServeOptions = {}): P
   const port = opts.port ?? 0;
   // 子 studio 一律用系統指派的 ephemeral port（design contract：`--port` 只
   // 指定 landing server 自己的 port）——彼此不衝突，也不會撞 landing 自己
-  // 選定的那個 port。
-  const childOpts: ServeOptions = opts.assetsDir === undefined ? { port: 0 } : { port: 0, assetsDir: opts.assetsDir };
+  // 選定的那個 port。`fromWorkspace: true` 一律加上：能經過這裡 `launch()`
+  // 起來的子 studio，定義上就是 workspace 成員。
+  const childOpts: ServeOptions = {
+    port: 0,
+    ...(opts.assetsDir === undefined ? {} : { assetsDir: opts.assetsDir }),
+    fromWorkspace: true,
+  };
 
   // n → 已啟動（或正在啟動）的子 studio。記的是 Promise 本身，不是等到之後
   // 才存進去 —— 兩個幾乎同時打進來的 /launch/<n> 都要看到同一個 in-flight

@@ -11,6 +11,7 @@ import type {
 } from '../server/handler.js';
 import type { Change, Diagnostic, DiagnosticKind, Status } from '../core/types.js';
 import type { DecisionChange, Disposition } from '../core/decisionTypes.js';
+import type { Sharing } from '../core/sharing.js';
 
 /**
  * SPA 與 server 之間的那一面 —— 讀取與寫入都在這裡，**只有這裡**。
@@ -34,6 +35,7 @@ export type {
   Disposition,
   IssueHistory,
   IssueView,
+  Sharing,
   Status,
   WriteView,
 };
@@ -127,6 +129,8 @@ export function isBoardInfo(value: unknown): value is BoardInfo {
     root?: unknown;
     branch?: unknown;
     actor?: unknown;
+    sharing?: unknown;
+    fromWorkspace?: unknown;
     diagnostics?: unknown;
   };
   return (
@@ -135,6 +139,8 @@ export function isBoardInfo(value: unknown): value is BoardInfo {
     // 還沒有第一次提交，三者都回 null（`handler.ts` 的 `currentBranch`）。
     (body.branch === null || typeof body.branch === 'string') &&
     typeof body.actor === 'string' &&
+    (body.sharing === 'shared' || body.sharing === 'private') &&
+    typeof body.fromWorkspace === 'boolean' &&
     Array.isArray(body.diagnostics)
   );
 }

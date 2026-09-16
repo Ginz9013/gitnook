@@ -82,6 +82,17 @@ describe('serveWorkspace — /launch/<n> 啟動既有 serve() 並轉址', () => 
     expect(board.issues).toEqual([]);
   });
 
+  it('落地的子 studio 在 /api/board-info 上回報自己是 workspace 成員', async () => {
+    member('pkgs', 'a');
+    const studio = await start();
+
+    const res = await fetch(`${studio.url}/launch/0`, { redirect: 'manual' });
+    const location = res.headers.get('location');
+    const info = (await (await fetch(`${location}/api/board-info`)).json()) as { fromWorkspace: boolean };
+
+    expect(info.fromWorkspace).toBe(true);
+  });
+
   it('兩次點同一個成員的連結，落在同一個 port 上 —— 不重複啟動第二個 serve() 實例', async () => {
     member('pkgs', 'a');
     const studio = await start();

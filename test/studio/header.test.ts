@@ -49,7 +49,14 @@ describe('shortenPath —— 尾端不可犧牲', () => {
 });
 
 describe('isBoardInfo —— 合法的 JSON 不等於承諾的形狀', () => {
-  const info = { root: '/tmp/nook', branch: 'main', actor: 'kouhei', diagnostics: [] };
+  const info = {
+    root: '/tmp/nook',
+    branch: 'main',
+    actor: 'kouhei',
+    sharing: 'shared',
+    fromWorkspace: false,
+    diagnostics: [],
+  };
 
   // 同 `isBoardSnapshot`（poll.test.ts）：擋的是「打錯 port，另一個 server
   // 在那裡回了 JSON」。
@@ -57,7 +64,7 @@ describe('isBoardInfo —— 合法的 JSON 不等於承諾的形狀', () => {
     expect(isBoardInfo({ nope: 1 })).toBe(false);
   });
 
-  it('四格都對就是 BoardInfo', () => {
+  it('六格都對就是 BoardInfo', () => {
     expect(isBoardInfo(info)).toBe(true);
   });
 
@@ -68,7 +75,14 @@ describe('isBoardInfo —— 合法的 JSON 不等於承諾的形狀', () => {
 });
 
 describe('isBoardInfo —— branch 是 string 或 null，沒有第三種', () => {
-  const info = { root: '/tmp/nook', branch: 'main', actor: 'kouhei', diagnostics: [] };
+  const info = {
+    root: '/tmp/nook',
+    branch: 'main',
+    actor: 'kouhei',
+    sharing: 'shared',
+    fromWorkspace: false,
+    diagnostics: [],
+  };
 
   // 不是 git repo、detached HEAD、還沒有第一次提交 —— 三者都回 null
   // （`handler.ts` 的 `currentBranch`）。**null 是正常的答案，不是壞掉的 body。**
@@ -81,6 +95,35 @@ describe('isBoardInfo —— branch 是 string 或 null，沒有第三種', () =
   });
 
   it('少了 branch 這一格也不是 BoardInfo', () => {
-    expect(isBoardInfo({ root: '/tmp/nook', actor: 'kouhei', diagnostics: [] })).toBe(false);
+    expect(
+      isBoardInfo({ root: '/tmp/nook', actor: 'kouhei', sharing: 'shared', fromWorkspace: false, diagnostics: [] }),
+    ).toBe(false);
+  });
+});
+
+describe('isBoardInfo —— sharing 只認 shared/private，fromWorkspace 只認 boolean', () => {
+  const info = {
+    root: '/tmp/nook',
+    branch: 'main',
+    actor: 'kouhei',
+    sharing: 'shared',
+    fromWorkspace: false,
+    diagnostics: [],
+  };
+
+  it('sharing 是 private 也是合法的 BoardInfo', () => {
+    expect(isBoardInfo({ ...info, sharing: 'private' })).toBe(true);
+  });
+
+  it('sharing 是第三個值就不是 BoardInfo', () => {
+    expect(isBoardInfo({ ...info, sharing: 'public' })).toBe(false);
+  });
+
+  it('fromWorkspace 是 true 也是合法的 BoardInfo', () => {
+    expect(isBoardInfo({ ...info, fromWorkspace: true })).toBe(true);
+  });
+
+  it('fromWorkspace 不是 boolean 就不是 BoardInfo', () => {
+    expect(isBoardInfo({ ...info, fromWorkspace: 'true' })).toBe(false);
   });
 });

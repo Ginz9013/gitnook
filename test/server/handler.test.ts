@@ -8,6 +8,7 @@ import { openBoard } from '../../src/index.js';
 import type { Board, CreateInput, IdSource, Issue } from '../../src/index.js';
 import { openDecisionLog } from '../../src/core/decisionLog.js';
 import type { DecisionLog } from '../../src/core/decisionTypes.js';
+import { excludeBoard } from '../../src/core/sharing.js';
 import { handleRequest } from '../../src/server/handler.js';
 import type { DecisionBoardSnapshot, DecisionView, IssueView } from '../../src/server/handler.js';
 
@@ -1188,7 +1189,13 @@ describe('GET /api/board-info', () => {
 
 /** board-info 的 JSON，已解讀。 */
 const info = () =>
-  JSON.parse(boardInfo().body) as { root: string; branch: string | null; actor: string };
+  JSON.parse(boardInfo().body) as {
+    root: string;
+    branch: string | null;
+    actor: string;
+    sharing: 'shared' | 'private';
+    fromWorkspace: boolean;
+  };
 
 const git = (args: string[], cwd: string = dir): void => {
   execFileSync('git', args, { cwd, stdio: 'ignore' });
@@ -1269,6 +1276,45 @@ describe('/api/board-info 的 actor', () => {
     const issue = openBoard({ dir, ids: seeded(fullId('01JBXA')) }).create({ title: 'Fix login' });
 
     expect(info().actor).toBe(opsOnDisk(issue.id)[0]!['a']);
+  });
+});
+
+/**
+ * `sharing` 是 `core/sharing.ts` 的 `inspectSharing(root)`，原樣送出去 ——
+ * header 靠它畫 Private/Shared 徽章。**這裡不重算一次**，只確認接線接對了。
+ */
+describe('/api/board-info 的 sharing', () => {
+  it('剛 init、還沒被排除在外的 board 是 shared', () => {
+    expect(info().sharing).toBe('shared');
+  });
+
+  it('excludeBoard 之後變成 private', () => {
+    gitRepo('studio-gui-v2');
+    excludeBoard(dir);
+
+    expect(info().sharing).toBe('private');
+  });
+});
+
+/**
+ * `fromWorkspace` 由呼叫端在 `HandlerOptions` 宣告，`handleRequest` 自己答不出
+ * 這個 studio 是不是被 `serveWorkspace()` 啟動的成員（見 `serve.ts` 的
+ * `ServeOptions.fromWorkspace`）。
+ */
+describe('/api/board-info 的 fromWorkspace', () => {
+  it('沒有宣告時是 false —— 獨立 `nook studio` 的預設', () => {
+    expect(info().fromWorkspace).toBe(false);
+  });
+
+  it('HandlerOptions 宣告 true 時原樣回傳', () => {
+    const res = handleRequest(
+      board(),
+      decisionLog(),
+      { method: 'GET', url: '/api/board-info' },
+      { assetsDir: assets, fromWorkspace: true },
+    );
+
+    expect((JSON.parse(res.body) as { fromWorkspace: boolean }).fromWorkspace).toBe(true);
   });
 });
 

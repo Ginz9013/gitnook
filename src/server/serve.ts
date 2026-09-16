@@ -41,6 +41,12 @@ export interface ServeOptions {
    * 也不會跟 packed-smoke 中途的 `tsup --clean` 撞在一起。
    */
   readonly assetsDir?: string;
+  /**
+   * 這個 studio 是不是被 `serveWorkspace()` 的 `/launch/<n>` 啟動的成員 ——
+   * 原樣轉給 `HandlerOptions`，只影響 `/api/board-info` 的 `fromWorkspace`
+   * 欄位。獨立呼叫 `serve()` 的呼叫端（`cmdStudio`）不傳，預設 `false`。
+   */
+  readonly fromWorkspace?: boolean;
 }
 
 export class PortInUse extends Error {
@@ -134,7 +140,10 @@ export function serve(board: Board, opts: ServeOptions = {}): Promise<Studio> {
   const port = opts.port ?? DEFAULT_PORT;
   // 只把有指定的欄位往下傳：exactOptionalPropertyTypes 之下，
   // `{ assetsDir: undefined }` 與「沒給」不是同一件事。
-  const handlerOpts: HandlerOptions = opts.assetsDir === undefined ? {} : { assetsDir: opts.assetsDir };
+  const handlerOpts: HandlerOptions = {
+    ...(opts.assetsDir === undefined ? {} : { assetsDir: opts.assetsDir }),
+    ...(opts.fromWorkspace === undefined ? {} : { fromWorkspace: opts.fromWorkspace }),
+  };
   const decisionLog = lazyDecisionLog(board);
 
   const server = createServer((req, res) => {
