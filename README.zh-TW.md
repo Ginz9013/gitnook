@@ -7,12 +7,12 @@
 
 ```bash
 npm i -D gitnook
-npx nook issue init                                     # .issues/ 與 .gitattributes 那一行
+npx nook init                                           # .gitnook/ + 兩條 .gitattributes 規則
 npx nook issue new "修掉 Safari 上的登入轉址迴圈"
 npx nook issue list
 ```
 
-想在一個不是你說了算的 repo 裡導入？`npx nook issue init --private` 給你同一塊
+想在一個不是你說了算的 repo 裡導入？`npx nook init --private` 給你同一塊
 board，但**零 committed bytes** —— 不會出現在任何人的 diff、review 或 clone 裡，
 所以現在還不必跟任何人解釋它。見 [private mode](#private-mode)。
 
@@ -21,7 +21,7 @@ board，但**零 committed bytes** —— 不會出現在任何人的 diff、rev
 
 ## 為什麼是 gitNook
 
-**Issue 住在工作目錄裡。** `.issues/issues/*.ndjson` 是普通的、被 commit 的檔案。
+**Issue 住在工作目錄裡。** `.gitnook/issues/*.ndjson` 是普通的、被 commit 的檔案。
 GitHub 的網頁 UI 會在 diff 裡顯示它們，`grep` 找得到它們，agent 可以 `cat` 一張
 而不必對外呼叫任何工具，而一條分支會把它的 Issue 連同「關掉它們的那些程式碼」一起
 帶著走。
@@ -69,7 +69,7 @@ hash；有歧義時是一個列出候選的錯誤，永遠不是一次無聲的�
 ## private mode
 
 ```bash
-npx nook issue init --private      # 一塊零 committed bytes 的 board
+npx nook init --private            # 一塊零 committed bytes 的 board
 ```
 
 這會把 board 完全留在 git 之外（寫進 `$GIT_DIR/info/exclude`，永遠不是你的
@@ -94,8 +94,11 @@ bytes，所以不會出現在任何人的 diff、review 或 clone 裡。
 ## 指令
 
 ```
-issue init [--private]                 建立 .issues/ 與 .gitattributes 那一行；
-                                       --private 改成不留任何 committed bytes
+init [--private] [--workspace]         建立 .gitnook/issues/ 與 .gitnook/decisions/
+                                        （兩個模組一次到位）與各自的 .gitattributes
+                                        規則；--private 改成不留任何 committed bytes；
+                                        --workspace 標記這個目錄，讓遞迴掃描遇到它
+                                        時不要停下來、繼續往下鑽
 issue new <title> [--description <text|->] [--label <l>] [--editor]
 issue list [--all] [--status <s>] [--label <l>] [--json]
 issue show <ref> [--json]
@@ -106,9 +109,11 @@ issue rm <ref> [--yes]                 刪除：寫一筆墓碑，永不 unlink
 issue comment <ref> <body|->
 issue label <ref> +bug -ui
 issue share                            把一塊 private board 升級回共享
-decision init                          建立 .decisions/ 與 .gitattributes 那一行
 decision new --title <t> [--body <b>] [--disposition <d>]
+decision list [--disposition <d>] [--json]
 decision show <ref> [--json]
+decision set <ref> <title|body|disposition|supersededBy> <value|-> [--editor]
+decision history <ref> [<field>]       某個欄位被寫過的每一個值，唯讀
 doctor [--fix]                         資料健康檢查；--fix 修復黏合行
 studio [--port <n>]                    localhost 上的看板；可新增、拖拉、編輯、留言
 workspace list|doctor|studio           跨 repo，唯讀 —— 見下面的 workspace
@@ -118,13 +123,16 @@ workspace mv <ref> <status>            <ref> 只接受完整 ULID —— 見下�
 workspace comment <ref> <body|->       <ref> 只接受完整 ULID —— 見下面的 workspace
 workspace label <ref> +bug -ui         <ref> 只接受完整 ULID —— 見下面的 workspace
 workspace rm <ref> [--yes]             <ref> 只接受完整 ULID —— 見下面的 workspace
+workspace decision list|new|set|show|history   跨 repo 的 Decision —— 見下面的 workspace
 ```
 
 `nook decision` 是第二個、並行的紀錄，用來存放 ADR（架構決策紀錄）—— 同一套
-append-only 形狀與 `merge=union` 保證，自己的 `.decisions/` 目錄，刻意做得
-比 Issue 小（沒有 label、comment、封存或 private mode）。Decision 有的是
-`disposition`（`proposed`/`accepted`/`superseded`/`rejected`），不是工作流的
-`status`。
+append-only 形狀與 `merge=union` 保證，住在 `.gitnook/decisions/`，跟
+`.gitnook/issues/` 放在一起，刻意做得比 Issue 小（沒有 label、comment 或
+封存）。它自己沒有獨立的 private mode —— Sharing 是整個 `.gitnook/` 目錄
+一份狀態，`nook init --private` 與 `nook issue share` 兩個模組一起涵蓋。
+Decision 有的是 `disposition`（`proposed`/`accepted`/`superseded`/
+`rejected`），不是工作流的 `status`。
 
 值的位置寫 `-` 表示從 stdin 讀。
 
@@ -180,6 +188,23 @@ ref —— 必須是**完整的 26 碼 ULID**，因為一個在某個成員的 b
 前綴，可能剛好撞上另一個成員裡一張不相干的 issue。其餘語意跟單一 board 的
 指令完全一致。
 
+`nook workspace decision <list|new|set|show|history>` 是同一套邏輯套用在
+Decision 而不是 Issue 上：
+
+- `nook workspace decision list [--disposition <d>] [--json]` —— 依路徑分組
+  列出每個成員的 decision；篩選與空群組略過的語意同 `nook workspace list`。
+- `nook workspace decision new --title <t> [--body <b>] [--disposition <d>]
+  --in <path>` —— 在 `<path>` 那個成員建立；`--in` 必填，不會 fallback 到
+  cwd，同 `nook workspace new`。
+- `nook workspace decision set <ref> <title|body|disposition|supersededBy>
+  <value|-> [--editor]` —— 寫進擁有 `<ref>` 的那個成員；同樣要求完整 26 碼
+  ULID，同 `nook workspace set`。
+- `nook workspace decision show <ref> [--json]` 與 `nook workspace decision
+  history <ref> [<field>]` —— 顯示擁有 `<ref>` 那個成員的詳細內容與寫入歷史。
+  這兩個在單一 board 的 `workspace` 指令裡沒有對應（沒有 `nook workspace
+  history`）——Decision 才有這兩個，因為跨 repo 查一條 ADR 或它的寫入歷史是
+  常見需求。
+
 ## doctor
 
 `nook doctor` 檢查讓合併能運作的 `.gitattributes` 那一行 —— 刪掉它，Issue
@@ -229,7 +254,7 @@ CLI 是一個公開 API 的呼叫端，而不是反過來：
 ```ts
 import { openBoard } from 'gitnook';
 
-const board = openBoard();                  // 預設是 ./.issues
+const board = openBoard();                  // 從 cwd 向上找 .gitnook/issues/
 const issue = board.create({ title: '修掉登入轉址', labels: ['bug'] });
 
 board.apply(issue.id, { status: 'queued', labels: { add: ['p1'] } });

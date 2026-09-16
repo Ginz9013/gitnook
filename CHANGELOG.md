@@ -8,7 +8,7 @@ While the major version is `0`, a minor bump may contain changes that would be
 breaking after `1.0.0`. Any such change is listed under **Changed** or
 **Removed** with what it means for you.
 
-## [Unreleased]
+## [0.6.0] - 2026-09-17
 
 The theme of this release is **`.gitnook/` — Issues and Decisions share one
 container directory**, plus an opt-in recursive mode for `nook workspace`'s
