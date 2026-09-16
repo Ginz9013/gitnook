@@ -28,7 +28,7 @@ _Avoid_: project, workspace（`workspace` 是彙整多個 Board 的觀察角度�
 _Avoid_: Board（見上）, archive, registry, ADR log
 
 **Workspace**:
-從一個根目錄往下遞迴掃描找到的一組 Board，供跨 Board 檢視（列表、篩選、健康檢查）之用。純粹是觀察的角度——不建立任何新的儲存或狀態，不合併任何 Op-log，每個成員 Board 完全維持自己的獨立性（各自的 Op-log、Actor、Sharing）。探測預設仍是純檔案系統掃描：只問某個子目錄底下有沒有 `.gitnook/`，找到就不再往它底下更深處找，不需要讀任何設定檔。但一個 Board 可以透過 `.gitnook/config.json` 的 `workspace: true` 主動宣告自己也是一個 workspace 節點，此時掃描會繼續往它底下鑽，子目錄裡遇到的 Board 遞迴套用同一條規則——這是對 ADR-0012「不讀設定檔」立場的一次重新打開，取捨記在 `nook decision show 01M2NF1YPK3D5WPX9KWZTX0AH7`（supersedes ADR-0012）。
+從一個根目錄往下遞迴掃描找到的一組 Board，供跨 Board 檢視（列表、篩選、健康檢查）之用。純粹是觀察的角度——不建立任何新的儲存或狀態，不合併任何 Op-log，每個成員 Board 完全維持自己的獨立性（各自的 Op-log、Actor、Sharing）。探測預設仍是純檔案系統掃描：只問某個子目錄底下有沒有 `.gitnook/`，找到就不再往它底下更深處找，不需要讀任何設定檔。但一個 Board 可以透過 `.gitnook/config.json` 的 `workspace: true` 主動宣告自己也是一個 workspace 節點，此時掃描會繼續往它底下鑽，子目錄裡遇到的 Board 遞迴套用同一條規則——這是對 ADR-0012「不讀設定檔」立場的一次重新打開，取捨記在 `nook decision show 01M2NF1YPK3D5WPX9KWZTX0AH7`（取代 ADR-0012）。
 _Avoid_: monorepo（那是使用者資料夾佈局的慣例，Workspace 是 nook 對任何佈局的一種觀察方式，兩者正交——沒有 monorepo 佈局也能有 Workspace，例如母資料夾底下並排幾個不相干的 repo）, fleet, federation, group, collection（太泛用，沒有指名「一起被看的是哪些 Board」這件事）
 
 **Sharing（共享狀態）**:

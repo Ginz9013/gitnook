@@ -12,9 +12,10 @@ import { initBoard } from '../../src/core/gitattributes.js';
  * 打真實檔案系統與真實 git；`packed-smoke` 與 `git-merge` 也都 spawn 真的子行程）。
  *
  * 守的是 ADR-0009 的 D2 —— **Issue 檔永不 unlink**，而不是 D1（刪除是 LWW 欄位）。
- * 兩者的差別決定了「被刪那張的 op-log 檔還在磁碟上」那條測試長什麼樣：把
- * `deleted` 改成一個新的 op 型別（推翻 D1）不會讓舊版看不到那張 Issue 的檔案，
- * 真正會讓它紅的是有人把刪除實作成 `unlinkSync(pathOf(id))`。
+ * 兩者的差別決定了「被刪那張的 op-log 檔還在磁碟上」那條測試在守什麼：把
+ * `deleted` 改成一個新的 op 型別（推翻 D1）不會讓這條斷言變紅——它問的是磁碟上
+ * 有沒有那個檔案，不是欄位語意；真正會讓它紅的是有人把刪除實作成
+ * `unlinkSync(pathOf(id))`。
  *
  * **gitnook-unify（`.scratch/gitnook-unify/spec.md`）把容器目錄從
  * `.issues/`／`.decisions/` 改名成 `.gitnook/`，是一次刻意、沒有自動遷移的
