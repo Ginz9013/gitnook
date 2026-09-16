@@ -8,6 +8,27 @@ While the major version is `0`, a minor bump may contain changes that would be
 breaking after `1.0.0`. Any such change is listed under **Changed** or
 **Removed** with what it means for you.
 
+## [0.5.1] - 2026-09-16
+
+A small patch release: studio header/sidebar changes, no CLI or storage-format
+change.
+
+### Added
+
+- **`nook studio`'s header now shows this board's Sharing state (Shared /
+  Private) and whether this studio was launched from `nook workspace`
+  (Standalone / Workspace).** Both badges sit to the left of the theme
+  toggle and are always visible — you no longer have to infer "no badge
+  means shared" from silence. `Sharing` is `/api/board-info`'s existing
+  `inspectSharing()` answer; `fromWorkspace` is a new field on the same
+  endpoint, set by `serveWorkspace()` when it launches a member's studio.
+
+### Changed
+
+- **Studio's sidebar now lists Decisions above Issues** (previously Issues
+  above Decisions). No change to which view opens by default or how the
+  choice persists.
+
 ## [0.5.0] - 2026-09-15
 
 The theme of this release is **Decisions become a first-class peer of
