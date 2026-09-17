@@ -13,14 +13,14 @@ import { STATUS_ORDER } from '@/statuses';
  * **這裡沒有自動化測試**（spec.md：React 組件不寫測試）。它是一份沒有任何判斷
  * 的版面 —— 沒有 props、沒有 state、沒有分支。
  *
- * 版面刻意鏡射 `Board.tsx` 與 `Column.tsx` 的外框（`h-dvh`／`gap-3 p-4`、
+ * 版面刻意鏡射 `Board.tsx` 與 `Column.tsx` 的外框（`h-full`／`gap-3 p-4`、
  * `w-64` 的欄、`rounded-lg border`），因為**不跳版就是它存在的唯一理由**；
  * 兩邊哪天分岔了，症狀就是資料到達時畫面跳一下，也就是這個檔案要修的那件事。
  */
 export function BoardSkeleton(): React.JSX.Element {
   return (
     <main
-      className="flex h-dvh flex-col gap-3 p-4"
+      className="flex h-full flex-col gap-3 p-4"
       // 「還在載入」對讀螢幕的人要說得出來 —— 原本那一行「載入中…」是他們
       // 唯一的線索，換成骨架之後不能只剩下一堆沒有名字的灰塊。
       aria-busy="true"

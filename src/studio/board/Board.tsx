@@ -325,7 +325,7 @@ export function Board({
 
   return (
     <main
-      className="flex h-dvh flex-col gap-3 p-4 outline-none"
+      className="flex h-full flex-col gap-3 p-4 outline-none"
       data-slot="board"
       // 焦點的最後退路（`focus.ts`）：對話框關掉時那張 Issue 已經不在畫面上
       // （被 archived 篩掉、從快照消失）就 focus 到這裡。`-1` 是「程式可以給它

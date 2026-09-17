@@ -334,7 +334,7 @@ export function IssueApp(): React.JSX.Element {
 function LoadFailure({ fault }: { readonly fault: ConnectionFault }): React.JSX.Element {
   return (
     // `<main>` 加名字：這一頁上只有這一塊，而它是使用者現在唯一讀得到的東西。
-    <main className="flex h-dvh items-center justify-center p-6" aria-label="Nook board">
+    <main className="flex h-full items-center justify-center p-6" aria-label="Nook board">
       <div className="bg-card text-card-foreground max-w-lg rounded-lg border p-6 shadow-lg">
         <p className="text-destructive text-sm font-semibold">Cannot load board</p>
 
