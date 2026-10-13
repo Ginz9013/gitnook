@@ -8,6 +8,26 @@ While the major version is `0`, a minor bump may contain changes that would be
 breaking after `1.0.0`. Any such change is listed under **Changed** or
 **Removed** with what it means for you.
 
+## [0.6.1] - 2026-10-13
+
+### Added
+
+- **Markdown tables render in the studio.** GFM tables (`| a | b |` with a
+  `---` delimiter row) in an issue's description, comments, and a decision's
+  body now render as `<table>` instead of a line of pipe-separated text.
+  Column alignment (`:--`, `:-:`, `--:`), omitted outer pipes, and `\|` as a
+  literal pipe are supported; a header row whose column count differs from the
+  delimiter row stays a paragraph. The renderer is still dependency-free and
+  escapes before it builds markup, so cell content is as safe as the rest of
+  the markdown.
+
+### Fixed
+
+- **Studio: the Issues page no longer shows an extra vertical scrollbar.** Its
+  views still claimed a full viewport height (`h-dvh`) while nested under the
+  fixed header, so the page was header height plus 100vh tall. They now fill
+  the remaining space like the Decisions page.
+
 ## [0.6.0] - 2026-09-17
 
 The theme of this release is **`.gitnook/` — Issues and Decisions share one
