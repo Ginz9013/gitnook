@@ -1,0 +1,5 @@
+{"id":"01M4TD5141QT96TAR9H2RJB4Q5","t":1,"a":"83a1","op":"create","title":"Markdown 表格渲染為 <table>（詳情頁）"}
+{"id":"01M4TD514CRV5FSS334ANTPJBV","t":2,"a":"83a1","op":"set","k":"description","v":"## Outcome\nrenderMarkdown 支援 GFM table：description／留言／decision body 的 `| a | b |` 輸出 <table>，由 prose 套樣式。\n\n## Scope\n- src/render/html.ts、test/render/html.test.ts；不改前端、不加相依套件\n\n## Acceptance criteria\n- [ ] 基本表格輸出 table/thead/tbody\n- [ ] :-- / :-: / --: 輸出對應 text-align（固定白名單）\n- [ ] 儲存格內 bold／italic／code／link 照行內語法\n- [ ] 儲存格內 <script>、javascript: 仍被逸出或擋下\n- [ ] 表頭與分隔行欄數不符 → 不成為 table\n- [ ] body row 欄數不足補空、超過截斷\n- [ ] 省略外側 pipe 有效；\\| 為字面 pipe\n- [ ] table 可中斷段落；後續空行與其他區塊正常接續\n- [ ] 既有 render 測試全過\n\n## Verification\n- Focused: npx vitest run test/render/html.test.ts\n- Suite: npx vitest run\n- Static: npx tsc --noEmit\n- Baseline: 54 files / 1055 tests pass, tsc clean (2026-10-13)"}
+{"id":"01M4TD514C08YBEQ7JFVWGNZ43","t":3,"a":"83a1","op":"label.add","v":"render"}
+{"id":"01M4TD58KEQCFV3N3051VZCXR5","t":4,"a":"83a1","op":"set","k":"status","v":"in_progress"}
+{"id":"01M4TENKDRG0KGQFD8CGM52C6Z","t":5,"a":"83a1","op":"set","k":"status","v":"done"}
