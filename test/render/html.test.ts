@@ -239,3 +239,107 @@ describe('description markdown: link', () => {
     expect(d).toContain('![alt](https://example.com/x.png)');
   });
 });
+
+describe('description markdown: table', () => {
+  it('表頭行加分隔行成為 table，輸出 thead 與 tbody', () => {
+    const d = renderMarkdown('| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |');
+
+    expect(d).toBe(
+      '<table><thead><tr><th>a</th><th>b</th></tr></thead>' +
+        '<tbody><tr><td>1</td><td>2</td></tr><tr><td>3</td><td>4</td></tr></tbody></table>',
+    );
+  });
+
+  it('分隔行的冒號決定對齊：left、center、right，th 與 td 都帶', () => {
+    const d = renderMarkdown('| l | c | r | n |\n| :-- | :-: | --: | --- |\n| 1 | 2 | 3 | 4 |');
+
+    expect(d).toContain(
+      '<th style="text-align:left">l</th><th style="text-align:center">c</th>' +
+        '<th style="text-align:right">r</th><th>n</th>',
+    );
+    expect(d).toContain(
+      '<td style="text-align:left">1</td><td style="text-align:center">2</td>' +
+        '<td style="text-align:right">3</td><td>4</td>',
+    );
+  });
+
+  it('儲存格內走行內語法：bold、italic、code、link', () => {
+    const d = renderMarkdown(
+      '| h |\n| --- |\n| **b** *i* `c` [x](https://example.com) |',
+    );
+
+    expect(d).toContain(
+      '<td><strong>b</strong> <em>i</em> <code>c</code> <a href="https://example.com">x</a></td>',
+    );
+  });
+
+  it('儲存格內的 raw HTML 與 javascript: 連結仍被逸出或擋下', () => {
+    const d = renderMarkdown(
+      '| <script>alert(1)</script> | [x](javascript:alert(1)) |\n| --- | --- |\n| <img src=x onerror=alert(1)> | ok |',
+    );
+
+    expect(d).not.toMatch(/<script/i);
+    expect(d).not.toMatch(/<img/i);
+    expect(d).not.toMatch(/<a\b/i);
+    expect(d).toContain('&lt;script&gt;');
+    expect(d).toContain('<table>');
+  });
+
+  it('沒有分隔行的帶 pipe 文字仍是段落', () => {
+    const d = renderMarkdown('a | b\nplain text');
+
+    expect(d).toBe('<p>a | b plain text</p>');
+  });
+
+  it('表頭與分隔行欄數不符，不成為 table', () => {
+    const d = renderMarkdown('| a | b |\n| --- |\n| 1 | 2 |');
+
+    expect(d).not.toContain('<table');
+    expect(d).toContain('<p>');
+  });
+
+  it('body row 欄數不足補空格，超過則截斷', () => {
+    const d = renderMarkdown('| a | b |\n| --- | --- |\n| 1 |\n| 1 | 2 | 3 |');
+
+    expect(d).toContain('<tbody><tr><td>1</td><td></td></tr><tr><td>1</td><td>2</td></tr></tbody>');
+  });
+
+  it('外側 pipe 可省略', () => {
+    const d = renderMarkdown('a | b\n--- | ---\n1 | 2');
+
+    expect(d).toBe(
+      '<table><thead><tr><th>a</th><th>b</th></tr></thead>' +
+        '<tbody><tr><td>1</td><td>2</td></tr></tbody></table>',
+    );
+  });
+
+  it('\\| 是字面 pipe，不切欄', () => {
+    const d = renderMarkdown('| a | b |\n| --- | --- |\n| x \\| y | z |');
+
+    expect(d).toContain('<tr><td>x | y</td><td>z</td></tr>');
+  });
+
+  it('table 中斷前面的段落，後面的空行與區塊正常接續', () => {
+    const d = renderMarkdown('intro\n| a |\n| --- |\n| 1 |\n\nafter\n\n- x');
+
+    expect(d).toBe(
+      '<p>intro</p><table><thead><tr><th>a</th></tr></thead>' +
+        '<tbody><tr><td>1</td></tr></tbody></table><p>after</p><ul><li>x</li></ul>',
+    );
+  });
+
+  it('body row 遇到其他區塊起始行就結束 table', () => {
+    const d = renderMarkdown('| a |\n| --- |\n| 1 |\n> quote\n# H');
+
+    expect(d).toBe(
+      '<table><thead><tr><th>a</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>' +
+        '<blockquote><p>quote</p></blockquote><h1>H</h1>',
+    );
+  });
+
+  it('沒有 body row 的 table 不輸出 tbody', () => {
+    const d = renderMarkdown('| a | b |\n| --- | --- |');
+
+    expect(d).toBe('<table><thead><tr><th>a</th><th>b</th></tr></thead></table>');
+  });
+});

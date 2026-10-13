@@ -42,6 +42,9 @@ export function renderMarkdown(src: string): string {
 }
 
 const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
+const BLOCKQUOTE_LINE = /^ {0,3}>/;
+const HEADING_LINE = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
 
 /** 去掉一組行共同的前導縮排。 */
 function dedent(lines: readonly string[]): string[] {
@@ -50,6 +53,72 @@ function dedent(lines: readonly string[]): string[] {
     .map((l) => /^\s*/.exec(l)![0].length);
   const common = indents.length === 0 ? 0 : Math.min(...indents);
   return lines.map((l) => l.slice(common));
+}
+
+/** 把一行表格切成儲存格：外側 pipe 可省略。 */
+function splitRow(line: string): string[] {
+  let t = line.trim();
+  if (t.startsWith('|')) t = t.slice(1);
+  if (t.endsWith('|') && !t.endsWith('\\|')) t = t.slice(0, -1);
+  // `\|` 是字面 pipe：只切沒被反斜線跳脫的那些。
+  return t.split(/(?<!\\)\|/).map((c) => c.replace(/\\\|/g, '|').trim());
+}
+
+/** body row 到此為止：這一行是別的區塊的開頭。 */
+function startsOtherBlock(line: string): boolean {
+  return (
+    FENCE_OPEN.test(line) ||
+    BLOCKQUOTE_LINE.test(line) ||
+    LIST_ITEM.test(line) ||
+    HEADING_LINE.test(line)
+  );
+}
+
+type Align = 'left' | 'center' | 'right';
+
+/** 分隔行的一格 → 對齊。輸出只取自這個固定集合，來源文字不會進到 style。 */
+function cellAlign(cell: string): Align | null {
+  const m = /^(:?)-+(:?)$/.exec(cell);
+  if (m === null) return null;
+  if (m[1] === ':' && m[2] === ':') return 'center';
+  if (m[1] === ':') return 'left';
+  if (m[2] === ':') return 'right';
+  return null;
+}
+
+/**
+ * GFM table：表頭行加分隔行同時成立才算。不成立回傳 null，
+ * 讓呼叫端把這一行當一般段落處理。
+ */
+function tryTable(lines: readonly string[], start: number): { html: string; next: number } | null {
+  const sep = lines[start + 1];
+  if (sep === undefined || !lines[start]!.includes('|')) return null;
+  const header = splitRow(lines[start]!);
+  const delimiter = splitRow(sep);
+  if (delimiter.length !== header.length || !delimiter.every((c) => /^:?-+:?$/.test(c))) {
+    return null;
+  }
+  const rows: string[][] = [];
+  let i = start + 2;
+  while (i < lines.length && lines[i]!.trim() !== '' && !startsOtherBlock(lines[i]!)) {
+    rows.push(splitRow(lines[i]!));
+    i += 1;
+  }
+  const aligns = delimiter.map(cellAlign);
+  const cell = (tag: 'th' | 'td', text: string, col: number): string => {
+    const a = aligns[col];
+    const style = a === undefined || a === null ? '' : ` style="text-align:${a}"`;
+    return `<${tag}${style}>${renderInline(text)}</${tag}>`;
+  };
+  const head = header.map((c, n) => cell('th', c, n)).join('');
+  // body row 的欄數以表頭為準：不足補空、超過截斷。
+  const tbody = rows
+    .map((r) => `<tr>${header.map((_, n) => cell('td', r[n] ?? '', n)).join('')}</tr>`)
+    .join('');
+  return {
+    html: `<table><thead><tr>${head}</tr></thead>${rows.length === 0 ? '' : `<tbody>${tbody}</tbody>`}</table>`,
+    next: i,
+  };
 }
 
 /**
@@ -101,7 +170,7 @@ function renderBlocks(lines: readonly string[]): string {
       continue;
     }
 
-    const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    const fence = FENCE_OPEN.exec(line);
     if (fence !== null) {
       flushParagraph();
       const marker = fence[1]!;
@@ -119,10 +188,10 @@ function renderBlocks(lines: readonly string[]): string {
       continue;
     }
 
-    if (/^ {0,3}>/.test(line)) {
+    if (BLOCKQUOTE_LINE.test(line)) {
       flushParagraph();
       const quoted: string[] = [];
-      while (i < lines.length && lines[i]!.trim() !== '' && /^ {0,3}>/.test(lines[i]!)) {
+      while (i < lines.length && lines[i]!.trim() !== '' && BLOCKQUOTE_LINE.test(lines[i]!)) {
         quoted.push(lines[i]!.replace(/^ {0,3}> ?/, ''));
         i += 1;
       }
@@ -144,12 +213,20 @@ function renderBlocks(lines: readonly string[]): string {
       continue;
     }
 
-    const heading = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
+    const heading = HEADING_LINE.exec(line);
     if (heading !== null) {
       flushParagraph();
       const level = heading[1]!.length;
       out.push(`<h${level}>${renderInline(heading[2]!)}</h${level}>`);
       i += 1;
+      continue;
+    }
+
+    const table = tryTable(lines, i);
+    if (table !== null) {
+      flushParagraph();
+      out.push(table.html);
+      i = table.next;
       continue;
     }
 
