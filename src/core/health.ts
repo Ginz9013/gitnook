@@ -65,11 +65,11 @@ export function diagnose(dir: string): Diagnostic[] {
   const guaranteeMatters = sharing === 'shared' || trackedAnyway;
 
   // 已知會有零衝突保證需求的實體 pattern，逐一問 merge=union 齊不齊 ——
-  // 不是硬編一個 pattern，日後第三種實體只需要在這裡加一筆。**閘門刻意不共用**：
-  // Issue 有 private 模式（沒有 marker 目錄存在與否不代表保證不需要，保證需不需要
-  // 問的是 sharing），Decision 沒有（票 01 只支援 shared），所以它的閘門直接是
-  // marker 目錄在不在——`.decisions/` 不存在時這個診斷在這個 repo 裡「不存在」，
-  // 不是被壓掉的真問題（同 private-mode 的既有哲學）。
+  // 不是硬編一個 pattern，日後第三種實體只需要在這裡加一筆。Decision 的閘門是
+  // **sharing 且** marker 目錄在：`.decisions/` 不存在時這個診斷在這個 repo 裡
+  // 「不存在」；而 `nook init --private` 會連 `decisions/` 一起建、整個
+  // `.gitnook/` 一起 exclude，那時它的 op-log 同樣永遠不會 merge —— 跟 Issue
+  // 共用 `guaranteeMatters`，否則 private board 一開 studio 就被誤報保證失效。
   const knownEntities: readonly MergeGuaranteeEntity[] = [
     // 唯一的單點失效：保證不在，資料就會靜默開始衝突（decision legacyRef 0001，`nook decision show 0001`）。
     { active: guaranteeMatters, rule: MERGE_RULE, initHint: 'nook init' },
@@ -77,7 +77,7 @@ export function diagnose(dir: string): Diagnostic[] {
     // initHint 同 Issue 那一條：`nook decision init` 已經被票 01 移除，唯一的
     // 初始化入口是 `nook init`（同時補齊 issues、decisions 兩個模組）。
     {
-      active: existsSync(join(dir, ...DECISIONS_DIR)),
+      active: guaranteeMatters && existsSync(join(dir, ...DECISIONS_DIR)),
       sample: DECISION_LOG_SAMPLE,
       rule: DECISION_MERGE_RULE,
       initHint: 'nook init',

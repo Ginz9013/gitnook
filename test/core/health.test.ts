@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initBoard, initDecisionRoot, DECISION_MERGE_RULE } from '../../src/core/gitattributes.js';
+import { initBoard, initDecisionRoot, initNook, DECISION_MERGE_RULE } from '../../src/core/gitattributes.js';
 import { diagnose, repair } from '../../src/core/health.js';
 import { inspectSharing } from '../../src/core/sharing.js';
 import { openBoard } from '../../src/core/board.js';
@@ -428,9 +428,9 @@ describe('fs 說 private、git 卻說沒 ignore', () => {
 /**
  * ticket 06：`diagnose()` 泛化成掃描一份已知實體 pattern 清單，Decision 是第二項
  * （票 01 的 `.gitnook/decisions/*.ndjson merge=union`）。與 Issue 不同的地方
- * 是 Decision 沒有 private 模式（票 01 只支援 shared），所以它的閘門不是問
- * sharing，而是問 marker 目錄在不在 —— `.decisions/` 不存在時這個診斷在這個
- * repo 裡「不存在」，不是被壓掉的真問題（同 private-mode 的既有哲學）。
+ * 是 Decision 的閘門除了 sharing 還要問 marker 目錄在不在 —— `.decisions/`
+ * 不存在時這個診斷在這個 repo 裡「不存在」，不是被壓掉的真問題（同 private-mode
+ * 的既有哲學）。
  *
  * 每個案例都先 initBoard 讓 Issue 側維持健康，才看得出回報的那一條確實是
  * Decision 專屬的，而不是 Issue 既有邏輯的副作用。
@@ -479,6 +479,20 @@ describe('Decision 的零衝突保證', () => {
     gitInit();
     initBoard(dir);
     expect(existsSync(join(dir, '.gitnook', 'decisions'))).toBe(false);
+
+    expect(diagnose(dir)).toEqual([]);
+  });
+
+  /**
+   * `nook init --private` 會同時建出 `.gitnook/decisions/`，而整個 `.gitnook/`
+   * 都被 exclude —— decision op-log 跟 issue op-log 一樣永遠不會 merge，所以
+   * 「缺少 merge=union」在這裡同樣是不需要，不是缺少。
+   */
+  it('nook init --private 建出的 board（含 decisions/）沒有任何 Diagnostic', () => {
+    gitInit();
+    initNook(dir, { sharing: 'private' });
+    expect(existsSync(join(dir, '.gitnook', 'decisions'))).toBe(true);
+    expect(existsSync(join(dir, '.gitattributes'))).toBe(false);
 
     expect(diagnose(dir)).toEqual([]);
   });
