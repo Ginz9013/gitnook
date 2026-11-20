@@ -8,7 +8,7 @@ While the major version is `0`, a minor bump may contain changes that would be
 breaking after `1.0.0`. Any such change is listed under **Changed** or
 **Removed** with what it means for you.
 
-## [Unreleased]
+## [0.7.0] - 2026-11-21
 
 ### Added
 
