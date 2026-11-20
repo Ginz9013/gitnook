@@ -1651,11 +1651,30 @@ describe('share：private → shared', () => {
     expect(io.out).toBe(
       'Shared  .gitnook/  removed from $GIT_DIR/info/exclude (this board will enter git from now on)\n' +
         'Created  .gitattributes  .gitnook/issues/*.ndjson merge=union\n' +
+        'Added    .gitattributes  .gitnook/decisions/*.ndjson merge=union\n' +
         'Next  nook runs no git command that writes; run these yourself:\n' +
         `  git add "${dir}/.gitnook" "${dir}/.gitattributes"\n` +
         '  git commit -m "Share the nook board"\n',
     );
     expect(io.err).toBe('');
+  });
+
+  /**
+   * Sharing 以整個容器為單位：`init --private` 建出的 `decisions/` 跟著一起升級，
+   * 它的 merge=union 也得補回來，否則 doctor 一升級完就報保證失效。
+   */
+  it('升級後 decisions 的 merge=union 也在，doctor 沒有任何 Diagnostic', async () => {
+    gitInit();
+    await run(['init', '--private'], capture());
+
+    expect(await run(['issue', 'share'], capture())).toBe(0);
+
+    expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toContain(
+      '.gitnook/decisions/*.ndjson merge=union',
+    );
+    const doctor = capture();
+    expect(await run(['doctor'], doctor)).toBe(0);
+    expect(doctor.out + doctor.err).toBe('');
   });
 
   /**

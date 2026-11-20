@@ -1,7 +1,14 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { openBoard } from '../core/board.js';
-import { MERGE_RULE, initBoard, inspectMergeGuarantee } from '../core/gitattributes.js';
+import {
+  DECISION_LOG_SAMPLE,
+  DECISION_MERGE_RULE,
+  MERGE_RULE,
+  OP_LOG_SAMPLE,
+  initNook,
+  inspectMergeGuarantee,
+} from '../core/gitattributes.js';
 import { isValidRef } from '../core/ids.js';
 import { fieldWrites } from '../core/reduce.js';
 import { ignoredByGit, inspectSharing, opLogsTracked, unexcludeBoard } from '../core/sharing.js';
@@ -358,37 +365,44 @@ function cmdLabel(args: Args, io: Io): number {
   return 0;
 }
 
+/** share 要補齊的每一條零衝突保證 —— Sharing 以整個容器為單位，兩個模組一起升級。 */
+const SHARE_RULES: ReadonlyArray<readonly [rule: string, sample: string]> = [
+  [MERGE_RULE, OP_LOG_SAMPLE],
+  [DECISION_MERGE_RULE, DECISION_LOG_SAMPLE],
+];
+
 /**
- * `.gitattributes` 的那一行這次發生了什麼事，講成一行字。
+ * `.gitattributes` 的那幾行這次發生了什麼事，一條規則講成一行字。
  *
- * **狀態必須在 initBoard 之前讀完**，所以這個函式回傳的是一個「等著被印」的
+ * **狀態必須在 initNook 之前讀完**，所以這個函式回傳的是一個「等著被印」的
  * closure 而不是自己印 —— 寫完再讀，看到的永遠是它剛寫完的結果，三種結果會全部
- * 塌成「本來就在」。`init` 與 `share` 共用它：補一行進別人的檔案與整個檔案都是我
- * 建的，是兩件不同的事，而這句話的措辭在兩個指令裡必須一樣（改一處就要改兩處的
- * 那種重複，正是會漂開的那種）。
+ * 塌成「本來就在」。第一條缺的規則若讓檔案從無到有，之後的規則就是「補進」那個
+ * 檔案，措辭同 `nook init`。
  */
 function guaranteeLine(dir: string): (io: Io) => void {
-  const guarded = inspectMergeGuarantee(dir).kind === 'union';
-  const existed = existsSync(join(dir, '.gitattributes'));
+  let existed = existsSync(join(dir, '.gitattributes'));
+  const missing = SHARE_RULES.filter(([, sample]) => inspectMergeGuarantee(dir, sample).kind !== 'union');
   return (io) => {
-    if (guarded) return;
-    // 動詞補到等寬，路徑才對得起來。
-    line(io, `${existed ? 'Added  ' : 'Created'}  .gitattributes  ${MERGE_RULE}`);
+    for (const [rule] of missing) {
+      // 動詞補到等寬，路徑才對得起來。
+      line(io, `${existed ? 'Added  ' : 'Created'}  .gitattributes  ${rule}`);
+      existed = true;
+    }
   };
 }
 
 /**
- * private → shared 的升級路徑：拿掉 nook 借的那一行、冪等補回 MERGE_RULE，然後
+ * private → shared 的升級路徑：拿掉 nook 借的那一行、冪等補回兩個模組的 merge=union，然後
  * 把**使用者自己**要跑的 git 指令印出來。
  *
  * nook 沒有任何一個會寫入的 git 指令，`git add` 也不會是第一個 —— 把一塊 board
  * 交給整個團隊是一個社交決定（spec.md：private mode 買到的是社交足跡為零），
  * 而那個決定連同它的 commit message 都屬於使用者。
  *
- * **順序是先 initBoard、後移除排除規則。** 反過來的話，撞上
+ * **順序是先 initNook、後移除排除規則。** 反過來的話，撞上
  * ConflictingGitAttributes 的使用者會得到一塊 git 看得見、卻沒有零衝突保證的
  * board，而他以為指令失敗了 —— 同 `initBoard` private 那條路「拒絕不留痕跡」的
- * 紀律。這也是為什麼那條檢查不在這裡重寫一份：它已經在 initBoard 裡，而且排在
+ * 紀律。這也是為什麼那條檢查不在這裡重寫一份：它已經在 initNook 裡，而且排在
  * 它自己的任何寫入之前。
  */
 function cmdShare(args: Args, io: Io): number {
@@ -407,13 +421,13 @@ function cmdShare(args: Args, io: Io): number {
 
   // 狀態在寫入之前讀完 —— 之後再讀，看到的是它剛寫完的結果（同 cmdInit）。
   const sayGuarantee = guaranteeLine(root);
-  const guarded = inspectMergeGuarantee(root).kind === 'union';
+  const guarded = SHARE_RULES.every(([, sample]) => inspectMergeGuarantee(root, sample).kind === 'union');
   // **這一題只有 index 答得準**，而它決定的是下面那句 `git add` 該不該印：
   // 「意圖共享但從來沒 commit」要那一步，「早就 commit 出去了」不要。share 是
   // spec.md 列出的三個准 spawn git 的指令之一。
   const alreadyOut = opLogsTracked(root);
 
-  initBoard(root);
+  initNook(root);
   const removed = unexcludeBoard(root) === 'removed';
 
   // nook 做完自己那一半之後，git **仍然**可能在 ignore 這塊 board（committed 的
