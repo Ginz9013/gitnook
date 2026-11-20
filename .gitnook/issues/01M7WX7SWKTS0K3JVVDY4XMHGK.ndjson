@@ -1,0 +1,5 @@
+{"id":"01M7WX7SWKANT2AD4S5TKHYX99","t":1,"a":"83a1","op":"create","title":"share 只補 Issue 的 merge=union，private 升 shared 後 doctor 報 decisions 缺規則"}
+{"id":"01M7WX7SWX5Z2JQGT8FWS3M02S","t":2,"a":"83a1","op":"set","k":"description","v":"## Outcome\n`nook init --private` → `nook issue share` 之後，`.gitattributes` 同時含 issues 與 decisions 兩條 `merge=union`，`nook doctor` 乾淨。\n\n## 重現\n```\nnook init --private && nook issue share && nook doctor   # exit 1\nMissingMergeDriver  .gitattributes  missing the zero-conflict guarantee: .gitnook/decisions/*.ndjson merge=union\n```\n根因：`cmdShare`（src/cli/issue.ts）呼叫只寫 `MERGE_RULE` 的 `initBoard`；`initNook --private` 卻建了 `decisions/`。README:145 承諾 share 涵蓋兩個模組。`test/cli/issue.test.ts:1630-1657` 把錯誤輸出鎖住了。\n\n## Acceptance criteria\n- [ ] 回歸測試：private → share → doctor 無 Diagnostic（先紅）\n- [ ] share 的輸出列出兩條規則"}
+{"id":"01M7WX7SWXHSWA1P46HGT0KZB0","t":3,"a":"83a1","op":"label.add","v":"bug"}
+{"id":"01M7WX7SWX1XGK9QD8AAX7HZD7","t":4,"a":"83a1","op":"label.add","v":"private-mode"}
+{"id":"01M7WX7SWXAEFY5G7M350BNYZG","t":5,"a":"83a1","op":"label.add","v":"core"}
