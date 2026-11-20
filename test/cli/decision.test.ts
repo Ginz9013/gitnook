@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { dispatchDecision } from '../../src/cli/decision.js';
 import { openDecisionLog } from '../../src/index.js';
 import { deriveActor } from '../../src/core/actor.js';
-import { initNook } from '../../src/core/gitattributes.js';
+import { initNook } from '../../src/core/container.js';
 import type { Io } from '../../src/cli/run.js';
 
 // ADR-0004：真實檔案系統，每個測試用例獨立 mkdtemp 的 cwd。
@@ -539,5 +539,33 @@ describe('舊版佈局偵測', () => {
     expect(io.err).toContain(
       `git mv "${join(dir, '.decisions', 'decisions')}" "${join(dir, '.gitnook', 'decisions')}"`,
     );
+  });
+});
+
+/**
+ * 同 Issue 的讀取類指令：零衝突保證缺了就在 stderr 逐條講，private 容器上沉默。
+ */
+describe('decision 讀取類指令監看 merge=union', () => {
+  it('Decision 那條規則被刪時 list 在 stderr 點名它，stdout 照常', async () => {
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+    initNook(dir);
+    writeFileSync(join(dir, '.gitattributes'), '.gitnook/issues/*.ndjson merge=union\n', 'utf8');
+    const io = capture();
+
+    expect(await dispatchDecision(['list'], io)).toBe(0);
+
+    expect(io.err).toBe(
+      'Warning: .gitattributes is missing .gitnook/decisions/*.ndjson merge=union, merges will conflict (nook init restores it)\n',
+    );
+  });
+
+  it('private 容器上沉默', async () => {
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+    initNook(dir, { sharing: 'private' });
+    const io = capture();
+
+    expect(await dispatchDecision(['list'], io)).toBe(0);
+
+    expect(io.err).toBe('');
   });
 });

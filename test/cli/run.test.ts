@@ -263,7 +263,7 @@ describe('不認得的頂層指令', () => {
 describe('舊的扁平指令改成明確的重新導向', () => {
   it('nook <舊指令> 直接指向 nook issue <舊指令>，不是模糊的 unknown command', async () => {
     const verbs = [
-      'new', 'list', 'show', 'history', 'set', 'rm', 'mv', 'comment', 'label', 'share',
+      'new', 'list', 'show', 'history', 'set', 'rm', 'mv', 'comment', 'label',
     ];
 
     for (const verb of verbs) {
@@ -453,11 +453,10 @@ describe('--help 說得出 --private', () => {
  * 藏起一個存在的指令與教一個不存在的指令是同一種錯 —— 而 `--help` 是 AGENT.md
  * 自稱的「語法即時來源」，兩者由 test/agent-doc.test.ts 釘在一起（只改一邊會紅）。
  *
- * `share` 搬進 `nook issue share` 之後不再是頂層指令，打錯字時的模糊建議
- * 因此歸 `nook issue <bad>` 的那條路徑管（`test/cli/issue.test.ts`），這裡只
- * 釘住「--help 藏不住它」這一半。
+ * `share` 是頂層指令（Sharing 以整個容器為單位，同 `init`）；`nook issue share`
+ * 仍是別名。這裡釘住「--help 藏不住它」這一半。
  */
-describe('--help 列出 issue share', () => {
+describe('--help 列出 share', () => {
   it('指令表提到 share，而且仍然短到值得每次都讀', async () => {
     const io = capture();
 

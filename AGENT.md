@@ -30,7 +30,7 @@ Issues are plain text files in the repo. They travel with the branch, merge with
 | `nook issue mv <ref> <status>` | status transition (the common case) |
 | `nook issue comment <ref> <body\|->` | append a comment |
 | `nook issue label <ref> +bug -ui` | add and remove labels |
-| `nook issue share` | upgrade a private board back to a shared one; prints the `git add` **you** run (or exits 1 naming the rule that still ignores it) |
+| `nook share` | upgrade a private board back to a shared one (`nook issue share` is an alias); prints the `git add` **you** run (or exits 1 naming the rule that still ignores it) |
 | `nook doctor [--fix]` | data health; `--fix` repairs glued lines |
 | `nook studio [--port <n>]` | localhost board for a human: drag, edit, comment |
 | `nook workspace list\|doctor\|studio` | cross-repo, read-only — see "workspace: writes route to a member" below |
@@ -47,7 +47,7 @@ Issues are plain text files in the repo. They travel with the branch, merge with
 
 **`nook decision`** is a second, parallel op-log — Architecture Decision Records instead of issues, same append-only NDJSON-per-record shape, same `merge=union` guarantee, living in `.gitnook/decisions/` alongside `.gitnook/issues/`. It does not share storage, refs or history with `nook issue`, and it is deliberately smaller: no labels, no comments, no archiving. Use it to record *why*, not *what needs doing* — a Decision has a `disposition` (`proposed` / `accepted` / `superseded` / `rejected`), not a workflow `status`, and the two words are not interchangeable.
 
-**Whether a board is shared or private is the human's decision, not yours.** `nook init --private` keeps the whole `.gitnook/` (issues and decisions together) out of git entirely — zero committed bytes, so nobody on the team has to be told about it yet — and `nook issue share` puts it back. Both change what everyone else can see, so never run either on your own initiative — the same rule as `queued`, though not the same shape: `queued` is a grant the human makes, while here there is no granting form at all, just the prohibition. If the human asks for one of them, run it and hand them what it prints, because nook runs no git command that writes. `share` exits 1 without printing any `git add` when a rule outside nook's control (a committed `.gitignore`, usually) still ignores the board — that message names the file and line, and removing it is the human's call too.
+**Whether a board is shared or private is the human's decision, not yours.** `nook init --private` keeps the whole `.gitnook/` (issues and decisions together) out of git entirely — zero committed bytes, so nobody on the team has to be told about it yet — and `nook share` puts it back. Both change what everyone else can see, so never run either on your own initiative — the same rule as `queued`, though not the same shape: `queued` is a grant the human makes, while here there is no granting form at all, just the prohibition. If the human asks for one of them, run it and hand them what it prints, because nook runs no git command that writes. `share` exits 1 without printing any `git add` when a rule outside nook's control (a committed `.gitignore`, usually) still ignores the board — that message names the file and line, and removing it is the human's call too.
 
 `<value>` and `<body>` accept `-` to read stdin — **use this for anything multi-line**. Shell-escaping a markdown body is a bug source; piping is not.
 
@@ -146,6 +146,6 @@ It binds loopback only. It has no authentication, so reachability *is* write acc
 
 `nook doctor` reports data health and exits non-zero when it finds anything. `--fix` repairs glued lines.
 
-The line `.gitnook/issues/*.ndjson merge=union` in `.gitattributes` is the **single point of failure** — without it, concurrent edits start conflicting silently. `doctor` checks it and `list`/`show` warn when it is missing. **On a shared board that warning is never noise**; `nook init` restores the line.
+The lines `.gitnook/issues/*.ndjson merge=union` and `.gitnook/decisions/*.ndjson merge=union` in `.gitattributes` are the **single point of failure** — without them, concurrent edits start conflicting silently. `doctor` checks both, and `list`/`show` (issue and decision alike) warn once per missing line. **On a shared board that warning is never noise**; `nook init` restores the line.
 
-It does not apply on a private board, and nook deliberately stays quiet there: a board excluded from git never merges, so there is nothing for `merge=union` to guarantee — the guarantee is *unneeded*, not *missing*. Silence from `list`/`show` and from `doctor` on such a board is the correct output, not a swallowed problem. `nook issue share` is what makes the guarantee relevant again, and it restores the line as it goes.
+It does not apply on a private board, and nook deliberately stays quiet there: a board excluded from git never merges, so there is nothing for `merge=union` to guarantee — the guarantee is *unneeded*, not *missing*. Silence from `list`/`show` and from `doctor` on such a board is the correct output, not a swallowed problem. `nook share` is what makes the guarantee relevant again, and it restores both lines as it goes.

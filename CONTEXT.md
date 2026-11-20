@@ -31,6 +31,10 @@ _Avoid_: Board（見上）, archive, registry, ADR log
 從一個根目錄往下遞迴掃描找到的一組 Board，供跨 Board 檢視（列表、篩選、健康檢查）之用。純粹是觀察的角度——不建立任何新的儲存或狀態，不合併任何 Op-log，每個成員 Board 完全維持自己的獨立性（各自的 Op-log、Actor、Sharing）。探測預設仍是純檔案系統掃描：只問某個子目錄底下有沒有 `.gitnook/`，找到就不再往它底下更深處找，不需要讀任何設定檔。但一個 Board 可以透過 `.gitnook/config.json` 的 `workspace: true` 主動宣告自己也是一個 workspace 節點，此時掃描會繼續往它底下鑽，子目錄裡遇到的 Board 遞迴套用同一條規則——這是對 ADR-0012「不讀設定檔」立場的一次重新打開，取捨記在 `nook decision show 01M2NF1YPK3D5WPX9KWZTX0AH7`（取代 ADR-0012）。
 _Avoid_: monorepo（那是使用者資料夾佈局的慣例，Workspace 是 nook 對任何佈局的一種觀察方式，兩者正交——沒有 monorepo 佈局也能有 Workspace，例如母資料夾底下並排幾個不相干的 repo）, fleet, federation, group, collection（太泛用，沒有指名「一起被看的是哪些 Board」這件事）
 
+**Container（容器）**:
+一個 `.gitnook/` 目錄與其中的全部 Op-log 模組（目前是 Board 的 Issue Op-log 與 Decision Log 的 Decision Op-log）。它是 init、Sharing 與零衝突保證的單位：`nook init` 一次建好每個模組、`nook share` 一次升級整個容器，每個模組各自一條 `merge=union` 規則，但「這條規則在這個 Sharing 下需不需要、在不在」只有一個回答處。容器不合併任何資料——Board 與 Decision Log 照樣各自獨立，容器只知道「裡面有哪些 Op-log、各自住在哪、各自認得哪些 Op」。
+_Avoid_: board（Board 只裝 Issue，見上）, store, repo（一個 repo 可以有好幾個容器，見 **Workspace**）, module（那是程式碼層的用語）
+
 **Sharing（共享狀態）**:
 一個 `.gitnook/` 容器是否交給 git 追蹤——**以整個容器為單位，不分模組**：Board 的 Op-log 與 Decision Log 的 Op-log 是各自獨立的兩份檔案（各自的資料格式、marker 子目錄、`merge=union` 規則），但一條 exclude 規則蓋住整個 `.gitnook/`，兩者永遠一起 shared 或一起 private，沒有「Issue shared、Decision private」這種混搭。兩個值：**shared** 是預設，Op-log 被 commit，`merge=union` 是它的零衝突保證；**private** 的 Op-log 被 `$GIT_DIR/info/exclude` 排除，只存在於這一個工作目錄（ADR-0011）。
 _Avoid_: mode, local, offline, visibility（`visibility` 已經被 `archived` 佔用 —— 那是「先不要看到」，與「要不要交給 git」是兩件事）

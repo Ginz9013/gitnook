@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { initBoard } from '../../src/core/gitattributes.js';
+import { initNook } from '../../src/core/container.js';
 import { run } from '../../src/cli/run.js';
 import type { Io } from '../../src/cli/run.js';
 import { openBoard } from '../../src/core/board.js';
@@ -80,7 +80,7 @@ function makeRepo(prefix = 'nook-private-'): string {
  */
 function makeSharedBoard(): string {
   const repo = makeRepo('nook-private-shared-');
-  initBoard(repo);
+  initNook(repo);
   openBoard({ dir: repo, actor: 'aaaa' }).create({ title: 'Fix login redirect' });
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'share the board');
@@ -145,7 +145,7 @@ describe('init --private 的核心路徑', () => {
   it('建出 board、把 /.gitnook/ 寫進 info/exclude，而 git 看不到任何東西', () => {
     const repo = makeRepo();
 
-    initBoard(repo, { sharing: 'private' });
+    initNook(repo, { sharing: 'private' });
 
     expect(existsSync(join(repo, '.gitnook', 'issues'))).toBe(true);
     // private 模式完全不碰 .gitattributes：被 ignore 的 op-log 永遠不會 merge，
@@ -166,9 +166,9 @@ describe('exclude 的寫入是冪等的', () => {
     const repo = makeRepo();
     const file = excludeFileOf(repo);
 
-    initBoard(repo, { sharing: 'private' });
+    initNook(repo, { sharing: 'private' });
     // 第二次是使用者真的會做的事（忘了自己跑過）。它必須是 no-op 而不是錯誤。
-    initBoard(repo, { sharing: 'private' });
+    initNook(repo, { sharing: 'private' });
 
     expect(linesOf(file).filter((l) => l === '/.gitnook/')).toHaveLength(1);
     // 回傳值是 init 的輸出要講的那件事：這次什麼都沒動。
@@ -206,7 +206,7 @@ describe('那一行的字面意義 —— 左右兩側不對稱', () => {
   it('前導空白的規則 git 不承認，所以 nook 也不得承認', () => {
     for (const written of [' /.gitnook/', '\t/.gitnook/']) {
       const repo = makeRepo();
-      initBoard(repo);
+      initNook(repo);
       writeFileSync(excludeFileOf(repo), `${written}\n`, 'utf8');
 
       // 先確認前提：git 真的不 ignore 它（前導空白是 pattern 的一部分）。
@@ -221,7 +221,7 @@ describe('那一行的字面意義 —— 左右兩側不對稱', () => {
   it('尾端空白與 CR 是 git 自己就忽略的，所以那仍然是 nook 的那一行', () => {
     for (const written of ['/.gitnook/   ', '/.gitnook/\r']) {
       const repo = makeRepo();
-      initBoard(repo);
+      initNook(repo);
       writeFileSync(excludeFileOf(repo), `${written}\n`, 'utf8');
 
       // 前提同上，但這次 git 說它生效 —— 所以答 private 才與 git 一致。
@@ -242,7 +242,7 @@ describe('拒絕時不留痕跡', () => {
     const loose = mkdtempSync(join(tmpdir(), 'nook-private-norepo-'));
     dirs.push(loose);
 
-    expect(() => initBoard(loose, { sharing: 'private' })).toThrow();
+    expect(() => initNook(loose, { sharing: 'private' })).toThrow();
     expect(existsSync(join(loose, '.gitnook'))).toBe(false);
   });
 
@@ -257,7 +257,7 @@ describe('拒絕時不留痕跡', () => {
     const file = excludeFileOf(repo);
     const before = readFileSync(file, 'utf8');
 
-    expect(() => initBoard(repo, { sharing: 'private' })).toThrow(AlreadySharedBoard);
+    expect(() => initNook(repo, { sharing: 'private' })).toThrow(AlreadySharedBoard);
 
     expect(readFileSync(file, 'utf8')).toBe(before);
     // 那塊 board 還是共享的 —— 拒絕沒有順手把它變成「nook 說 private」的狀態。
@@ -270,15 +270,15 @@ describe('拒絕時不留痕跡', () => {
 describe('inspectSharing 推導 Sharing', () => {
   it('private board 回答 private，shared board 與不是 repo 的目錄回答 shared', () => {
     const priv = makeRepo();
-    initBoard(priv, { sharing: 'private' });
+    initNook(priv, { sharing: 'private' });
 
     const shared = makeRepo();
     // 剛 init 還沒 commit 的 board 也算 shared —— 它的意圖是共享，只是還沒送出去。
-    initBoard(shared);
+    initNook(shared);
 
     const loose = mkdtempSync(join(tmpdir(), 'nook-private-norepo-'));
     dirs.push(loose);
-    initBoard(loose);
+    initNook(loose);
 
     expect(inspectSharing(priv)).toBe('private');
     expect(inspectSharing(shared)).toBe('shared');
@@ -287,7 +287,7 @@ describe('inspectSharing 推導 Sharing', () => {
 
   it('手寫成別的形狀的 ignore 規則不算 private —— 刻意的窄，且失敗方向保守', () => {
     const repo = makeRepo();
-    initBoard(repo);
+    initNook(repo);
     // git 確實會 ignore 它（沒有前導 / 的 pattern 比對任何層級），但 nook 只認
     // 自己寫的那一整行：通用的 pattern 與優先序規則只有 git 自己說得準，而
     // 讀取熱路徑不能 spawn git。
@@ -300,7 +300,7 @@ describe('inspectSharing 推導 Sharing', () => {
 
   it('不 spawn 任何子行程 —— 它是 list / show 每一次都要付的錢', () => {
     const repo = makeRepo();
-    initBoard(repo, { sharing: 'private' });
+    initNook(repo, { sharing: 'private' });
 
     const shim = mkdtempSync(join(tmpdir(), 'nook-private-shim-'));
     dirs.push(shim);
@@ -328,7 +328,7 @@ describe('private 完全不碰 .gitattributes', () => {
   it('原本不存在就不建出來；原本存在就一個 byte 都沒變，連 conflicting 都不報錯', () => {
     const bare = makeRepo();
 
-    initBoard(bare, { sharing: 'private' });
+    initNook(bare, { sharing: 'private' });
 
     expect(existsSync(join(bare, '.gitattributes'))).toBe(false);
 
@@ -336,7 +336,7 @@ describe('private 完全不碰 .gitattributes', () => {
     const existing = '*.png binary\n.gitnook/issues/*.ndjson merge=ours\n';
     writeFileSync(join(kept, '.gitattributes'), existing, 'utf8');
 
-    initBoard(kept, { sharing: 'private' });
+    initNook(kept, { sharing: 'private' });
 
     expect(readFileSync(join(kept, '.gitattributes'), 'utf8')).toBe(existing);
     expect(inspectSharing(kept)).toBe('private');
@@ -345,7 +345,7 @@ describe('private 完全不碰 .gitattributes', () => {
     // 那個「沒報錯」不是因為這份內容無害，而是因為那條規則在 private 下無意義。
     const shared = makeRepo();
     writeFileSync(join(shared, '.gitattributes'), existing, 'utf8');
-    expect(() => initBoard(shared)).toThrow(/merge=ours/);
+    expect(() => initNook(shared)).toThrow(/merge=ours/);
   });
 });
 
@@ -355,7 +355,7 @@ describe('board 不在 work tree 頂端', () => {
     const nested = join(repo, 'services', 'api');
     mkdirSync(nested, { recursive: true });
 
-    initBoard(nested, { sharing: 'private' });
+    initNook(nested, { sharing: 'private' });
 
     // pattern 一律相對於 work tree 頂端 —— info/exclude 是整個 repo 的一份檔案，
     // 寫成 /.gitnook/ 會排除掉頂端那塊（不存在的）board 而放過這一塊。
@@ -398,7 +398,7 @@ describe('board 路徑含 gitignore metacharacter', () => {
       // 量的仍然只有 board 自己。
       mkdirSync(join(repo, decoy), { recursive: true });
 
-      initBoard(board, { sharing: 'private' });
+      initNook(board, { sharing: 'private' });
 
       expect(linesOf(excludeFileOf(repo))).toContain(rule);
       // 基準一律是真實的 git：規則真的咬得到這塊 board。
@@ -423,7 +423,7 @@ describe('board 路徑含尾端空白', () => {
     const board = join(repo, 'trail ');
     mkdirSync(board);
 
-    initBoard(board, { sharing: 'private' });
+    initNook(board, { sharing: 'private' });
 
     expect(linesOf(excludeFileOf(repo))).toContain('/trail\\ /.gitnook/');
     // 基準是真實的 git：轉義過的那一行照樣咬得到這塊 board。
@@ -455,7 +455,7 @@ describe('board 路徑以 # 或 ! 開頭的那一段', () => {
       const board = join(repo, name);
       mkdirSync(board);
 
-      initBoard(board, { sharing: 'private' });
+      initNook(board, { sharing: 'private' });
 
       expect(linesOf(excludeFileOf(repo))).toContain(rule);
       // git 自己說了：`#` 沒被讀成註解、`!` 沒被讀成否定 —— 行首是那個 `/`。
@@ -477,7 +477,7 @@ describe('轉義之前就寫下的那一行（轉換期）', () => {
     const repo = makeRepo();
     const board = join(repo, 'apps', '[id]');
     mkdirSync(board, { recursive: true });
-    initBoard(board, { sharing: 'private' });
+    initNook(board, { sharing: 'private' });
     openBoard({ dir: board, actor: 'aaaa' }).create({ title: 'Fix login redirect' });
     // 舊版寫出去的形狀：一模一樣的路徑，只是沒有轉義。
     writeFileSync(excludeFileOf(repo), '/apps/[id]/.gitnook/\n', 'utf8');
@@ -493,7 +493,7 @@ describe('轉義之前就寫下的那一行（轉換期）', () => {
     expect(diagnose(board).map((d) => d.kind)).toContain('MissingMergeDriver');
 
     // 下一步修得回來：init --private 補上一條轉義過的規則。
-    initBoard(board, { sharing: 'private' });
+    initNook(board, { sharing: 'private' });
 
     expect(linesOf(excludeFileOf(repo))).toContain('/apps/\\[id\\]/.gitnook/');
     expect(tryGit(repo, 'check-ignore', '-q', 'apps/[id]/.gitnook/issues/x.ndjson').status).toBe(0);
@@ -519,7 +519,7 @@ describe('linked worktree', () => {
     // 前提成立才有這一條測試可言：linked worktree 的 .git 是檔案，不是目錄。
     expect(statSync(join(linked, '.git')).isFile()).toBe(true);
 
-    initBoard(linked, { sharing: 'private' });
+    initNook(linked, { sharing: 'private' });
 
     // 實測基準：git 自己說 info/exclude 在 common dir，兩邊問到同一個檔案。
     expect(excludeFileOf(linked)).toBe(excludeFileOf(main));
@@ -546,13 +546,13 @@ describe('opLogsTracked —— git 的 index 才是共享狀態的權威', () =>
     expect(git(shared, 'ls-files', '.gitnook')).not.toBe('');
 
     const fresh = makeRepo();
-    initBoard(fresh);
+    initNook(fresh);
     // 剛 init 還沒 commit 的 board：意圖是共享，但 index 裡還沒有東西。
     openBoard({ dir: fresh, actor: 'bbbb' }).create({ title: 'not committed yet' });
 
     const loose = mkdtempSync(join(tmpdir(), 'nook-private-norepo-'));
     dirs.push(loose);
-    initBoard(loose);
+    initNook(loose);
 
     expect(opLogsTracked(shared)).toBe(true);
     expect(opLogsTracked(fresh)).toBe(false);
@@ -574,7 +574,7 @@ describe('op-log 已經被 git 追蹤時，init --private 拒絕', () => {
     // 前提：git 真的在追蹤 op-log，而且因此不認那條 ignore 規則會有任何效果。
     expect(git(repo, 'ls-files', '.gitnook')).not.toBe('');
 
-    const error = caught(() => initBoard(repo, { sharing: 'private' }));
+    const error = caught(() => initNook(repo, { sharing: 'private' }));
 
     expect(error).toBeInstanceOf(AlreadySharedBoard);
     // 指令帶完整路徑：board 不在 repo 根目錄時，一條相對指令會在錯的目錄下
@@ -619,7 +619,7 @@ describe('共享狀態問的是 op-log，不是整個 .gitnook/', () => {
    */
   it('只有 .gitkeep 進了 index 時不算共享，doctor 因此仍然沉默', () => {
     const repo = makeRepo();
-    initBoard(repo, { sharing: 'private' });
+    initNook(repo, { sharing: 'private' });
     writeFileSync(join(repo, '.gitnook', '.gitkeep'), '', 'utf8');
     // -f 是必要的：整個 .gitnook/ 已經被排除了。
     git(repo, 'add', '-f', '.gitnook/.gitkeep');
@@ -647,7 +647,7 @@ describe('拒絕時一個目錄都不建', () => {
     rmSync(join(repo, '.gitnook'), { recursive: true, force: true });
     const before = readFileSync(excludeFileOf(repo), 'utf8');
 
-    expect(caught(() => initBoard(repo, { sharing: 'private' }))).toBeInstanceOf(
+    expect(caught(() => initNook(repo, { sharing: 'private' }))).toBeInstanceOf(
       AlreadySharedBoard,
     );
 
@@ -666,7 +666,7 @@ describe('不在 git work tree 內時，init --private 拒絕', () => {
     const loose = mkdtempSync(join(tmpdir(), 'nook-private-norepo-'));
     dirs.push(loose);
 
-    const error = caught(() => initBoard(loose, { sharing: 'private' }));
+    const error = caught(() => initNook(loose, { sharing: 'private' }));
 
     expect(error).toBeInstanceOf(NoGitDir);
     expect((error as Error).message).toContain('nook init');
@@ -720,7 +720,7 @@ describe('unexcludeBoard —— 只拿掉 nook 寫的那一行', () => {
     const file = excludeFileOf(repo);
     // 使用者自己的規則前後各一條，nook 的那一行夾在中間 —— 順序被動過才看得出來。
     writeFileSync(file, '*.log\n', 'utf8');
-    initBoard(repo, { sharing: 'private' });
+    initNook(repo, { sharing: 'private' });
     appendFileSync(file, 'build/\n', 'utf8');
     expect(linesOf(file)).toEqual(['*.log', '/.gitnook/', 'build/', '']);
     // 前提：git 真的在 ignore 這塊 board。
@@ -762,7 +762,7 @@ describe('移除時認的是 hasLine 的同一個判斷', () => {
   it('尾端空白與 CR 的那一行要拿掉 —— git 承認它，所以它就是 nook 的那一行', () => {
     for (const written of ['/.gitnook/   ', '/.gitnook/\r']) {
       const repo = makeRepo();
-      initBoard(repo);
+      initNook(repo);
       writeFileSync(excludeFileOf(repo), `${written}\n`, 'utf8');
       // 前提：git 說這條規則生效，所以這塊 board 真的是 private。
       expect(tryGit(repo, 'check-ignore', '-q', '.gitnook/issues/x.ndjson').status).toBe(0);
@@ -778,7 +778,7 @@ describe('移除時認的是 hasLine 的同一個判斷', () => {
   it('前導空白的那一行不准碰 —— git 不承認它，它是使用者自己的內容', () => {
     for (const written of [' /.gitnook/', '\t/.gitnook/']) {
       const repo = makeRepo();
-      initBoard(repo);
+      initNook(repo);
       writeFileSync(excludeFileOf(repo), `${written}\n`, 'utf8');
 
       expect(unexcludeBoard(repo)).toBe('unchanged');
@@ -797,7 +797,7 @@ describe('移除時認的是 hasLine 的同一個判斷', () => {
     mkdirSync(nested, { recursive: true });
     // git 自己的樣板註解不是契約的一部分，清掉才逐行比對得起來（同上面那一條）。
     writeFileSync(excludeFileOf(repo), '', 'utf8');
-    initBoard(nested, { sharing: 'private' });
+    initNook(nested, { sharing: 'private' });
     // 頂端那一塊 board 的規則（一塊 board 不能開在另一塊底下，所以只寫規則）——
     // info/exclude 是整個 repo 共用的一份檔案，兩條規則本來就會並存。
     excludeBoard(repo);
@@ -826,7 +826,7 @@ describe('share 之後 git 仍然 ignore 那些檔案時', () => {
     writeFileSync(join(repo, '.gitignore'), '# project junk\n.gitnook/\n', 'utf8');
     git(repo, 'add', '.gitignore');
     git(repo, 'commit', '-qm', 'ignore the nook board');
-    initBoard(repo, { sharing: 'private' });
+    initNook(repo, { sharing: 'private' });
     openBoard({ dir: repo, actor: 'aaaa' }).create({ title: 'Fix login redirect' });
     const io = capture(repo);
 
@@ -855,7 +855,7 @@ describe('不在 git work tree 內時，unexcludeBoard 不是錯誤', () => {
   it('回 unchanged 而不是丟 NoGitDir', () => {
     const loose = mkdtempSync(join(tmpdir(), 'nook-private-norepo-'));
     dirs.push(loose);
-    initBoard(loose);
+    initNook(loose);
 
     expect(inspectSharing(loose)).toBe('shared');
     expect(unexcludeBoard(loose)).toBe('unchanged');

@@ -3,8 +3,9 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { findBoardRoot, initBoard } from '../../src/core/gitattributes.js';
-import { initDecisionRoot, findDecisionRoot } from '../../src/core/gitattributes.js';
+import { findBoardRoot } from '../../src/core/gitattributes.js';
+import { initNook } from '../../src/core/container.js';
+import { findDecisionRoot } from '../../src/core/gitattributes.js';
 
 // ADR-0004：真實檔案系統，每個測試用例獨立 mkdtemp。
 // 這個檔案只測「泛化尋根/初始化」給 Decision 用的那一半 ——
@@ -23,7 +24,7 @@ const attrs = (): string => readFileSync(join(dir, '.gitattributes'), 'utf8');
 
 describe('initDecisionRoot 在空目錄', () => {
   it('建立 .gitnook/decisions/ 與含 merge=union 那一行的 .gitattributes', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
 
     expect(statSync(join(dir, '.gitnook', 'decisions')).isDirectory()).toBe(true);
     expect(existsSync(join(dir, '.gitattributes'))).toBe(true);
@@ -32,31 +33,33 @@ describe('initDecisionRoot 在空目錄', () => {
   });
 });
 
-describe('initDecisionRoot 遇上既有的 .gitattributes', () => {
+describe('initNook 遇上既有的 .gitattributes（Decision 那一條）', () => {
   it('append 規則且不動既有內容', () => {
     writeFileSync(join(dir, '.gitattributes'), '*.png binary\n', 'utf8');
 
-    initDecisionRoot(dir);
+    initNook(dir);
 
-    expect(attrs()).toBe('*.png binary\n.gitnook/decisions/*.ndjson merge=union\n');
+    expect(attrs()).toBe(
+      '*.png binary\n.gitnook/issues/*.ndjson merge=union\n.gitnook/decisions/*.ndjson merge=union\n',
+    );
   });
 });
 
-describe('重複 initDecisionRoot', () => {
+describe('重複 initNook（Decision 那一條）', () => {
   it('是冪等的：規則只寫一次', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const first = attrs();
 
-    initDecisionRoot(dir);
+    initNook(dir);
 
     expect(attrs()).toBe(first);
-    expect(attrs().split('\n').filter((l) => l.includes('merge=union'))).toHaveLength(1);
+    expect(attrs().split('\n').filter((l) => l.includes('decisions/*.ndjson merge=union'))).toHaveLength(1);
   });
 });
 
 describe('findDecisionRoot', () => {
   it('由子目錄向上找到含 .gitnook/decisions 的根', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const sub = join(dir, 'src', 'deep');
     mkdirSync(sub, { recursive: true });
 
@@ -74,13 +77,13 @@ describe('findDecisionRoot', () => {
 
 describe('initDecisionRoot 在既有 decision log 的子目錄', () => {
   it('拒絕並指出既有 log 的位置，不靜默切出第二塊', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const sub = join(dir, 'src', 'deep');
     mkdirSync(sub, { recursive: true });
 
     let error: Error | undefined;
     try {
-      initDecisionRoot(sub);
+      initNook(sub);
     } catch (e) {
       error = e as Error;
     }
@@ -97,7 +100,7 @@ describe('既有的 .gitattributes 對 .gitnook/decisions 的 op-log 含衝突�
 
     let error: Error | undefined;
     try {
-      initDecisionRoot(dir);
+      initNook(dir);
     } catch (e) {
       error = e as Error;
     }
@@ -126,8 +129,8 @@ describe('findDecisionRoot 偵測舊版佈局', () => {
 
 describe('Issue 的 initBoard/findBoardRoot 不受 Decision 泛化影響', () => {
   it('initBoard 建出 .gitnook/issues，與 .gitnook/decisions 完全獨立', () => {
-    initBoard(dir);
-    initDecisionRoot(dir);
+    initNook(dir);
+    initNook(dir);
 
     expect(existsSync(join(dir, '.gitnook', 'issues'))).toBe(true);
     expect(existsSync(join(dir, '.gitnook', 'decisions'))).toBe(true);

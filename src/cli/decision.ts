@@ -14,7 +14,7 @@ import type {
 } from '../core/decisionTypes.js';
 import { decisionFieldWrites } from '../core/decisionReduce.js';
 import { renderDecisionDetail, renderDecisionSetOps, renderDecisionTable } from '../render/table.js';
-import { errLine, fromEditor, line, longText, UsageError } from './run.js';
+import { errLine, fromEditor, line, longText, UsageError, warnUnguarded } from './run.js';
 import type { Io } from './run.js';
 
 /**
@@ -189,6 +189,8 @@ function cmdList(args: DecisionArgs, io: Io): number {
   const filter: DecisionFilter = disposition === undefined ? {} : { disposition };
 
   const log = openDecisionLog({ dir: io.cwd });
+  // 同 Issue 的讀取類指令：零衝突保證缺了就在 stderr 講（純 fs，不 spawn git）。
+  warnUnguarded(io, log.root());
   const decisions = log.list(filter);
   const len = shortIdLength(log.refs());
 
@@ -211,6 +213,7 @@ function requireRef(ref: string): string {
  */
 function cmdShow(args: DecisionArgs, io: Io): number {
   const log = openDecisionLog({ dir: io.cwd });
+  warnUnguarded(io, log.root());
   const ref = requireRef(args.positional[0] ?? '');
   const decision = log.get(ref);
 
@@ -331,6 +334,7 @@ function cmdHistory(args: DecisionArgs, io: Io): number {
   }
 
   const log = openDecisionLog({ dir: io.cwd });
+  warnUnguarded(io, log.root());
   const ops = decisionFieldWrites(log.opLog(ref), field);
   line(io, renderDecisionSetOps(ops));
   return 0;

@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDecisionLog, lazyDecisionLog } from '../../src/core/decisionLog.js';
-import { initDecisionRoot } from '../../src/core/gitattributes.js';
+import { initNook } from '../../src/core/container.js';
 import {
   DecisionLogNotInitialized,
   DecisionNotFound,
@@ -26,7 +27,7 @@ afterEach(() => {
 
 describe('create', () => {
   it('寫出一個恰好含 create + set op、且以換行結尾的 op-log', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
 
     log.create({ title: 'Use ULIDs for decisions', body: 'because they sort by time', disposition: 'accepted' });
@@ -46,7 +47,7 @@ describe('create', () => {
   });
 
   it('未指定 disposition 時預設 proposed，op-log 不多寫一行', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
 
     const decision = log.create({ title: 'A bare decision' });
@@ -57,7 +58,7 @@ describe('create', () => {
   });
 
   it('disposition 接受無歧義前綴', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
 
     const decision = log.create({ title: 'X', disposition: 'acc' });
@@ -66,7 +67,7 @@ describe('create', () => {
   });
 
   it('不合法的 disposition 拋 InvalidDisposition，不留下半成品檔案', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
 
     expect(() => log.create({ title: 'X', disposition: 'bogus' })).toThrow(InvalidDisposition);
@@ -76,7 +77,7 @@ describe('create', () => {
 
 describe('get', () => {
   it('以完整 ULID 讀回摺疊後的 Decision', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
     const created = log.create({ title: 'Use ULIDs for decisions' });
 
@@ -89,7 +90,7 @@ describe('get', () => {
   });
 
   it('以無歧義前綴讀回同一個 Decision', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
     const created = log.create({ title: 'X' });
 
@@ -97,14 +98,14 @@ describe('get', () => {
   });
 
   it('找不到的 ref 拋 DecisionNotFound', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
 
     expect(() => log.get('01DOESNOTEXIST0000000000')).toThrow(DecisionNotFound);
   });
 
   it('有歧義的前綴拋 AmbiguousDecisionRef', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
     log.create({ title: 'A' });
     log.create({ title: 'B' });
@@ -120,7 +121,7 @@ describe('get', () => {
 
 describe('apply', () => {
   it('個別修改欄位，摺疊出更新後的 Decision', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
     const created = log.create({ title: 'X' });
 
@@ -132,7 +133,7 @@ describe('apply', () => {
   });
 
   it('supersededBy 只驗證形狀，不驗證存在', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
     const created = log.create({ title: 'Old' });
 
@@ -142,7 +143,7 @@ describe('apply', () => {
   });
 
   it('supersededBy 形狀不合法時拋 DecisionNotFound', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
     const created = log.create({ title: 'Old' });
 
@@ -152,7 +153,7 @@ describe('apply', () => {
 
 describe('refs / list', () => {
   it('refs 回傳排序後的完整 ULID 清單', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
     const a = log.create({ title: 'A' });
     const b = log.create({ title: 'B' });
@@ -161,7 +162,7 @@ describe('refs / list', () => {
   });
 
   it('list 依 disposition 篩選', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
     log.create({ title: 'A', disposition: 'accepted' });
     log.create({ title: 'B', disposition: 'rejected' });
@@ -173,7 +174,7 @@ describe('refs / list', () => {
 
 describe('opLog', () => {
   it('回傳與 get 相同全序下的 op-log', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
     const created = log.create({ title: 'X', body: 'first' });
     log.apply(created.id, { body: 'second' });
@@ -186,7 +187,7 @@ describe('opLog', () => {
 
 describe('root', () => {
   it('回傳含 .decisions/ 那一層的絕對路徑', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
 
     expect(log.root()).toBe(dir);
@@ -217,7 +218,7 @@ describe('未初始化的目錄', () => {
 
 describe('lazyDecisionLog', () => {
   it('惰性：建構當下不問 board.root()，直到方法真的被呼叫；不快取，每次呼叫都重新問', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     let calls = 0;
     const board = {
       root: () => {
@@ -237,7 +238,7 @@ describe('lazyDecisionLog', () => {
   });
 
   it('由它建出來的 DecisionLog 功能完整：create 之後 get 讀得回來', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const board = { root: () => dir } as unknown as Board;
 
     const log = lazyDecisionLog(board);
@@ -249,14 +250,14 @@ describe('lazyDecisionLog', () => {
 
 describe('health', () => {
   it('merge=union 在時回傳空陣列', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     const log = openDecisionLog({ dir, actor: 'test' });
 
     expect(log.health()).toEqual([]);
   });
 
   it('.gitattributes 缺 merge=union 那一行時回報 Diagnostic', () => {
-    initDecisionRoot(dir);
+    initNook(dir);
     // 手動改壞那一行，模擬它被誤刪。
     writeFileSync(join(dir, '.gitattributes'), '*.png binary\n', 'utf8');
 
@@ -268,5 +269,26 @@ describe('health', () => {
     // 票 04：health() 組出來的訊息不該再提已經被票 01 移除的 `nook decision init`——
     // 唯一的初始化入口是 `nook init`。
     expect(found[0]!.message).not.toContain('nook decision init');
+  });
+
+  // 同 diagnose() 的閘門：private 容器的 op-log 永遠不會 merge，保證是「不需要」。
+  // 這裡原本沒有任何閘門，private board 上會誤報 decisions 缺 merge=union。
+  it('private 容器上沉默，即使 .gitattributes 根本不存在', () => {
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+    initNook(dir, { sharing: 'private' });
+
+    expect(openDecisionLog({ dir, actor: 'test' }).health()).toEqual([]);
+  });
+
+  it('只回報 Decision 的 Op-log：Issue 那邊的壞行不算在它頭上', () => {
+    initNook(dir);
+    writeFileSync(join(dir, '.gitnook', 'issues', '01SEED00000000000000000001.ndjson'), 'not json\n', 'utf8');
+    writeFileSync(join(decisionsDir(), '01SEED0000000000000000000D.ndjson'), 'oops\n', 'utf8');
+
+    const found = openDecisionLog({ dir, actor: 'test' }).health();
+
+    expect(found.map((d) => [d.kind, d.file])).toEqual([
+      ['UnparsableLine', '.gitnook/decisions/01SEED0000000000000000000D.ndjson'],
+    ]);
   });
 });

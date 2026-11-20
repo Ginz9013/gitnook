@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openBoard } from '../../src/index.js';
-import { initBoard } from '../../src/core/gitattributes.js';
+import { initNook } from '../../src/core/container.js';
 
 /**
  * 接縫：**一個真的舊版二進位檔，讀一塊真的 board**（ADR-0004：不設 storage 接縫，
@@ -93,7 +93,7 @@ function boardWithOneDeleted(): Fixture {
   git(dir, 'config', 'user.email', 'test@nook.invalid');
   git(dir, 'config', 'user.name', 'Nook Test');
   git(dir, 'config', 'commit.gpgsign', 'false');
-  initBoard(dir);
+  initNook(dir);
 
   const board = openBoard({ dir, actor: 'aaaa' });
   const kept = board.create({ title: KEPT });

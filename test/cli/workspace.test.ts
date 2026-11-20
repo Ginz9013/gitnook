@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBoard, openDecisionLog, initBoard } from '../../src/index.js';
-import { initDecisionRoot } from '../../src/core/gitattributes.js';
+import { initNook } from '../../src/core/container.js';
 import { dispatchWorkspace, dispatchWorkspaceDecision } from '../../src/cli/workspace.js';
 import {
   IncompleteRef,
@@ -70,7 +70,7 @@ function seeded(issueId: string): IdSource {
 /** 在 workspace 根目錄底下的某個子路徑建一塊真的 board，回傳它的絕對路徑。 */
 function member(...parts: string[]): string {
   const dir = join(root, ...parts);
-  initBoard(dir);
+  initNook(dir);
   return dir;
 }
 
@@ -114,7 +114,7 @@ const createIn = (dir: string, prefix: string, input: CreateInput): Issue =>
  * 測試需要另外呼叫這個把同一個成員目錄也補上 decision log。
  */
 function withDecisions(memberDir: string): string {
-  initDecisionRoot(memberDir);
+  initNook(memberDir);
   return memberDir;
 }
 
@@ -411,7 +411,7 @@ describe('dispatchWorkspace new — --in 指向成員底下的子目錄', () => 
 describe('dispatchWorkspace new — --in 指向 workspace 掃描範圍外的路徑', () => {
   it('即使那裡真的有一塊 Board，也拋出 NotAWorkspaceMember', async () => {
     const outside = mkdtempSync(join(tmpdir(), 'nook-workspace-outside-'));
-    initBoard(outside);
+    initNook(outside);
     try {
       const io = capture();
 

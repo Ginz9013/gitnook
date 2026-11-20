@@ -14,7 +14,9 @@ describe('src/index.ts 的公開匯出', () => {
         'openDecisionLog',
         // 跨 Board 的唯讀彙整入口 —— 一上公開面就是相容承諾，同 openBoard。
         'openWorkspace',
-        // 沒有它就沒有 board 可以開。
+        // 沒有它就沒有 board 可以開：容器的唯一初始化入口。
+        'initNook',
+        // initNook 的 deprecated 舊名，下一個 minor 版移除。
         'initBoard',
         // doctor 的兩半：README 承諾 board.health() 就是 nook doctor 報的東西，
         // 而 repair 是「可修復」這個診斷唯一的兌現途徑。

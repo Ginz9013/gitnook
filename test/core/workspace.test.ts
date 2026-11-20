@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openWorkspace } from '../../src/index.js';
 import { locateDecisionInWorkspace, locateInWorkspace, memberAt } from '../../src/core/workspace.js';
-import { initBoard, initDecisionRoot, initNook } from '../../src/core/gitattributes.js';
+import { initNook } from '../../src/core/container.js';
 import {
   AmbiguousWorkspaceRef,
   BoardNotInitialized,
@@ -36,7 +36,7 @@ const under = (...parts: string[]): string => {
 /**
  * 在某個目錄底下造出一個看起來合法的 board（`.gitnook/issues/`）。
  *
- * 刻意直接 `mkdirSync` 而不是呼叫 `initBoard()`：後者的 `NestedBoard` 檢查
+ * 刻意直接 `mkdirSync` 而不是呼叫 `initNook()`：後者的 `NestedBoard` 檢查
  * 會擋下「同一條路徑鏈上疊出多層 board」這種刻意造的拓撲（`遞迴找出更深處的
  * 成員` 那組測試就是要在 `a`、`a/b`、`a/b/c` 各自放一個 marker），純粹造出
  * `scan()` 會看到的檔案系統形狀，不必經過 init 的前置檢查。
@@ -294,7 +294,7 @@ describe('memberAt()', () => {
 describe('hasBoard() 只問 .gitnook/ 存在，不分別問 issues/decisions', () => {
   it('一個只有 .gitnook/decisions/、沒有 .gitnook/issues/ 的目錄照樣算成員', () => {
     const a = under('a');
-    initDecisionRoot(a);
+    initNook(a);
 
     const ws = openWorkspace({ dir: root });
 

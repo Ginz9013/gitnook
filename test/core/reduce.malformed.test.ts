@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBoard } from '../../src/index.js';
-import { initBoard } from '../../src/core/gitattributes.js';
+import { initNook } from '../../src/core/container.js';
 import { diagnose, repair } from '../../src/core/health.js';
 
 // 壞資料的防禦面。資料活在 git 裡、隊友的版本不同步是常態，
@@ -20,7 +20,7 @@ beforeEach(() => {
   execFileSync('git', ['config', 'user.email', 'test@nook.invalid'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.name', 'Nook Test'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['config', 'commit.gpgsign', 'false'], { cwd: dir, stdio: 'ignore' });
-  initBoard(dir);
+  initNook(dir);
 });
 
 afterEach(() => {

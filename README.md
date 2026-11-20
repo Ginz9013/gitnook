@@ -95,8 +95,8 @@ second equal way to run gitNook, and it gives up real things:
 - git worktrees don't see each other's board.
 - A new machine or a fresh clone starts with nothing; there's no sync.
 
-`nook issue share` upgrades a private board back to shared: it restores the
-`merge=union` line and prints the `git add`/`git commit` for you to run
+`nook share` (alias: `nook issue share`) upgrades a private board back to
+shared: it restores the `merge=union` lines for both issues and decisions and prints the `git add`/`git commit` for you to run
 yourself — nook never runs a git command that writes.
 
 Everything else works unchanged under `nook issue <verb>` — see
@@ -106,6 +106,7 @@ Everything else works unchanged under `nook issue <verb>` — see
 
 ```
 init [--private] [--workspace]         create .gitnook/issues/ and .gitnook/decisions/
+share                                  upgrade a private board back to a shared one
                                         (both modules, one shot) plus their .gitattributes
                                         lines; --private leaves zero committed bytes instead;
                                         --workspace marks this directory so a recursive scan
@@ -119,7 +120,6 @@ issue mv <ref> <status>
 issue rm <ref> [--yes]                 delete: writes a tombstone, never unlinks
 issue comment <ref> <body|->
 issue label <ref> +bug -ui
-issue share                            upgrade a private board back to a shared one
 decision new --title <t> [--body <b>] [--disposition <d>]
 decision list [--disposition <d>] [--json]
 decision show <ref> [--json]
@@ -142,7 +142,7 @@ same append-only shape and `merge=union` guarantee, living in
 `.gitnook/decisions/` alongside `.gitnook/issues/`, deliberately smaller (no
 labels, comments, or archiving). It does not have a private mode of its own —
 Sharing is one state for the whole `.gitnook/` directory, so `nook init
---private` and `nook issue share` cover both modules together. A Decision has
+--private` and `nook share` cover both modules together. A Decision has
 a `disposition` (`proposed`/`accepted`/`superseded`/`rejected`), not a
 workflow `status`.
 
@@ -285,7 +285,7 @@ board.health();                             // what `nook doctor` reports
 `Board` owns the whole CRDT — op generation, ordering, dedupe, OR-Set
 bookkeeping, prefix resolution. A caller never sees an operation; you say
 `{ labels: { add: ['bug'] } }` and add-wins is gitNook's problem. Also
-exported: `openWorkspace`, `initBoard`, `diagnose`, `repair`, `serve`,
+exported: `openWorkspace`, `initNook` (`initBoard` is its deprecated alias), `diagnose`, `repair`, `serve`,
 `serveWorkspace`, `STATUSES`, and a set of typed errors
 (`RefNotFound`, `AmbiguousRef`, `InvalidStatus`, `BoardNotInitialized`, ...)
 so a caller can tell "you can fix this" from "report a bug" with

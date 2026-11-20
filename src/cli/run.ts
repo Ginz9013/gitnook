@@ -6,17 +6,9 @@ import { fileURLToPath } from 'node:url';
 // 直接匯入各模組，不繞 src/index.ts。CLI 是這個 package 內部的呼叫端，走公開面
 // 只會逼公開面為了自己人而變寬 —— 而每一個匯出都是永久的相容負債。
 import { openBoard } from '../core/board.js';
-import {
-  ConflictingGitAttributes,
-  DECISION_LOG_SAMPLE,
-  DECISION_MERGE_RULE,
-  MERGE_RULE,
-  NestedBoard,
-  OP_LOG_SAMPLE,
-  findBoardRoot,
-  initNook,
-  inspectMergeGuarantee,
-} from '../core/gitattributes.js';
+import { ConflictingGitAttributes, NestedBoard, findBoardRoot } from '../core/gitattributes.js';
+import { initNook, missingMergeRules } from '../core/container.js';
+import type { RuleWrite } from '../core/container.js';
 import { repair } from '../core/health.js';
 import type { Repair } from '../core/health.js';
 import { shortIdLength } from '../core/ids.js';
@@ -228,6 +220,10 @@ async function dispatch(argv: readonly string[], io: Io): Promise<number> {
       return dispatchIssue(rest, io);
     case 'decision':
       return dispatchDecision(rest, io);
+    case 'share':
+      // Sharing 以整個容器為單位，所以它是頂層指令（同 `init`）。實作與旗標
+      // 檢查留在 `cli/issue.ts`，`nook issue share` 仍是它的別名。
+      return dispatchIssue(['share', ...rest], io);
     case 'doctor':
       return cmdDoctor(parseArgs(rest, DOCTOR_FLAGS), io);
     case 'studio':
@@ -270,13 +266,12 @@ const LEGACY_ISSUE_COMMANDS = [
   'mv',
   'comment',
   'label',
-  'share',
 ] as const;
 
 /** 頂層指令：ADR-0005 的近似建議只在這個小得多的命名空間裡做，子命名空間
  * 各自的未知子指令另外處理（`dispatchIssue`/`dispatchWorkspace`/
  * `dispatchDecision`，都只列出可用清單，不做模糊猜測）。 */
-const COMMANDS = ['init', 'issue', 'decision', 'doctor', 'studio', 'workspace'];
+const COMMANDS = ['init', 'share', 'issue', 'decision', 'doctor', 'studio', 'workspace'];
 
 /** 打錯字與想要一個不存在的功能是兩件事，回答也該不一樣。 */
 function unknownCommand(command: string): string {
@@ -341,6 +336,7 @@ export function displayLength(board: Board): number {
 const HELP = `nook <command>
 
 init [--private] [--workspace]  create the board; --private = no committed bytes
+share                    make a private board shared
 issue new <title> [--description <t|->] [--label <l>] [--editor]
 issue list [--all] [--status <s>] [--label <l>] [--json]
 issue show <ref> [--json]
@@ -350,7 +346,6 @@ issue rm <ref> [--yes]  delete; --yes off a TTY
 issue mv <ref> <status>
 issue comment <ref> <body|->
 issue label <ref> +bug -ui
-issue share  upgrade a private board to shared
 decision new|show
 doctor [--fix]           health check; --fix repairs glued lines
 studio [--port <n>]      localhost board
@@ -605,21 +600,24 @@ async function cmdStudio(args: Args, io: Io): Promise<number> {
 }
 
 /**
- * `.gitattributes` 那一行這次發生了什麼事，講成一行字 —— 同 `cli/issue.ts`/
- * `cli/decision.ts` 各自的 `guaranteeLine`，這裡把 rule/sample 參數化：
- * `nook init` 要同時問 issues、decisions 兩條規則（各自一條，不合併成一條
- * glob），所以呼叫兩次，帶不同的 rule/sample。
- *
- * **狀態必須在 `initNook` 之前讀完** —— 寫完再讀，看到的永遠是它剛寫完的
- * 結果，三種結果會全部塌成「本來就在」。
+ * `.gitattributes` 是零衝突保證的唯一單點失效 —— 被誤刪時資料會靜默開始衝突。
+ * 讀取類指令（Issue 與 Decision 兩邊）因此主動監看它，缺一條講一行。警告走
+ * stderr，管線上的資料不受污染。純 fs，不 spawn 任何子行程；private 容器上
+ * 沉默（理由見 `missingMergeRules`）。
  */
-function guaranteeLine(dir: string, rule: string, sample: string): (io: Io) => void {
-  const guarded = inspectMergeGuarantee(dir, sample).kind === 'union';
-  const existed = existsSync(join(dir, '.gitattributes'));
-  return (target) => {
-    if (guarded) return;
-    line(target, `${existed ? 'Added  ' : 'Created'}  .gitattributes  ${rule}`);
-  };
+export function warnUnguarded(io: Io, root: string): void {
+  for (const rule of missingMergeRules(root)) {
+    errLine(io, `Warning: .gitattributes is missing ${rule}, merges will conflict (nook init restores it)`);
+  }
+}
+
+/**
+ * Container 這次替 `.gitattributes` 寫下的一條規則，講成一行字 —— `init` 與
+ * `share` 共用同一句措辭（export 給 `cli/issue.ts`）。補一行進別人的檔案與整個
+ * 檔案都是我建的，是兩件不同的事。動詞補到等寬，路徑才對得起來。
+ */
+export function formatRuleWrite(write: RuleWrite): string {
+  return `${write.outcome === 'added' ? 'Added  ' : 'Created'}  .gitattributes  ${write.rule}`;
 }
 
 /**
@@ -628,17 +626,15 @@ function guaranteeLine(dir: string, rule: string, sample: string): (io: Io) => v
  * `nook decision init`。
  *
  * init 是一次性的建置動作，因此它說話（同既有 `cmdInit`／`initPrivate` 的既有
- * 紀律）——doctor 不說（沒消息就是好消息，且它會進 CI）。狀態一律在
- * `initNook` 之前讀完，寫完再讀會把三種結果塌成「本來就在」。`initNook` 丟例外
- * 時一行都不印。
+ * 紀律）——doctor 不說（沒消息就是好消息，且它會進 CI）。寫了哪幾條規則由
+ * `initNook` 自己回報（`InitResult.rules`），不在這裡先讀後寫地猜。`initNook`
+ * 丟例外時一行都不印。
  */
 function cmdInit(args: Args, io: Io): number {
   const sharing: Sharing | undefined = args.has('--private') ? 'private' : undefined;
   const workspace = args.has('--workspace') || undefined;
 
   const wasPrivate = inspectSharing(io.cwd) === 'private';
-  const sayIssuesGuarantee = guaranteeLine(io.cwd, MERGE_RULE, OP_LOG_SAMPLE);
-  const sayDecisionsGuarantee = guaranteeLine(io.cwd, DECISION_MERGE_RULE, DECISION_LOG_SAMPLE);
 
   const result = initNook(io.cwd, {
     ...(sharing === undefined ? {} : { sharing }),
@@ -671,13 +667,12 @@ function cmdInit(args: Args, io: Io): number {
     return 0;
   }
 
-  sayIssuesGuarantee(io);
-  sayDecisionsGuarantee(io);
+  for (const write of result.rules) line(io, formatRuleWrite(write));
   if (workspaceEnabled) {
     line(io, 'Enabled  .gitnook/config.json  workspace: true (recursive scan continues past this directory)');
   }
   // 四件事都本來就對了才是 no-op（同 private 分支的既有紀律）。
-  if (!createdIssues && !createdDecisions && result.gitattributes === 'unchanged' && !workspaceEnabled) {
+  if (!createdIssues && !createdDecisions && result.rules.length === 0 && !workspaceEnabled) {
     line(io, 'Unchanged  this is already a board; nothing was created');
   }
   return 0;

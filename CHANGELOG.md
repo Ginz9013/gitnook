@@ -8,6 +8,45 @@ While the major version is `0`, a minor bump may contain changes that would be
 breaking after `1.0.0`. Any such change is listed under **Changed** or
 **Removed** with what it means for you.
 
+## [Unreleased]
+
+### Added
+
+- **`nook share`.** Sharing covers the whole `.gitnook/` directory, so the
+  private → shared upgrade is now a top-level command next to `nook init`.
+  `nook issue share` keeps working as an alias.
+- **`nook doctor` checks decision op-logs line by line.** Glued lines, unknown
+  op kinds and unparsable lines in `.gitnook/decisions/` are now reported, and
+  `nook doctor --fix` repairs glued lines there too. Before, only issue op-logs
+  were checked.
+- **`initNook` is exported** from the library entry point. It initializes the
+  whole container (issues and decisions) and reports which `.gitattributes`
+  rules it wrote.
+- `nook decision list|show|history` now warn on stderr when the decisions
+  `merge=union` line is missing, the same way the issue commands do.
+
+### Changed
+
+- The missing-`merge=union` warning on `list`/`show` names the exact line that
+  is missing, one warning per line.
+- `ConflictingGitAttributes` names the Nook rule that is actually overridden,
+  instead of always pointing at the issues rule.
+
+### Deprecated
+
+- `initBoard` — use `initNook`. It now initializes issues **and** decisions
+  (a half-initialized container is not a valid state). It will be removed in
+  the next minor version.
+
+### Fixed
+
+- **`nook share` restores the decisions `merge=union` line too.** After
+  `nook init --private` then `nook issue share`, `.gitattributes` only had the
+  issues line, so `nook doctor` failed right after the upgrade.
+- **A private board no longer reports decisions as missing `merge=union`.**
+  The studio showed "This board's conflict-free guarantee is gone" on every
+  private board, because the decisions check ignored Sharing.
+
 ## [0.6.1] - 2026-10-13
 
 ### Added

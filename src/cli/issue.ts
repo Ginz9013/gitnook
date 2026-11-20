@@ -1,17 +1,7 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { openBoard } from '../core/board.js';
-import {
-  DECISION_LOG_SAMPLE,
-  DECISION_MERGE_RULE,
-  MERGE_RULE,
-  OP_LOG_SAMPLE,
-  initNook,
-  inspectMergeGuarantee,
-} from '../core/gitattributes.js';
+import { shareNook } from '../core/container.js';
 import { isValidRef } from '../core/ids.js';
 import { fieldWrites } from '../core/reduce.js';
-import { ignoredByGit, inspectSharing, opLogsTracked, unexcludeBoard } from '../core/sharing.js';
 import { IssueDeleted } from '../core/types.js';
 import { renderJson } from '../render/json.js';
 import { renderSetOps, renderTable } from '../render/table.js';
@@ -21,6 +11,7 @@ import {
   assembleCreateInput,
   boardDir,
   confirmed,
+  formatRuleWrite,
   displayLength,
   errLine,
   fromEditor,
@@ -30,6 +21,7 @@ import {
   parseArgs,
   parseLabelTokens,
   SETTABLE,
+  warnUnguarded,
 } from './run.js';
 import type { Args, Field, Io } from './run.js';
 import type { Filter } from '../core/types.js';
@@ -106,7 +98,7 @@ const RM_FLAGS: ReadonlySet<string> = new Set(['--yes']);
  * .gitattributes 是整個零衝突保證的唯一單點失效 —— 被誤刪時資料會靜默開始
  * 衝突。讀取類指令因此主動監看它。警告走 stderr，管線上的資料不受污染。
  *
- * 問的是 inspectMergeGuarantee 而不是 diagnose：這裡只需要知道那一行還在不在，
+ * 問的是 `missingMergeRules` 而不是 diagnose：這裡只需要知道那幾行還在不在，
  * 而完整診斷要再掃一次全部 op-log 並 spawn 一個 git rev-parse —— 對每一次
  * list / show 都收這筆帳，直接吃掉冷啟預算（spec.md 四個硬指標）。
  *
@@ -128,16 +120,8 @@ const RM_FLAGS: ReadonlySet<string> = new Set(['--yes']);
  *   不碰 .gitattributes。
  */
 function warnIfUnguarded(io: Io): void {
-  // 兩個問法共用同一塊 board，也只尋根一次 —— 問的是 board 根目錄，不是
-  // io.cwd：在子目錄執行時答案必須一樣。純 fs，不 spawn 任何子行程。
-  const root = boardDir(io);
-
-  if (inspectSharing(root) === 'private') return;
-
-  // absent 與 conflicting 都表示 op-log 拿不到 union，兩者同樣要警告。
-  if (inspectMergeGuarantee(root).kind !== 'union') {
-    errLine(io, 'Warning: .gitattributes is missing merge=union, merges will conflict (nook init restores it)');
-  }
+  // 問的是 board 根目錄，不是 io.cwd：在子目錄執行時答案必須一樣。純 fs。
+  warnUnguarded(io, boardDir(io));
 }
 
 function cmdList(args: Args, io: Io): number {
@@ -365,45 +349,17 @@ function cmdLabel(args: Args, io: Io): number {
   return 0;
 }
 
-/** share 要補齊的每一條零衝突保證 —— Sharing 以整個容器為單位，兩個模組一起升級。 */
-const SHARE_RULES: ReadonlyArray<readonly [rule: string, sample: string]> = [
-  [MERGE_RULE, OP_LOG_SAMPLE],
-  [DECISION_MERGE_RULE, DECISION_LOG_SAMPLE],
-];
-
 /**
- * `.gitattributes` 的那幾行這次發生了什麼事，一條規則講成一行字。
- *
- * **狀態必須在 initNook 之前讀完**，所以這個函式回傳的是一個「等著被印」的
- * closure 而不是自己印 —— 寫完再讀，看到的永遠是它剛寫完的結果，三種結果會全部
- * 塌成「本來就在」。第一條缺的規則若讓檔案從無到有，之後的規則就是「補進」那個
- * 檔案，措辭同 `nook init`。
- */
-function guaranteeLine(dir: string): (io: Io) => void {
-  let existed = existsSync(join(dir, '.gitattributes'));
-  const missing = SHARE_RULES.filter(([, sample]) => inspectMergeGuarantee(dir, sample).kind !== 'union');
-  return (io) => {
-    for (const [rule] of missing) {
-      // 動詞補到等寬，路徑才對得起來。
-      line(io, `${existed ? 'Added  ' : 'Created'}  .gitattributes  ${rule}`);
-      existed = true;
-    }
-  };
-}
-
-/**
- * private → shared 的升級路徑：拿掉 nook 借的那一行、冪等補回兩個模組的 merge=union，然後
- * 把**使用者自己**要跑的 git 指令印出來。
+ * `nook share`（`nook issue share` 是它的別名）：private → shared 的升級路徑。
+ * 動作本身是 Container 的 `shareNook`；這裡只負責把結果講出來，並把**使用者
+ * 自己**要跑的 git 指令印出來。
  *
  * nook 沒有任何一個會寫入的 git 指令，`git add` 也不會是第一個 —— 把一塊 board
  * 交給整個團隊是一個社交決定（spec.md：private mode 買到的是社交足跡為零），
  * 而那個決定連同它的 commit message 都屬於使用者。
  *
- * **順序是先 initNook、後移除排除規則。** 反過來的話，撞上
- * ConflictingGitAttributes 的使用者會得到一塊 git 看得見、卻沒有零衝突保證的
- * board，而他以為指令失敗了 —— 同 `initBoard` private 那條路「拒絕不留痕跡」的
- * 紀律。這也是為什麼那條檢查不在這裡重寫一份：它已經在 initNook 裡，而且排在
- * 它自己的任何寫入之前。
+ * 寫入順序（先補規則、後移除排除規則）與衝突檢查都在 `shareNook` 裡，這裡
+ * 不重寫一份。
  */
 function cmdShare(args: Args, io: Io): number {
   // `nook issue share 01JBXA` —— 想共享「一張 issue」的人會這樣打，而 share
@@ -419,25 +375,11 @@ function cmdShare(args: Args, io: Io): number {
   // 升級成功。尋根與那句話都已經在 Board 上，這裡不寫第二份。
   const root = openBoard({ dir: io.cwd }).root();
 
-  // 狀態在寫入之前讀完 —— 之後再讀，看到的是它剛寫完的結果（同 cmdInit）。
-  const sayGuarantee = guaranteeLine(root);
-  const guarded = SHARE_RULES.every(([, sample]) => inspectMergeGuarantee(root, sample).kind === 'union');
-  // **這一題只有 index 答得準**，而它決定的是下面那句 `git add` 該不該印：
-  // 「意圖共享但從來沒 commit」要那一步，「早就 commit 出去了」不要。share 是
-  // spec.md 列出的三個准 spawn git 的指令之一。
-  const alreadyOut = opLogsTracked(root);
-
-  initNook(root);
-  const removed = unexcludeBoard(root) === 'removed';
-
-  // nook 做完自己那一半之後，git **仍然**可能在 ignore 這塊 board（committed 的
-  // `.gitignore` 也有一條是最常見的形狀）。問的是 git 自己（`ignoredByGit`）：那套
-  // pattern 與優先序規則只有它說得準，而它順手指出的 `<file>:<line>:<pattern>`
-  // 正是使用者要去改的那一行。
-  //
-  // **必須在印任何一行之前問完。** 否則第一行已經承諾「從現在起會進 git」，而
-  // 下一行才說 git 還在擋 —— 先承諾再收回比直接說不行更糟。
-  const blocked = ignoredByGit(root);
+  // 先做、後說：要寫哪幾條規則、排除規則在不在、git 是否仍然擋著，全部由
+  // Container 一次回答完（它自己守住「先讀 index、再寫」的順序）。**必須在印任何
+  // 一行之前問完** —— 否則第一行已經承諾「從現在起會進 git」，而下一行才說
+  // git 還在擋，先承諾再收回比直接說不行更糟。
+  const { unexcluded: removed, rules, alreadyTracked: alreadyOut, stillIgnored: blocked } = shareNook(root);
 
   if (removed) {
     line(
@@ -447,10 +389,10 @@ function cmdShare(args: Args, io: Io): number {
         : 'Shared  .gitnook/  removed from $GIT_DIR/info/exclude (this board will enter git from now on)',
     );
   }
-  sayGuarantee(io);
+  for (const write of rules) line(io, formatRuleWrite(write));
   // 三件事都本來就對了才是 no-op。沉默在這裡會與成功長得一模一樣，而使用者問的
   // 正是「這次到底有沒有動到東西」—— 同 init 說話、doctor 沉默的那條分界。
-  if (!removed && guarded) line(io, 'Unchanged  this board is already shared; nothing was touched');
+  if (!removed && rules.length === 0) line(io, 'Unchanged  this board is already shared; nothing was touched');
 
   if (blocked.ignored) {
     // 那時 `git add` 會被拒絕，所以照樣印出那條指令等於叫使用者去撞牆，而回 0
@@ -462,9 +404,9 @@ function cmdShare(args: Args, io: Io): number {
       io,
       blocked.source === null
         ? `git is still ignoring this board, so git add would be rejected, but git did not point at ` +
-            `which rule. Run git check-ignore -v "${root}/.gitnook" yourself to find it, remove it, then run nook issue share again.`
+            `which rule. Run git check-ignore -v "${root}/.gitnook" yourself to find it, remove it, then run nook share again.`
         : `git is still ignoring this board: the rule ${blocked.source} is still blocking it, so git add would be rejected. ` +
-            `Remove that line yourself (nook never edits your .gitignore), then run nook issue share again.`,
+            `Remove that line yourself (nook never edits your .gitignore), then run nook share again.`,
     );
     return 1;
   }

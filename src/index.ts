@@ -61,9 +61,16 @@
 export { openBoard } from './core/board.js';
 export { openDecisionLog } from './core/decisionLog.js';
 export { openWorkspace } from './core/workspace.js';
-export { initBoard, ConflictingGitAttributes, NestedBoard } from './core/gitattributes.js';
+export { ConflictingGitAttributes, NestedBoard } from './core/gitattributes.js';
 /**
- * `initBoard(dir, { sharing: 'private' })` 的兩個出口。理由同
+ * `initNook` 是容器的唯一初始化入口（每個 Op-log 模組都建、每條規則都寫）。
+ * `initBoard` 是它 deprecated 的舊名，留到下一個 minor 版 —— 拿掉一個匯出是
+ * breaking change，所以先讓它委派、再移除。
+ */
+export { initNook, initBoard } from './core/container.js';
+export type { InitResult, RuleWrite } from './core/container.js';
+/**
+ * `initNook(dir, { sharing: 'private' })` 的兩個出口。理由同
  * `ConflictingGitAttributes` / `NestedBoard`：`initBoard` 是公開的，它會丟的
  * 東西呼叫端必須 `instanceof` 得到，否則只能去比對 `err.name` 或訊息字串。
  */

@@ -85,8 +85,8 @@ bytes，所以不會出現在任何人的 diff、review 或 clone 裡。
 - git worktree 之間看不到彼此的 board。
 - 換一台機器或重新 clone，什麼都沒有；沒有任何同步機制。
 
-`nook issue share` 把一塊 private board 升級回共享：它補回 `merge=union`
-那一行，並印出 `git add`／`git commit` 讓你自己執行 —— nook 不執行任何會
+`nook share`（別名 `nook issue share`）把一塊 private board 升級回共享：它補回
+issues 與 decisions 兩條 `merge=union`，並印出 `git add`／`git commit` 讓你自己執行 —— nook 不執行任何會
 寫入的 git 指令。
 
 其餘一切在 `nook issue <verb>` 底下照常運作 —— 見[指令](#指令)。
@@ -95,6 +95,7 @@ bytes，所以不會出現在任何人的 diff、review 或 clone 裡。
 
 ```
 init [--private] [--workspace]         建立 .gitnook/issues/ 與 .gitnook/decisions/
+share                                  把一塊 private board 升級回共享
                                         （兩個模組一次到位）與各自的 .gitattributes
                                         規則；--private 改成不留任何 committed bytes；
                                         --workspace 標記這個目錄，讓遞迴掃描遇到它
@@ -108,7 +109,6 @@ issue mv <ref> <status>
 issue rm <ref> [--yes]                 刪除：寫一筆墓碑，永不 unlink
 issue comment <ref> <body|->
 issue label <ref> +bug -ui
-issue share                            把一塊 private board 升級回共享
 decision new --title <t> [--body <b>] [--disposition <d>]
 decision list [--disposition <d>] [--json]
 decision show <ref> [--json]
@@ -130,7 +130,7 @@ workspace decision list|new|set|show|history   跨 repo 的 Decision —— 見�
 append-only 形狀與 `merge=union` 保證，住在 `.gitnook/decisions/`，跟
 `.gitnook/issues/` 放在一起，刻意做得比 Issue 小（沒有 label、comment 或
 封存）。它自己沒有獨立的 private mode —— Sharing 是整個 `.gitnook/` 目錄
-一份狀態，`nook init --private` 與 `nook issue share` 兩個模組一起涵蓋。
+一份狀態，`nook init --private` 與 `nook share` 兩個模組一起涵蓋。
 Decision 有的是 `disposition`（`proposed`/`accepted`/`superseded`/
 `rejected`），不是工作流的 `status`。
 
@@ -264,7 +264,7 @@ board.health();                             // `nook doctor` 回報的東西
 
 `Board` 擁有整個 CRDT —— Op 的產生、排序、去重、OR-Set 的簿記、前綴解析。
 呼叫端永遠不會看到一個 Op；你說的是 `{ labels: { add: ['bug'] } }`，
-add-wins 是 gitNook 的問題。同時匯出的還有 `openWorkspace`、`initBoard`、
+add-wins 是 gitNook 的問題。同時匯出的還有 `openWorkspace`、`initNook`（`initBoard` 是它 deprecated 的舊名）、
 `diagnose`、`repair`、`serve`、`serveWorkspace`、`STATUSES`，以及一組
 有型別的錯誤（`RefNotFound`、`AmbiguousRef`、`InvalidStatus`、
 `BoardNotInitialized` ……），讓呼叫端能用 `instanceof` 分辨「這你自己修得好」

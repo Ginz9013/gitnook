@@ -551,7 +551,8 @@ describe('.gitattributes 是唯一的單點失效', () => {
     expect(await run(['issue', 'list'], listed_)).toBe(0);
     expect(await run(['issue', 'show', '01JBXA'], shown)).toBe(0);
 
-    expect(listed_.err.trimEnd().split('\n')).toHaveLength(1);
+    // 缺一條講一行：整個檔案被刪，兩個模組的保證都不在了。
+    expect(listed_.err.trimEnd().split('\n')).toHaveLength(2);
     expect(listed_.err).toContain('merge=union');
     expect(shown.err).toContain('merge=union');
     // 警告走 stderr，資料走 stdout —— 管線接得住。
@@ -1582,7 +1583,7 @@ describe('private board 上讀取指令閉嘴', () => {
  * 寫的那一行 —— 把「檔案在不在」當成答案的實作會在這裡把警告一起吃掉。
  */
 describe('shared board 上那句警告一字不變', () => {
-  it('規則在就沉默，規則被刪就照噴原句', async () => {
+  it('規則在就沉默，規則被刪就逐條點名缺的那一行', async () => {
     gitInit();
     await run(['init'], capture());
     createWith('01JBXA', { title: 'Fix login redirect' });
@@ -1597,7 +1598,8 @@ describe('shared board 上那句警告一字不變', () => {
     expect(await run(['issue', 'list'], listed)).toBe(0);
 
     expect(listed.err).toBe(
-      'Warning: .gitattributes is missing merge=union, merges will conflict (nook init restores it)\n',
+      'Warning: .gitattributes is missing .gitnook/issues/*.ndjson merge=union, merges will conflict (nook init restores it)\n' +
+        'Warning: .gitattributes is missing .gitnook/decisions/*.ndjson merge=union, merges will conflict (nook init restores it)\n',
     );
   });
 });
@@ -1651,7 +1653,7 @@ describe('share：private → shared', () => {
     expect(io.out).toBe(
       'Shared  .gitnook/  removed from $GIT_DIR/info/exclude (this board will enter git from now on)\n' +
         'Created  .gitattributes  .gitnook/issues/*.ndjson merge=union\n' +
-        'Added    .gitattributes  .gitnook/decisions/*.ndjson merge=union\n' +
+        'Created  .gitattributes  .gitnook/decisions/*.ndjson merge=union\n' +
         'Next  nook runs no git command that writes; run these yourself:\n' +
         `  git add "${dir}/.gitnook" "${dir}/.gitattributes"\n` +
         '  git commit -m "Share the nook board"\n',
@@ -1663,6 +1665,19 @@ describe('share：private → shared', () => {
    * Sharing 以整個容器為單位：`init --private` 建出的 `decisions/` 跟著一起升級，
    * 它的 merge=union 也得補回來，否則 doctor 一升級完就報保證失效。
    */
+  // Sharing 以整個容器為單位，所以 share 是頂層指令；`nook issue share` 是別名。
+  it('頂層 nook share 與 nook issue share 做同一件事', async () => {
+    gitInit();
+    await run(['init', '--private'], capture());
+    const io = capture();
+
+    expect(await run(['share'], io)).toBe(0);
+
+    expect(io.out).toContain('Shared  .gitnook/');
+    expect(io.out).toContain('.gitnook/decisions/*.ndjson merge=union');
+    expect(io.err).toBe('');
+  });
+
   it('升級後 decisions 的 merge=union 也在，doctor 沒有任何 Diagnostic', async () => {
     gitInit();
     await run(['init', '--private'], capture());

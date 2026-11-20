@@ -14,13 +14,9 @@ import { serialize, parseLine, nextLamport, orderOps } from './oplog.js';
 import type { DecisionOp, DecisionSetKey } from './decisionOps.js';
 import { systemIds, resolvePrefix, isValidRef, normalizeRef } from './ids.js';
 import { deriveActor } from './actor.js';
-import {
-  findDecisionRoot,
-  inspectMergeGuarantee,
-  DECISION_MERGE_RULE,
-  DECISION_LOG_SAMPLE,
-  DECISIONS_DIR,
-} from './gitattributes.js';
+import { findDecisionRoot } from './gitattributes.js';
+import { DECISIONS_DIR, DECISIONS_MODULE } from './opLogModules.js';
+import { diagnoseModule } from './container.js';
 import { AmbiguousRef, RefNotFound } from './types.js';
 import { reduceDecision } from './decisionReduce.js';
 
@@ -48,7 +44,7 @@ export function openDecisionLog(opts: OpenDecisionLogOptions = {}): DecisionLog 
   };
 
   // 票 03：這裡曾經寫死 `.decisions/decisions`（票 01 之前的舊版佈局），
-  // `initDecisionRoot()` 早就已經改建 `.gitnook/decisions`（`DECISIONS_DIR`）
+  // 當時的 `initDecisionRoot()` 早就已經改建 `.gitnook/decisions`（`DECISIONS_DIR`）
   // ——兩者不對齊時，讀寫全部 ENOENT 在一個從未被建出來的路徑上。改用同一個
   // 常數，同 `board.ts` 的 `ISSUES_DIR` 已經修過的那條紀律：路徑常數只有一份
   // 來源，不會有第二份字面值漂移出去。
@@ -172,33 +168,10 @@ export function openDecisionLog(opts: OpenDecisionLogOptions = {}): DecisionLog 
       return rootDir();
     },
     health(): Diagnostic[] {
-      // 同 `Board.health()`：找不到根時就地診斷而不是拋錯——doctor 在還不是
-      // decision log 的目錄也該答得出話。ticket 06 之後會把這個檢查併進
-      // `health.ts` 的 `diagnose()`，取得黏合行／未知 op 那些額外的診斷；
-      // 這裡先只覆蓋零衝突保證本身（同 spec.md 的「nook doctor 只覆蓋
-      // merge=union 檢查」）。
+      // 同 `Board.health()`：找不到根時就地診斷而不是拋錯。閘門與逐行檢查都是
+      // 容器的那一份（`diagnoseModule`），這裡不寫第二份判斷。
       const found = findDecisionRoot(from);
-      const dir = found.found ? found.root : from;
-      const guarantee = inspectMergeGuarantee(dir, DECISION_LOG_SAMPLE);
-
-      if (guarantee.kind === 'union') return [];
-      if (guarantee.kind === 'absent') {
-        return [
-          {
-            kind: 'MissingMergeDriver',
-            file: '.gitattributes',
-            message: `missing the zero-conflict guarantee: ${DECISION_MERGE_RULE} (run nook init to restore it)`,
-          },
-        ];
-      }
-      return [
-        {
-          kind: 'MissingMergeDriver',
-          file: '.gitattributes',
-          line: guarantee.line,
-          message: `this line keeps the op-log from getting merge=union: ${guarantee.rule}`,
-        },
-      ];
+      return diagnoseModule(found.found ? found.root : from, DECISIONS_MODULE);
     },
   };
 }

@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { OP_LOG_MODULES } from './opLogModules.js';
 
 /**
  * 一塊 Board 的 op-log 是否交給 git 追蹤。
@@ -69,19 +70,6 @@ export class NoGitDir extends Error {
     this.name = 'NoGitDir';
   }
 }
-
-/**
- * Issue op-log 那個目錄，作為 git pathspec（一律 `/`，不吃平台的分隔符號）。
- * 「這塊 board 共享了嗎」問的就是這裡有沒有東西進 index。
- */
-export const OP_LOG_DIR = '.gitnook/issues';
-
-/**
- * Decision op-log 那個目錄 —— `OP_LOG_DIR` 的 Decision 版，兩者各自窄探測後
- * OR 起來（見 `opLogsTracked`/`ignoredByGit`）。不 export：呼叫端只問得到
- * `.gitnook/` 整體共享與否，不需要知道底下拆成兩個模組。
- */
-const DECISION_LOG_DIR = '.gitnook/decisions';
 
 /**
  * `.gitnook/` 容器目錄本身，作為 git pathspec。**不帶尾斜線** —— 否定規則是在
@@ -237,7 +225,7 @@ export function inspectSharing(root: string): Sharing {
 export function excludeBoard(root: string): ExcludeOutcome {
   const layout = gitLayout(root);
   // 不在 git work tree 內就沒有 info/exclude 可寫。**排在任何寫入之前** ——
-  // 反過來的話，呼叫端會留下一個 git 看得見的 .gitnook/（見 `initBoard`）。
+  // 反過來的話，呼叫端會留下一個 git 看得見的 .gitnook/（見 `initNook`）。
   if (layout === null) throw new NoGitDir(resolve(root));
 
   const pattern = boardPattern(layout.top, root);
@@ -342,13 +330,16 @@ export function ignoredByGit(root: string): { readonly ignored: boolean; readonl
 }
 
 /**
- * 拿去問 git 的那條路徑。見 `ignoredByGit` 的表格。**依序嘗試 issues op-log
- * 目錄底下的檔案、decisions op-log 目錄底下的檔案**，都沒有時退回
- * `OP_LOG_DIR` 這個目錄路徑本身（保守）——兩個模組共用同一份「保守退回」邏輯，
- * 只是候選來源從一個變兩個。
+ * 拿去問 git 的那條路徑。見 `ignoredByGit` 的表格。**依 `OP_LOG_MODULES` 的順序
+ * 嘗試各模組 op-log 目錄底下的第一個檔案**，都沒有時退回第一個模組的目錄路徑
+ * 本身（保守）。
  */
 function ignoreProbe(root: string): string {
-  return firstOpLogFile(root, OP_LOG_DIR) ?? firstOpLogFile(root, DECISION_LOG_DIR) ?? OP_LOG_DIR;
+  for (const module of OP_LOG_MODULES) {
+    const file = firstOpLogFile(root, module.path);
+    if (file !== null) return file;
+  }
+  return OP_LOG_MODULES[0]!.path;
 }
 
 /** 某個 op-log 目錄底下排序後第一個 `.ndjson` 檔的路徑，沒有則 null。 */
@@ -423,7 +414,7 @@ export function overridingRule(root: string): string | null {
  * `.gitnook` 得到 exit 0（算 tracked），問 `.gitnook/issues` 得到 exit 1。
  * 共享狀態問的是 op-log 有沒有出去，所以窄的那一個才是兩邊都對的答案。
  *
- * **兩個模組各自窄探測後 OR 起來**——issues、decisions 各自的 op-log 目錄各問
+ * **每個模組各自窄探測後 OR 起來**——`OP_LOG_MODULES` 裡每個 op-log 目錄各問
  * 一次 `git ls-files --error-unmatch`，任一個被追蹤就算 `true`。**不**探測
  * `.gitnook/config.json`：一個被 commit 過的 config.json 不該讓「已共享」誤判
  * 成立，同上面對 `.gitkeep`／README 的假陽性防護邏輯。
@@ -441,10 +432,10 @@ export function overridingRule(root: string): string | null {
  * 探測若真的答不出來（非 status 的失敗）就直接往外丟，不繼續問第二個。
  */
 export function opLogsTracked(root: string): boolean {
-  return isTracked(root, OP_LOG_DIR) || isTracked(root, DECISION_LOG_DIR);
+  return OP_LOG_MODULES.some((module) => isTracked(root, module.path));
 }
 
-/** 單一 op-log 目錄是否已被 git 追蹤——`opLogsTracked` 對 issues、decisions 各問一次。 */
+/** 單一 op-log 目錄是否已被 git 追蹤——`opLogsTracked` 對每個模組各問一次。 */
 function isTracked(root: string, opLogDir: string): boolean {
   try {
     // 路徑相對於 cwd，所以問到的只會是這一塊 board —— 不是上層那一塊。

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync, appendFileSync } from
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBoard } from '../../src/index.js';
-import { initBoard } from '../../src/core/gitattributes.js';
+import { initNook } from '../../src/core/container.js';
 import { diagnose, repair } from '../../src/core/health.js';
 
 // ADR-0004：**不得以 in-memory fake 取代 git**。這個檔案的全部價值就在於打真實的
@@ -46,7 +46,7 @@ function makeRepo(): string {
   git(dir, 'config', 'user.email', 'test@nook.invalid');
   git(dir, 'config', 'user.name', 'Nook Test');
   git(dir, 'config', 'commit.gpgsign', 'false');
-  initBoard(dir);
+  initNook(dir);
   git(dir, 'add', '-A');
   git(dir, 'commit', '-q', '-m', 'init board');
   return dir;
